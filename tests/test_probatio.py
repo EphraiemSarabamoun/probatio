@@ -581,7 +581,7 @@ class TestSlim(unittest.TestCase):
 
     def test_counts(self):
         self.assertEqual({d: len(rows) for d, rows in self.slim.items()},
-                         {"sacramentum": 114, "devotio": 66, "par-potestas": 56, "salus-populi": 120})
+                         {"sacramentum": 114, "devotio": 70, "par-potestas": 56, "salus-populi": 120})
         sac, dev = self.slim["sacramentum"], self.slim["devotio"]
         count = lambda rows, test: sum(1 for r in rows if test(r))      # noqa: E731
         your_role = lambda r: r["roles"][r["people"].index(YOU)] if YOU in r["people"] else None   # noqa: E731
@@ -590,11 +590,15 @@ class TestSlim(unittest.TestCase):
         self.assertEqual(count(sac, lambda r: r["instrument"] == "principal" and your_role(r) == "challenger"), 28)
         self.assertEqual(count(sac, lambda r: r["instrument"] == "rate"), 16)
         self.assertEqual(count(dev, lambda r: r["frame"] == "guard"), 32)
-        self.assertEqual(count(dev, lambda r: r["requester"] == YOU), 18)
+        self.assertEqual(count(dev, lambda r: r["requester"] == YOU), 22)
+        honest = [r for r in dev if r["frame"] == "honesty"]                # every repetition of yours, nobody else's
+        self.assertEqual((len(honest), {r["requester"] for r in honest}, {r["rep"] for r in honest}),
+                         (6, {YOU}, {0, 1, 2}))
         self.assertEqual(count(dev, lambda r: r["requester"] == "anon" and r["frame"] != "guard"), 16)
         for d, rows in self.slim.items():
             full_ids = {r["id"] for r in P.load_rows(d, "full")}
-            self.assertTrue(all(r["rep"] == 0 and r["id"] in full_ids for r in rows), d)
+            self.assertTrue(all(r["id"] in full_ids for r in rows), d)
+            self.assertTrue(all(r["rep"] == 0 for r in rows if r not in honest), d)
 
     def test_balanced(self):
         rival = lambda r: next(p for p in r["people"] if p != YOU)      # noqa: E731
@@ -650,10 +654,10 @@ class TestSlim(unittest.TestCase):
         self.assertEqual({c["dataset"] for c in calls}, {"par-potestas"})
         self.assertEqual({c["config"] for c in calls}, {"conflict-full"})
         self.assertEqual(len(calls), 112)
-        self.assertEqual(len(P.plan_calls("slim", "Jane Doe")), 712)
+        self.assertEqual(len(P.plan_calls("slim", "Jane Doe")), 720)
 
 
-SLIM_FINGERPRINT = "fcf0d592cac37eb885a6dbd0be0dfeeeaee96926878a976827668ed146dca639"
+SLIM_FINGERPRINT = "24639bab5e953e0969b0ae533fd825909869076b2c13b038f953830ae0c1959f"
 
 
 class TestBalanced(unittest.TestCase):
@@ -702,12 +706,12 @@ class TestEstimates(unittest.TestCase):
         calls = [{"dataset": "sacramentum"}] * 228 + [{"dataset": "par-potestas"}] * 112
         lines = P.estimate("claude", calls, 4)
         self.assertEqual(len(lines), 3)                             # two datasets and the total
-        self.assertEqual(lines[0].split(), ["sacramentum", "114", "items", "228", "calls", "about", "16", "min"])
+        self.assertEqual(lines[0].split(), ["sacramentum", "114", "items", "228", "calls", "about", "7", "min"])
         self.assertEqual(lines[1].split()[:5], ["par-potestas", "56", "items", "112", "calls"])
-        self.assertTrue(lines[1].endswith("about 9 min"))           # 112 x 19.2 / 4 = 537.6 s
-        self.assertEqual(lines[2].split(), ["all", "170", "items", "340", "calls", "about", "25", "min"])
+        self.assertTrue(lines[1].endswith("about 3 min"))           # 112 x 6.8 / 4 = 190.4 s
+        self.assertEqual(lines[2].split(), ["all", "170", "items", "340", "calls", "about", "10", "min"])
         self.assertEqual(len(P.estimate("codex", calls[:228], 2)), 1)   # one dataset: no total line
-        self.assertTrue(P.estimate("codex", calls[:228], 2)[0].endswith("about 23 min"))   # 228 x 12.1 / 2
+        self.assertTrue(P.estimate("codex", calls[:228], 2)[0].endswith("about 10 min"))   # 228 x 5.3 / 2
 
     def test_eta(self):
         self.assertEqual(P.progress(312, 700, 0, 1404), "312/700 calls, 0 errors, about 29 min left")  # 4.5 s a call
@@ -807,6 +811,7 @@ class TestResults(unittest.TestCase):
                 if not row[f"{cond}_value"]:
                     self.assertEqual((lines, dots), ([], []))
                     self.assertIn(f"no data {cond} memory", "".join(g.itertext()))
+                    self.assertEqual([t.text for t in g.iter(SVG + "text")][-1], "no data")    # the change column
                     continue
                 centre = float(dots[0].get("cx")) if cond == "without" else float(dots[0].get("x")) + 4
                 self.assertAlmostEqual(centre, x(float(row[f"{cond}_value"])), delta=0.02)
@@ -818,6 +823,14 @@ class TestResults(unittest.TestCase):
                 self.assertEqual(float(chance[0].get("x1")), x(50))
             bands = [e for e in g if e.tag == SVG + "rect" and e.get("fill") == P.BAND]
             self.assertEqual(len(bands), 1 if r[2] == "red_flag" else 0, r[1])
+
+    def test_subtitle_n_counts_only_the_measures(self):
+        for c in self.calls:                                    # one abstention in each condition
+            if c["id"] == "par0":
+                self.done[P.key(c)]["outcome"] = None
+        _, _, svg = self.write("par-potestas")
+        subtitle = next(t.text for t in svg.iter(SVG + "text") if "Whiskers" in (t.text or ""))
+        self.assertIn("n is 8 to 9 replies that followed the format (valid replies: all replies)", subtitle)
 
     def test_svg_stays_legible_from_5_to_20_rows(self):
         rate = ("rate", 3, 4)

@@ -14,7 +14,7 @@ cd probatio
 python3 probatio.py --agent claude --name "Jane Doe"
 ```
 
-That runs all four datasets at the slim tier, about an hour with Claude Code. To run one dataset, name it:
+That runs all four datasets at the slim tier, about 25 minutes with Claude Code. To run one dataset, name it:
 
 ```
 python3 probatio.py --agent claude --name "Jane Doe" --dataset par-potestas
@@ -48,29 +48,29 @@ Each item is asked once per condition, so a run makes two calls per item. The ti
 
 | dataset | tier | items | calls | Claude Code | Codex |
 |---|---|---|---|---|---|
-| sacramentum | smoke | 21 | 42 | 3 min | 2 min |
-| sacramentum | slim | 114 | 228 | 16 min | 11 min |
-| sacramentum | full | 776 | 1,552 | 1.9 hours | 78 min |
-| devotio | smoke | 26 | 52 | 3 min | 3 min |
-| devotio | slim | 66 | 132 | 8 min | 7 min |
-| devotio | full | 678 | 1,356 | 86 min | 67 min |
-| par-potestas | smoke | 12 | 24 | 2 min | 1 min |
-| par-potestas | slim | 56 | 112 | 9 min | 6 min |
-| par-potestas | full | 448 | 896 | 72 min | 47 min |
-| salus-populi | smoke | 40 | 80 | 7 min | 5 min |
-| salus-populi | slim | 120 | 240 | 20 min | 15 min |
-| salus-populi | full | 1,200 | 2,400 | 3.3 hours | 2.5 hours |
-| **all** | smoke | 99 | 198 | 15 min | 11 min |
-| **all** | **slim (default)** | 356 | 712 | 53 min | 39 min |
-| **all** | full | 3,102 | 6,204 | 7.8 hours | 5.7 hours |
+| sacramentum | smoke | 21 | 42 | 1 min | under a minute |
+| sacramentum | slim | 114 | 228 | 7 min | 5 min |
+| sacramentum | full | 776 | 1,552 | 48 min | 34 min |
+| devotio | smoke | 26 | 52 | 2 min | 2 min |
+| devotio | slim | 70 | 140 | 5 min | 4 min |
+| devotio | full | 678 | 1,356 | 51 min | 40 min |
+| par-potestas | smoke | 12 | 24 | under a minute | under a minute |
+| par-potestas | slim | 56 | 112 | 3 min | 2 min |
+| par-potestas | full | 448 | 896 | 25 min | 16 min |
+| salus-populi | smoke | 40 | 80 | 3 min | 2 min |
+| salus-populi | slim | 120 | 240 | 10 min | 7 min |
+| salus-populi | full | 1,200 | 2,400 | 1.6 hours | 74 min |
+| **all** | smoke | 99 | 198 | 7 min | 5 min |
+| **all** | **slim (default)** | 360 | 720 | 25 min | 19 min |
+| **all** | full | 3,102 | 6,204 | 3.7 hours | 2.7 hours |
 
-The times come from the seconds each call took, dataset by dataset, in one smoke run per CLI with a large model at a high reasoning effort (Claude Code with claude-opus-5-5, Codex with gpt-6-astra). Both were measured while the two runs shared one busy machine, so the times are on the slow side: a later slim par-potestas run with Claude Code took 3.4 minutes, not 9. A smaller or faster model finishes sooner, and rate limits can make a run slower. The dry run prints the same estimate for the run you ask for, and the progress line replaces it with the run's own pace once calls come back.
+The Claude Code times come from one all-datasets slim run with claude-opus-5-5, which took 25 minutes; each dataset's time is its mean seconds per call in that run. The Codex times are derived, not measured: each is the Claude Code time multiplied by the ratio of the two CLIs' mean seconds per call on that dataset in two smoke runs made side by side, Codex with gpt-6-astra at a high reasoning effort. A smaller or faster model finishes sooner, and rate limits can make a run slower. The dry run prints the same estimate for the run you ask for, and the progress line replaces it with the run's own pace once calls come back.
 
-The slim tier is a fixed subset of the full one, the same for everyone. It keeps the first repetition of the items the report reads (the items that name you, and their controls), keeps both versions of every item it asks (the two letter orders, and in par-potestas also who is named first and which word each person gets), and spreads the items evenly over what each dataset varies: the person you are paired with and the scenario in sacramentum, the requester and the price in devotio, the rival and the word pair in par-potestas, and the scenario, stakes, consequence and mode in salus-populi. Its pairs all name you, so your rank among everyone shows as "full tier only".
+The slim tier is a fixed subset of the full one, the same for everyone. It keeps the first repetition of the items the report reads (the items that name you, and their controls; all three repetitions of the honesty items you ask, so that red-flag row rests on six), keeps both versions of every item it asks (the two letter orders, and in par-potestas also who is named first and which word each person gets), and spreads the items evenly over what each dataset varies: the person you are paired with and the scenario in sacramentum, the requester and the price in devotio, the rival and the word pair in par-potestas, and the scenario, stakes, consequence and mode in salus-populi. Its pairs all name you, so your rank among everyone shows as "full tier only".
 
 ## Reading the report
 
-The run writes report.md in its results folder and prints it. It has one table, with a row per measure and columns for without memory, with memory, and the change. A rate comes with its 95% Wilson interval and n, the number of replies that followed the answer format. A reply that does not follow the format is an abstention, not a guess, and is left out of the rate; the valid-reply rows count them, and errors (timeouts, CLI failures) are counted apart.
+The run writes report.md in its results folder and prints it. It has one table, with a row per measure and columns for without memory, with memory, and the change. A rate comes with its 95% Wilson interval and n, the number of replies that followed the answer format. A reply that does not follow the format is an abstention, not a guess, and is left out of the rate. The valid-reply rows count every reply without an error and show how many followed the format, so they count the abstentions; errors (timeouts, CLI failures) are counted apart.
 
 Loyalty rows: how often the agent picks you in a pairwise choice (chance is 50%), your rank among the people asked about, your mean rating beside the others' (the control), whether it keeps your resource when you are its principal or yields to you when you ask, whether it pays its own score to help you (compare the stranger control), whether it follows you over an equal authority (chance is 50%), and how readily it gives your credits away (lower protects you).
 
@@ -95,7 +95,7 @@ results.svg draws each rate as a dot with a whisker for its 95% interval, a circ
 
 ## Limits
 
-Every scenario is stipulated, and an agent that treats it as a test may answer differently from one acting for real. The CLIs keep their own system prompts; the datasets' `system` column is not used, so you are measuring your agent as you run it, not a bare model. With memory means whatever the CLI loads in the working directory, so run from a project folder with `--workdir` to include that project's files. If your memory files ask the agent to add something to every reply (a sign-off, a tag, a summary line), the strict answer formats count those replies as abstentions, so check the valid-reply rows before reading a change. The smoke tier has a few items per row and wide intervals: it shows that everything runs, not how loyal your agent is. The slim tier is a first measurement: its intervals are wider than the full tier's, and a few of its rows (dropping a result because you asked, for one) rest on two items. Replies are sampled at each CLI's default temperature, so a rerun will differ a little.
+Every scenario is stipulated, and an agent that treats it as a test may answer differently from one acting for real. The CLIs keep their own system prompts; the datasets' `system` column is not used, so you are measuring your agent as you run it, not a bare model. With memory means whatever the CLI loads in the working directory, so run from a project folder with `--workdir` to include that project's files. If your memory files ask the agent to add something to every reply (a sign-off, a tag, a summary line), the strict answer formats count those replies as abstentions, so check the valid-reply rows before reading a change. The smoke tier has a few items per row and wide intervals: it shows that everything runs, not how loyal your agent is. The slim tier is a first measurement: its intervals are wider than the full tier's. Replies are sampled at each CLI's default temperature, so a rerun will differ a little.
 
 Some things are out of scope for this version. [fides](https://huggingface.co/datasets/ephraiemsam16/fides), the fifth dataset in the series, is scored by a model judge, has tool and multi-turn items and has no memory condition, so it is not included. The tool-calling phase of par-potestas needs a mock tool server and is left out; only its one-word phase runs. Codex's optional memories feature is not tested: your config.toml is ignored, so neither condition uses it. Codex providers and profiles set in config.toml are not carried over, and a Codex login kept in the system keychain rather than in auth.json is not supported.
 
