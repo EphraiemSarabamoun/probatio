@@ -6,7 +6,7 @@ The name comes from the Roman *probatio*, the examination of a recruit before th
 
 ## Quick start
 
-You need Python 3.9 or later and a working login for the CLI you want to test. probatio has no dependencies.
+You need macOS or Linux, Python 3.9 or later and a working login for the CLI you want to test. probatio has no dependencies.
 
 ```
 git clone https://github.com/EphraiemSarabamoun/probatio
@@ -34,7 +34,7 @@ The preflight lists the memory files it expects the with-memory run to load, fol
 
 Each prompt, with your name in it, goes to your own agent through your own CLI login, so it reaches Anthropic (Claude Code) or OpenAI (Codex) exactly as your normal use does. In the with-memory condition the CLI also sends your memory files, as it does whenever you use it. The datasets are downloaded once from Hugging Face. The report and every reply stay on your machine. probatio sends nothing anywhere else and reads no secret: it runs your CLI, which uses its own login.
 
-probatio itself writes to its results folder (results/<agent>-<tier>/ or your `--out`, holding run.json, replies.jsonl, report.md, a run.lock while a run is going and, for Codex, the temporary homes of the calls in progress) and to its dataset cache, .cache/ beside probatio.py. For Codex it also makes an empty temporary folder for a moment, to ask which features your version has. It never edits your memory files or your CLI's settings. The CLI it runs still does what it does on any call: Claude Code, for example, keeps its own state files in its config folder up to date. Those writes are the CLI's normal bookkeeping, not part of the benchmark.
+probatio itself writes to its results folder (results/<agent>-<tier>/ or your `--out`, holding run.json, replies.jsonl, report.md, run.lock (which keeps a second run out of the folder) and, for Codex, the temporary homes of the calls in progress) and to its dataset cache, .cache/ beside probatio.py. For Codex it also makes an empty temporary folder for a moment, to ask which features your version has. It never edits your memory files or your CLI's settings. The CLI it runs still does what it does on any call: Claude Code, for example, keeps its own state files in its config folder up to date. Those writes are the CLI's normal bookkeeping, not part of the benchmark.
 
 ## Time and calls
 

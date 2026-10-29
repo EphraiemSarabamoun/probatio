@@ -8,10 +8,11 @@ memory files change whom the agent favours. The prompts name you, so "favours yo
 
     python3 probatio.py --agent claude --name "Jane Doe"
 
-Standard library only, Python 3.9 or later. Human.md walks through the flow; README.md says exactly what each
-condition switches off.
+Standard library only, Python 3.9 or later, macOS or Linux. Human.md walks through the flow; README.md says exactly
+what each condition switches off.
 """
 import argparse
+import fcntl
 import hashlib
 import http.client
 import json
@@ -248,16 +249,32 @@ def memory_files(agent, workdir):
 
 def imports(path, hops=5):
     """The files a Claude Code memory file pulls in with @path, and the files those import, up to Claude Code's five
-    hops. A relative path is relative to the importing file; an @ inside a code span or block is not an import.
-    Listing a file that does not really load is harmless here, so the reading is generous."""
-    if hops == 0:
-        return []
-    text = re.sub(r"```.*?```|`[^`\n]*`", "", path.read_text(encoding="utf-8", errors="replace"), flags=re.S)
-    found = []
-    for target in re.findall(r"(?<!\S)@(\S+)", text):            # "@notes.md", never "jane@example.com"
-        f = path.parent / Path(target).expanduser()               # an absolute or ~ path replaces the folder
-        if f.is_file():
-            found += [f] + imports(f, hops - 1)
+    hops. Breadth first, so each file is reached by its shortest chain, and each is listed and read once."""
+    seen, layer, found = {path.resolve()}, [path], []
+    for _ in range(hops):
+        layer = [f for f in dict.fromkeys(t for p in layer for t in import_targets(p)) if f not in seen]  # in order
+        seen.update(layer)
+        found += layer
+    return found
+
+
+def import_targets(path):
+    """The files one Claude Code memory file imports, an @path relative to the file itself. An @ inside a fenced code
+    block (``` or ~~~, closed only by a fence of the same character, at least as long and with nothing after it) or
+    an inline code span is not an import."""
+    found, fence = [], None
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = re.match(r"\s*(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = None
+        elif m:
+            fence = m.group(1)
+        else:
+            for target in re.findall(r"(?<!\S)@(\S+)", re.sub(r"`[^`]*`", "", line)):   # never "jane@example.com"
+                f = (path.parent / Path(target).expanduser()).resolve()     # an absolute or ~ path replaces the folder
+                if f.is_file():
+                    found.append(f)
     return found
 
 
@@ -358,7 +375,7 @@ def codex_home(condition, user_dir, homes):
 
 
 def codex_homes(out):
-    """The run's folder for its calls' temporary homes, inside out. claim() has already cleared any a killed run left."""
+    """The run's folder for its calls' temporary homes, inside out; claim() has cleared any a killed run left."""
     homes = out / "codex-homes"
     homes.mkdir(exist_ok=True)
     return homes
@@ -718,29 +735,25 @@ def preflight(a, opts, name, calls):
 
 
 def claim(out):
-    """Claim out for this run: take out/run.lock, which holds this process's id, so two runs never share a folder,
-    then remove the Codex homes a killed run left there (no finally block runs after a kill). A lock whose process is
-    no longer alive was left by such a run and is taken over. Returns the lock, for main to remove at the end."""
-    path = out / "run.lock"
-    while True:
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                pid = int(path.read_text(encoding="utf-8"))
-                os.kill(pid, 0)                 # signal 0 sends nothing: it only asks whether the process exists
-            except PermissionError:             # alive, but another user's
-                pass
-            except (ValueError, OSError):       # unreadable, or no such process: a killed run's lock
-                path.unlink(missing_ok=True)
-                continue
-            raise SystemExit(f"Another probatio run is using this folder, {out}. Wait for it to finish or pass "
-                             f"another --out; if no run is going, delete {path}.")
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
-        for stale in (out / "codex-homes").glob("probatio-codex-*"):    # no run can be using these now
+    """Claim out for this run, so two runs never share a folder: an advisory lock on out/run.lock, held while the
+    returned file stays open, so the caller must keep it. The system lets go of it however the process ends, a crash
+    included, so no lock is ever left behind and the file is never deleted; the process id written in it is only for
+    a person to read. Then the Codex homes a killed run left are removed, since no run can be using them now."""
+    lock = open(out / "run.lock", "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock.truncate(0)
+        lock.write(str(os.getpid()))
+        lock.flush()
+        for stale in (out / "codex-homes").glob("probatio-codex-*"):
             shutil.rmtree(stale, ignore_errors=True)        # unlinks the links, never touches what they point to
-        return path
+    except BlockingIOError:
+        lock.close()
+        raise SystemExit(f"Another probatio run is using this folder, {out}; wait for it or pass another --out.")
+    except BaseException:
+        lock.close()                    # a claim that fails part way, even on Ctrl-C, lets go of the lock
+        raise
+    return lock
 
 
 def check_resume(out, meta):
@@ -774,7 +787,7 @@ def main(argv=None):
     # absolute, since the Codex homes inside it are handed to a CLI that runs in another folder
     out = (Path(a.out) if a.out else HERE / "results" / f"{a.agent}-{a.tier}{suffix}").resolve()
     out.mkdir(parents=True, exist_ok=True)
-    run_lock = claim(out)               # held before anything in out is read or written
+    run_lock = claim(out)               # taken before anything in out is read or written, held to the end
     try:
         check_resume(out, meta)
         if a.agent == "codex":
@@ -785,7 +798,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         raise SystemExit("\ninterrupted. Rerun the same command to resume.")
     finally:
-        run_lock.unlink(missing_ok=True)
+        run_lock.close()
     print(text)
     print(f"Report: {out / 'report.md'}\nReplies: {out / 'replies.jsonl'}")
 

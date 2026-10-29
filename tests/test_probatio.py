@@ -17,7 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
 import probatio as P  # noqa: E402
 
 YOU = P.YOU
@@ -205,7 +206,7 @@ class TestCommands(unittest.TestCase):
         self.assertTrue((homes["with"] / "auth.json").is_symlink())
         P.codex_homes(out)                      # making the folder again removes nothing
         self.assertEqual(sorted(folder.iterdir()), sorted(homes.values()))
-        P.claim(out)                            # the next run's claim removes homes a killed run left behind
+        P.claim(out).close()                    # the next run's claim removes homes a killed run left behind
         self.assertEqual(list(folder.iterdir()), [])
         self.assertEqual(sorted(p.name for p in user.iterdir()), ["AGENTS.md", "auth.json", "config.toml"])
 
@@ -215,6 +216,22 @@ class TestCommands(unittest.TestCase):
         for n in range(8):
             (root / f"{n}.md").write_text(f"@{n + 1}.md\n")
         self.assertEqual([p.name for p in P.imports(root / "0.md")], ["1.md", "2.md", "3.md", "4.md", "5.md"])
+
+    def test_imports_skip_fences_and_follow_a_cycle_once(self):
+        root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, root)
+        (root / "CLAUDE.md").write_text("@a.md\n"
+                                        "~~~text\n```\n@tilde.md\n~~~\n"            # ``` does not close a ~~~ fence
+                                        "````md\n```\n@four.md\n```\n````\n"       # nor a shorter run a longer one
+                                        "```\n```python\n@info.md\n```\n"           # nor a fence with text after it
+                                        "@b.md\n")
+        (root / "a.md").write_text("@b.md and @CLAUDE.md\n")                       # a cycle back to the start
+        (root / "b.md").write_text("@a.md @b.md\n")
+        for name in ("tilde.md", "four.md", "info.md"):
+            (root / name).write_text("x")
+        with mock.patch.object(P, "import_targets", wraps=P.import_targets) as read:
+            self.assertEqual(P.imports(root / "CLAUDE.md"), [root / "a.md", root / "b.md"])
+        self.assertEqual(sorted(c.args[0].name for c in read.call_args_list), ["CLAUDE.md", "a.md", "b.md"])
 
     def test_shown_marks_rules(self):
         self.assertEqual(P.shown("/w/.claude/rules/a.md"), "/w/.claude/rules/a.md  (a rule: may load)")
@@ -256,7 +273,7 @@ class TestCommands(unittest.TestCase):
             P.main(["--agent", "codex", "--name", "Jane", "--workdir", str(work), "--out", "out", "--jobs", "1"])
         self.assertEqual(seen, [(True, True), (True, True)])
         self.assertEqual(len(P.read_replies(caller / "out" / "replies.jsonl")), 2)
-        self.assertFalse((caller / "out" / "run.lock").exists())          # released when the run ended
+        P.claim(caller / "out").close()                                  # released when the run ended
 
     def test_codex_call_cleans_up_after_a_timeout(self):
         user, out = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
@@ -409,23 +426,41 @@ class TestRunning(unittest.TestCase):
         self.assertIn(f"Warning: more than one model answered {mixed} memory", text)
         self.assertEqual(text.count("Warning: more than one model"), 1)
 
+    def hold(self, end):
+        """Another process that claims self.out and holds it until it is sent a line, then exits or crashes."""
+        code = "\n".join(["import os, sys", "sys.dont_write_bytecode = True", "sys.path.insert(0, sys.argv[1])",
+                          "import probatio as P", "from pathlib import Path", "held = P.claim(Path(sys.argv[2]))",
+                          "print('held', flush=True)", "sys.stdin.readline()",
+                          "os._exit(1)" if end == "crash" else "sys.exit(0)"])
+        child = subprocess.Popen([sys.executable, "-c", code, str(REPO), str(self.out)], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, text=True)
+        self.assertEqual(child.stdout.readline().strip(), "held")
+        return child
+
     def test_claim(self):
-        lock = P.claim(self.out)
-        self.assertEqual(lock.read_text(), str(os.getpid()))
-        with self.assertRaises(SystemExit) as refused:                  # this process is alive, so the folder is busy
-            P.claim(self.out)
-        self.assertIn("Another probatio run is using this folder", str(refused.exception))
-        dead = subprocess.Popen([sys.executable, "-c", ""])
-        dead.wait()
-        lock.write_text(str(dead.pid))                                  # left by a run that was killed
-        self.assertEqual(P.claim(self.out).read_text(), str(os.getpid()))
-        lock.write_text("")                                             # cut short before the id was written
-        self.assertEqual(P.claim(self.out).read_text(), str(os.getpid()))
+        for end in ("exit", "crash"):
+            child = self.hold(end)
+            (self.out / "run.lock").write_text("")      # no empty-file window: what the file says does not matter
+            with self.assertRaises(SystemExit) as refused:
+                P.claim(self.out)
+            self.assertIn("Another probatio run is using this folder", str(refused.exception))
+            child.communicate("\n")                    # the other run ends by itself, cleanly or not
+            lock = P.claim(self.out)                    # and the system has let go of its lock either way
+            self.assertEqual((self.out / "run.lock").read_text(), str(os.getpid()))
+            lock.close()
+            self.assertTrue((self.out / "run.lock").exists())             # the file itself is never deleted
+        (P.codex_homes(self.out) / "probatio-codex-stale").mkdir()
+        with mock.patch.object(P.shutil, "rmtree", side_effect=KeyboardInterrupt):
+            try:
+                P.claim(self.out)
+            except KeyboardInterrupt as e:
+                kept = e                                # its traceback keeps claim's frame, and any open file, alive
+        P.claim(self.out).close()                       # yet a claim that failed part way did not keep the lock
+        self.assertIsInstance(kept, KeyboardInterrupt)
 
     def test_a_busy_folder_is_left_alone(self):
-        homes = P.codex_homes(self.out)
-        active = P.codex_home("with", self.out, homes)                  # a home a running call still uses
-        (self.out / "run.lock").write_text(str(os.getpid()))
+        child = self.hold("exit")
+        active = P.codex_home("with", self.out, P.codex_homes(self.out))   # a home the other run's call still uses
         with mock.patch.dict(os.environ, {"CODEX_HOME": str(self.out)}), \
                 mock.patch.object(P, "agent_options", return_value=SimpleNamespace(
                     model=None, effort=None, workdir=str(self.out), codex_dir=self.out, features=[], homes=None)), \
@@ -433,9 +468,9 @@ class TestRunning(unittest.TestCase):
                 mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout="codex 1.0")), \
                 mock.patch("sys.stdout"), self.assertRaises(SystemExit) as refused:
             P.main(["--agent", "codex", "--name", "Jane", "--out", str(self.out)])
+        child.communicate("\n")
         self.assertIn("Another probatio run", str(refused.exception))
         self.assertTrue(active.is_dir())
-        self.assertEqual((self.out / "run.lock").read_text(), str(os.getpid()))    # the other run's lock stays
 
     def test_report_runs(self):
         done = {P.key(c): {"outcome": YOU, "error": None, "model": "m"} for c in self.calls}
