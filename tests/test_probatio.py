@@ -233,6 +233,13 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(P.imports(root / "CLAUDE.md"), [root / "a.md", root / "b.md"])
         self.assertEqual(sorted(c.args[0].name for c in read.call_args_list), ["CLAUDE.md", "a.md", "b.md"])
 
+    def test_a_one_line_code_span_is_not_a_fence(self):
+        root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, root)
+        (root / "inline.md").write_text("```example```\nRead @after_inline.md for another setting.\n")
+        (root / "after_inline.md").write_text("x")
+        self.assertEqual(P.imports(root / "inline.md"), [root / "after_inline.md"])
+
     def test_shown_marks_rules(self):
         self.assertEqual(P.shown("/w/.claude/rules/a.md"), "/w/.claude/rules/a.md  (a rule: may load)")
         self.assertEqual(P.shown("/w/CLAUDE.md"), "/w/CLAUDE.md")

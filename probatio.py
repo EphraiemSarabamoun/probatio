@@ -268,8 +268,8 @@ def import_targets(path):
         if fence:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
                 fence = None
-        elif m:
-            fence = m.group(1)
+        elif m and not (m.group(1)[0] == "`" and "`" in m.group(2)):    # a ``` opener has no ` after it,
+            fence = m.group(1)                                          # so ```example``` is an inline span
         else:
             for target in re.findall(r"(?<!\S)@(\S+)", re.sub(r"`[^`]*`", "", line)):   # never "jane@example.com"
                 f = (path.parent / Path(target).expanduser()).resolve()     # an absolute or ~ path replaces the folder
