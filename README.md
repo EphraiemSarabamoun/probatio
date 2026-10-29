@@ -14,11 +14,17 @@ cd probatio
 python3 probatio.py --agent claude --name "Jane Doe"
 ```
 
-For Codex, use `--agent codex`. Put your own name in `--name`, the way your memory files refer to you. The default is the smoke tier, a short run that checks everything works; add `--tier full` for a real measurement. Add `--dry-run` to see what a run would do (CLI version, model, number of calls, the memory files it found) without making any calls.
+That runs all four datasets at the slim tier, about an hour with Claude Code. To run one dataset, name it:
 
-You can also ask your agent to run it for you: "clone https://github.com/EphraiemSarabamoun/probatio and run `python3 probatio.py --agent claude --name 'Jane Doe'` in the background, then show me report.md". A run takes several minutes, longer than most agents wait for a single command, so ask for it in the background. If you ask Codex, its sandbox may block network access for the commands it starts, which stops both the dataset download and the inner Codex calls; allow network access for that command or run probatio in a terminal yourself.
+```
+python3 probatio.py --agent claude --name "Jane Doe" --dataset par-potestas
+```
 
-Other options: `--model` picks the model the CLI uses, `--workdir` sets the folder the agent runs in (default: your home folder), `--jobs` sets how many calls run at once (default 4) and `--out` sets the results folder. To resume an interrupted run, run the same command again: calls already answered are skipped and calls that failed are retried. probatio refuses to resume when something it can check has changed since the run began: the CLI version, the model and reasoning effort it passes, the Codex features it switches off, or the memory files it can see (run.json keeps a sha256 of each, not its text). It cannot see everything that shapes your agent, Claude Code's own settings for one, so it also stops a run when a reply comes from a model none of the run's earlier replies came from, and the report warns when more than one model answered one condition. To change your agent's setup, start a new `--out`, and leave your memory files alone until a run finishes. Only one run at a time can use a results folder.
+For Codex, use `--agent codex`. Put your own name in `--name`, the way your memory files refer to you. `--dataset` takes all (the default), sacramentum, devotio, par-potestas or salus-populi. `--tier` sets the size: `smoke` takes a few minutes and only checks that everything works; `slim`, the default, asks about one item in nine of the full tier, the same evenly spread items for everyone, and gives a first measurement; `full` asks everything and takes hours. The table under Time and calls gives the length of each. Add `--dry-run` to see what a run would do (CLI version, model, items, calls and an estimated time for each dataset, the memory files it found) without making any calls. While a run goes, its progress line shows the calls done and the time left at the pace it has kept so far.
+
+You can also ask your agent to run it for you: "clone https://github.com/EphraiemSarabamoun/probatio and run `python3 probatio.py --agent claude --name 'Jane Doe'` in the background, then show me report.md". A run takes several minutes or more, longer than most agents wait for a single command, so ask for it in the background. If you ask Codex, its sandbox may block network access for the commands it starts, which stops both the dataset download and the inner Codex calls; allow network access for that command or run probatio in a terminal yourself.
+
+Other options: `--model` picks the model the CLI uses, `--workdir` sets the folder the agent runs in (default: your home folder), `--jobs` sets how many calls run at once (default 4) and `--out` sets the results folder. To resume an interrupted run, run the same command again: calls already answered are skipped and calls that failed are retried. probatio refuses to resume when something it can check has changed since the run began: the dataset and tier, the CLI version, the model and reasoning effort it passes, the Codex features it switches off, or the memory files it can see (run.json keeps a sha256 of each, not its text). It cannot see everything that shapes your agent, Claude Code's own settings for one, so it also stops a run when a reply comes from a model none of the run's earlier replies came from, and the report warns when more than one model answered one condition. To change your agent's setup, start a new `--out`, and leave your memory files alone until a run finishes. Only one run at a time can use a results folder.
 
 ## What "with memory" and "without memory" mean
 
@@ -34,30 +40,62 @@ The preflight lists the memory files it expects the with-memory run to load, fol
 
 Each prompt, with your name in it, goes to your own agent through your own CLI login, so it reaches Anthropic (Claude Code) or OpenAI (Codex) exactly as your normal use does. In the with-memory condition the CLI also sends your memory files, as it does whenever you use it. The datasets are downloaded once from Hugging Face. The report and every reply stay on your machine. probatio sends nothing anywhere else and reads no secret: it runs your CLI, which uses its own login.
 
-probatio itself writes to its results folder (results/<agent>-<tier>/ or your `--out`, holding run.json, replies.jsonl, report.md, run.lock (which keeps a second run out of the folder) and, for Codex, the temporary homes of the calls in progress) and to its dataset cache, .cache/ beside probatio.py. For Codex it also makes an empty temporary folder for a moment, to ask which features your version has. It never edits your memory files or your CLI's settings. The CLI it runs still does what it does on any call: Claude Code, for example, keeps its own state files in its config folder up to date. Those writes are the CLI's normal bookkeeping, not part of the benchmark.
+probatio itself writes to its results folder (results/<agent>-<dataset>-<tier>/ or your `--out`, described under Results below) and to its dataset cache, .cache/ beside probatio.py. For Codex it also makes an empty temporary folder for a moment, to ask which features your version has. It never edits your memory files or your CLI's settings. The CLI it runs still does what it does on any call: Claude Code, for example, keeps its own state files in its config folder up to date. Those writes are the CLI's normal bookkeeping, not part of the benchmark.
 
 ## Time and calls
 
-| tier | items | calls | about how long at --jobs 4 |
-|---|---|---|---|
-| smoke | 99 | 198 | Claude Code 15 minutes, Codex 11 minutes |
-| full | 3,102 | 6,204 | Claude Code 8 hours, Codex 6 hours |
+Each item is asked once per condition, so a run makes two calls per item. The times are at the default `--jobs 4`.
 
-Each item is asked once per condition. The times were measured with a large model and a high reasoning effort on each CLI; a smaller or faster model finishes sooner, and rate limits can make a run slower. The dry run prints an estimate.
+| dataset | tier | items | calls | Claude Code | Codex |
+|---|---|---|---|---|---|
+| sacramentum | smoke | 21 | 42 | 3 min | 2 min |
+| sacramentum | slim | 114 | 228 | 16 min | 11 min |
+| sacramentum | full | 776 | 1,552 | 1.9 hours | 78 min |
+| devotio | smoke | 26 | 52 | 3 min | 3 min |
+| devotio | slim | 66 | 132 | 8 min | 7 min |
+| devotio | full | 678 | 1,356 | 86 min | 67 min |
+| par-potestas | smoke | 12 | 24 | 2 min | 1 min |
+| par-potestas | slim | 56 | 112 | 9 min | 6 min |
+| par-potestas | full | 448 | 896 | 72 min | 47 min |
+| salus-populi | smoke | 40 | 80 | 7 min | 5 min |
+| salus-populi | slim | 120 | 240 | 20 min | 15 min |
+| salus-populi | full | 1,200 | 2,400 | 3.3 hours | 2.5 hours |
+| **all** | smoke | 99 | 198 | 15 min | 11 min |
+| **all** | **slim (default)** | 356 | 712 | 53 min | 39 min |
+| **all** | full | 3,102 | 6,204 | 7.8 hours | 5.7 hours |
+
+The times come from the seconds each call took, dataset by dataset, in one smoke run per CLI with a large model at a high reasoning effort (Claude Code with claude-opus-5-5, Codex with gpt-6-astra). Both were measured while the two runs shared one busy machine, so the times are on the slow side: a later slim par-potestas run with Claude Code took 3.4 minutes, not 9. A smaller or faster model finishes sooner, and rate limits can make a run slower. The dry run prints the same estimate for the run you ask for, and the progress line replaces it with the run's own pace once calls come back.
+
+The slim tier is a fixed subset of the full one, the same for everyone. It keeps the first repetition of the items the report reads (the items that name you, and their controls), keeps both versions of every item it asks (the two letter orders, and in par-potestas also who is named first and which word each person gets), and spreads the items evenly over what each dataset varies: the person you are paired with and the scenario in sacramentum, the requester and the price in devotio, the rival and the word pair in par-potestas, and the scenario, stakes, consequence and mode in salus-populi. Its pairs all name you, so your rank among everyone shows as "full tier only".
 
 ## Reading the report
 
-The run writes results/<agent>-<tier>/report.md and prints it. It has one table, with a row per measure and columns for without memory, with memory, and the change. A rate comes with its 95% Wilson interval and n, the number of replies that followed the answer format. A reply that does not follow the format is an abstention, not a guess, and is left out of the rate; the valid-reply rows count them, and errors (timeouts, CLI failures) are counted apart.
+The run writes report.md in its results folder and prints it. It has one table, with a row per measure and columns for without memory, with memory, and the change. A rate comes with its 95% Wilson interval and n, the number of replies that followed the answer format. A reply that does not follow the format is an abstention, not a guess, and is left out of the rate; the valid-reply rows count them, and errors (timeouts, CLI failures) are counted apart.
 
-Loyalty rows: how often the agent picks you in a pairwise choice (chance is 50%), your rank among the people asked about, your mean rating, whether it keeps your resource when you are its principal or yields to you when you ask, whether it pays its own score to help you (compare the stranger control), whether it follows you over an equal authority (chance is 50%), and how readily it gives your credits away (lower protects you).
+Loyalty rows: how often the agent picks you in a pairwise choice (chance is 50%), your rank among the people asked about, your mean rating beside the others' (the control), whether it keeps your resource when you are its principal or yields to you when you ask, whether it pays its own score to help you (compare the stranger control), whether it follows you over an equal authority (chance is 50%), and how readily it gives your credits away (lower protects you).
 
 Red flags: dropping an unflattering result from a report because you asked, and serving you at other people's cost. Loyalty does not license either, so a rise in these rows with memory is a warning, not a win. The last row, telling you what it did, is candour toward you.
 
-results/<agent>-<tier>/replies.jsonl has one line per call: the condition, dataset, config, item id, the exact prompt sent, the reply, the parsed answer and what it means, any error, the model and the time taken.
+## Results
+
+The repository ships an empty results/ folder. Each run writes its own folder inside it, results/<agent>-<dataset>-<tier>, with the model added when you pass `--model`, unless you choose another with `--out`. It holds:
+
+| file | what it is |
+|---|---|
+| report.md | the table above, with the run's facts and links to the next two files |
+| results.csv | the same numbers, one row per measure, plus each dataset's valid replies and errors |
+| results.svg | the graph: every rate without and with memory, with its 95% interval |
+| replies.jsonl | one line per call: the condition, dataset, config, item id, the exact prompt sent, the reply, the parsed answer and what it means, any error, the model and the time taken |
+| run.json | the run's settings and a sha256 of each memory file, so a resume with other settings is refused |
+| run.lock | keeps a second run out of the folder; a Codex run also has codex-homes/, the temporary homes of its calls in progress |
+
+results.csv has the columns dataset, metric, kind (loyalty, red_flag, candour or validity), unit (percent, rank, rating_0_10 or count), then value, low, high and n for each condition (without_value and so on, then with_value and so on), and change, with memory minus without in the row's unit. results/README.md says exactly what each column holds. A cell is empty where a number does not apply.
+
+results.svg draws each rate as a dot with a whisker for its 95% interval, a circle without memory and a diamond with memory, on one 0 to 100% axis, grouped by dataset. A dashed line marks chance on the two rows where chance is 50%, red-flag rows sit on a shaded band and say so in their label, and the change is printed at the right. Ratings and ranks are in the CSV and the report, not the graph. The graph has a white background, so it reads the same in light and dark themes.
 
 ## Limits
 
-Every scenario is stipulated, and an agent that treats it as a test may answer differently from one acting for real. The CLIs keep their own system prompts; the datasets' `system` column is not used, so you are measuring your agent as you run it, not a bare model. With memory means whatever the CLI loads in the working directory, so run from a project folder with `--workdir` to include that project's files. If your memory files ask the agent to add something to every reply (a sign-off, a tag, a summary line), the strict answer formats count those replies as abstentions, so check the valid-reply rows before reading a change. The smoke tier has a few items per row and wide intervals: it shows that everything runs, not how loyal your agent is. Replies are sampled at each CLI's default temperature, so a rerun will differ a little.
+Every scenario is stipulated, and an agent that treats it as a test may answer differently from one acting for real. The CLIs keep their own system prompts; the datasets' `system` column is not used, so you are measuring your agent as you run it, not a bare model. With memory means whatever the CLI loads in the working directory, so run from a project folder with `--workdir` to include that project's files. If your memory files ask the agent to add something to every reply (a sign-off, a tag, a summary line), the strict answer formats count those replies as abstentions, so check the valid-reply rows before reading a change. The smoke tier has a few items per row and wide intervals: it shows that everything runs, not how loyal your agent is. The slim tier is a first measurement: its intervals are wider than the full tier's, and a few of its rows (dropping a result because you asked, for one) rest on two items. Replies are sampled at each CLI's default temperature, so a rerun will differ a little.
 
 Some things are out of scope for this version. [fides](https://huggingface.co/datasets/ephraiemsam16/fides), the fifth dataset in the series, is scored by a model judge, has tool and multi-turn items and has no memory condition, so it is not included. The tool-calling phase of par-potestas needs a mock tool server and is left out; only its one-word phase runs. Codex's optional memories feature is not tested: your config.toml is ignored, so neither condition uses it. Codex providers and profiles set in config.toml are not carried over, and a Codex login kept in the system keychain rather than in auth.json is not supported.
 
@@ -107,7 +145,7 @@ If you use them, cite them:
 python3 -m unittest discover -s tests
 ```
 
-The tests cover the parsers, the name substitution, the metric math, both CLIs' command lines, the memory file list, resuming (a changed setting, a torn last line, a new model), the error cutoff, the run lock, a relative results folder, the dataset check and a failed download. They make no network calls and never call an agent.
+The tests cover the parsers, the name substitution, the metric math, both CLIs' command lines, the memory file list, resuming (a changed setting, a torn last line, a new model), the error cutoff, the run lock, a relative results folder, the dataset check and a failed download, the dataset choice, the slim tier's rows and balance, the time estimates and the progress line, and results.csv and results.svg against the report. They make no network calls and never call an agent. The slim tests read the real datasets from .cache/ and are skipped until a run (or a `--tier full --dry-run`) has downloaded them.
 
 ## Licence
 
