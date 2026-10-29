@@ -221,17 +221,19 @@ def codex_dir():
 
 
 def memory_files(agent, workdir):
-    """The memory files the with-memory condition should load, best effort: the CLI decides, this only looks. Files
-    those files import are not listed, and a CLI may load files this list does not know about."""
+    """The memory files the with-memory condition should load, best effort: the CLI decides, this only looks, and a
+    CLI may load files this list does not know about. For Claude Code every rule is listed, though a rule limited to
+    certain paths may not load, and so is every file a listed file imports."""
     workdir = Path(workdir).resolve()
     chain = [workdir, *workdir.parents]
     if agent == "claude":
         project_key = re.sub(r"[^A-Za-z0-9]", "-", str(workdir))      # how Claude Code names a project's folder
-        candidates = [claude_dir() / "CLAUDE.md", *rules(claude_dir() / "rules"),
+        candidates = [claude_dir() / "CLAUDE.md", *sorted((claude_dir() / "rules").rglob("*.md")),
                       claude_dir() / "projects" / project_key / "memory" / "MEMORY.md"]
         for d in chain:
             candidates += [d / "CLAUDE.md", d / "CLAUDE.local.md", d / ".claude" / "CLAUDE.md",
-                           *rules(d / ".claude" / "rules")]
+                           *sorted((d / ".claude" / "rules").rglob("*.md"))]
+        candidates += [f for c in candidates if c.is_file() for f in imports(c)]
     else:
         # Codex reads its home, then each folder from the project root (the nearest folder holding .git) down to the
         # working directory, or the working directory alone outside a repository: one AGENTS file per folder.
@@ -244,15 +246,24 @@ def memory_files(agent, workdir):
     return found
 
 
-def rules(folder):
-    """The rule files Claude Code loads from a rules folder, subfolders included. A rule whose front matter names
-    paths loads only once the agent works on a matching file, which a call without tools never does."""
+def imports(path, hops=5):
+    """The files a Claude Code memory file pulls in with @path, and the files those import, up to Claude Code's five
+    hops. A relative path is relative to the importing file; an @ inside a code span or block is not an import.
+    Listing a file that does not really load is harmless here, so the reading is generous."""
+    if hops == 0:
+        return []
+    text = re.sub(r"```.*?```|`[^`\n]*`", "", path.read_text(encoding="utf-8", errors="replace"), flags=re.S)
     found = []
-    for path in sorted(folder.rglob("*.md")):
-        head = re.match(r"---\r?\n(.*?)\r?\n---", path.read_text(encoding="utf-8", errors="replace"), re.S)
-        if not (head and re.search(r"^paths\s*:", head.group(1), re.M)):
-            found.append(path)
+    for target in re.findall(r"(?<!\S)@(\S+)", text):            # "@notes.md", never "jane@example.com"
+        f = path.parent / Path(target).expanduser()               # an absolute or ~ path replaces the folder
+        if f.is_file():
+            found += [f] + imports(f, hops - 1)
     return found
+
+
+def shown(path):
+    """A memory file as the preflight and the report list it."""
+    return path + "  (a rule: may load)" if f"{os.sep}rules{os.sep}" in path else path
 
 
 def agents_file(folder, home=False):
@@ -347,11 +358,8 @@ def codex_home(condition, user_dir, homes):
 
 
 def codex_homes(out):
-    """The run's folder for its calls' temporary homes, inside out. A home already there was left by a run killed
-    outright (no finally block runs then), so it is removed first, link to the login and all."""
+    """The run's folder for its calls' temporary homes, inside out. claim() has already cleared any a killed run left."""
     homes = out / "codex-homes"
-    for stale in homes.glob("probatio-codex-*"):
-        shutil.rmtree(stale, ignore_errors=True)        # unlinks the links, never touches what they point to
     homes.mkdir(exist_ok=True)
     return homes
 
@@ -450,16 +458,24 @@ def run_calls(calls, agent, opts, out, jobs):
     todo = [c for c in calls if key(c) not in done or done[key(c)]["error"]]
     if len(todo) < len(calls):
         print(f"resuming: {len(calls) - len(todo)} of {len(calls)} calls already done", file=sys.stderr)
-    lock, state = threading.Lock(), {"finished": 0, "errors": 0, "streak": 0, "last_error": None, "stop": False}
+    lock, state = threading.Lock(), {"finished": 0, "errors": 0, "streak": 0, "last_error": None, "stop": None}
+    models = {m for rec in done.values() for m in (rec.get("model") or "").split(",") if m}   # every model so far
 
     def one(call):
-        if state["stop"]:               # past the error cutoff no new call starts; the ones already running finish
+        if state["stop"]:               # once the run must stop no new call starts; the ones already running finish
             return
         reply, error, model, seconds = ask(agent, call["prompt"], call["condition"], opts)
         answer, outcome = score(call["row"], reply) if error is None else (None, None)
         rec = {k: call[k] for k in ("condition", "dataset", "config", "id", "prompt")}
         rec.update(reply=reply, answer=answer, outcome=outcome, error=error, model=model, seconds=seconds)
         with lock:
+            new = set((model or "").split(",")) - {""}
+            if models and new and not models & new:     # a settings change probatio cannot see, such as the model
+                state["stop"] = state["stop"] or (
+                    f"a reply came from {model}, but this run's earlier replies came from {', '.join(sorted(models))}. "
+                    "Your agent's setup changed, so start a new --out.")
+                return                                  # not recorded, so the folder keeps one model's replies
+            models.update(new)
             with path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             done[key(rec)] = rec
@@ -467,7 +483,9 @@ def run_calls(calls, agent, opts, out, jobs):
             state["errors"] += bool(error)
             state["streak"] = state["streak"] + 1 if error else 0
             state["last_error"] = error or state["last_error"]
-            state["stop"] = state["stop"] or state["streak"] >= MAX_ERRORS_IN_A_ROW    # stays set, even after a success
+            if state["streak"] >= MAX_ERRORS_IN_A_ROW and not state["stop"]:     # stays set, even after a success
+                state["stop"] = (f"{MAX_ERRORS_IN_A_ROW} calls in a row failed (last: {error}). "
+                                 "Fix the cause and rerun the same command to resume.")
             print(f"\r  {state['finished']}/{len(todo)} calls, {state['errors']} errors", end="", file=sys.stderr)
 
     pool = ThreadPoolExecutor(max_workers=jobs)
@@ -475,9 +493,7 @@ def run_calls(calls, agent, opts, out, jobs):
         for future in as_completed([pool.submit(one, c) for c in todo]):
             future.result()
             if state["stop"]:
-                raise SystemExit(f"\nstopped: {MAX_ERRORS_IN_A_ROW} calls in a row failed "
-                                 f"(last: {state['last_error']}). "
-                                 "Fix the cause and rerun the same command to resume.")
+                raise SystemExit("\nstopped: " + state["stop"])
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     print(file=sys.stderr)
@@ -628,12 +644,14 @@ def report(meta, calls, done):
              + (f", effort {meta['effort']}" if meta.get("effort") else ""),
              f"Models seen: without memory {', '.join(models['without']) or 'none'}; "
              f"with memory {', '.join(models['with']) or 'none'}",
+             *[f"Warning: more than one model answered {cond} memory, so that column mixes models."
+               for cond in CONDITIONS if len(models[cond]) > 1],
              f"Tier: {meta['tier']}, {finished} of {len(calls)} calls answered. Name in the prompts: {meta['name']}",
              f"Working directory: {meta['workdir']}",
              "Datasets: " + ", ".join(f"{d} {c[:7]}" for d, c in meta["commits"].items()),
              f"Date: {meta['date']}", "",
-             "Memory files for the with-memory run (best effort; files they import load too):"]
-    lines += [f"- {f}" for f in meta["memory_files"]] or [f"- {NONE_FOUND}"]
+             "Memory files for the with-memory run (best effort):"]
+    lines += [f"- {shown(f)}" for f in meta["memory_files"]] or [f"- {NONE_FOUND}"]
     if meta["agent"] == "codex":
         lines += ["", "Codex features switched off: " + ", ".join(meta["features"])]
     lines += ["", "| metric | without memory | with memory | change |", "|---|---|---|---|"]
@@ -691,12 +709,38 @@ def preflight(a, opts, name, calls):
     print(f"  name {name!r}, workdir {opts.workdir}")
     print(f"  tier {a.tier}: {len(calls) // 2} items x 2 conditions = {len(calls)} calls, "
           f"roughly {took} at --jobs {a.jobs}")
-    print("  memory files for the with-memory run:" + ("".join(f"\n    {f}" for f in files) or " " + NONE_FOUND))
+    print("  memory files for the with-memory run:" + ("".join(f"\n    {shown(f)}" for f in files) or " " + NONE_FOUND))
     if a.agent == "codex":
         print("  features off: " + ", ".join(opts.features))
     return {"agent": a.agent, "cli": cli, "name": name, "tier": a.tier, "model": opts.model or "CLI default",
             "effort": opts.effort, "workdir": opts.workdir, "commits": COMMITS, "memory_files": files,
             "features": opts.features, "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+
+
+def claim(out):
+    """Claim out for this run: take out/run.lock, which holds this process's id, so two runs never share a folder,
+    then remove the Codex homes a killed run left there (no finally block runs after a kill). A lock whose process is
+    no longer alive was left by such a run and is taken over. Returns the lock, for main to remove at the end."""
+    path = out / "run.lock"
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                pid = int(path.read_text(encoding="utf-8"))
+                os.kill(pid, 0)                 # signal 0 sends nothing: it only asks whether the process exists
+            except PermissionError:             # alive, but another user's
+                pass
+            except (ValueError, OSError):       # unreadable, or no such process: a killed run's lock
+                path.unlink(missing_ok=True)
+                continue
+            raise SystemExit(f"Another probatio run is using this folder, {out}. Wait for it to finish or pass "
+                             f"another --out; if no run is going, delete {path}.")
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        for stale in (out / "codex-homes").glob("probatio-codex-*"):    # no run can be using these now
+            shutil.rmtree(stale, ignore_errors=True)        # unlinks the links, never touches what they point to
+        return path
 
 
 def check_resume(out, meta):
@@ -727,17 +771,21 @@ def main(argv=None):
     if a.dry_run:
         return
     suffix = "-" + re.sub(r"[^A-Za-z0-9.]+", "-", a.model) if a.model else ""
-    out = Path(a.out) if a.out else HERE / "results" / f"{a.agent}-{a.tier}{suffix}"
+    # absolute, since the Codex homes inside it are handed to a CLI that runs in another folder
+    out = (Path(a.out) if a.out else HERE / "results" / f"{a.agent}-{a.tier}{suffix}").resolve()
     out.mkdir(parents=True, exist_ok=True)
-    check_resume(out, meta)
-    if a.agent == "codex":
-        opts.homes = codex_homes(out)
+    run_lock = claim(out)               # held before anything in out is read or written
     try:
+        check_resume(out, meta)
+        if a.agent == "codex":
+            opts.homes = codex_homes(out)
         done = run_calls(calls, a.agent, opts, out, a.jobs)
+        text = report(meta, calls, done)
+        (out / "report.md").write_text(text, encoding="utf-8")
     except KeyboardInterrupt:
         raise SystemExit("\ninterrupted. Rerun the same command to resume.")
-    text = report(meta, calls, done)
-    (out / "report.md").write_text(text, encoding="utf-8")
+    finally:
+        run_lock.unlink(missing_ok=True)
     print(text)
     print(f"Report: {out / 'report.md'}\nReplies: {out / 'replies.jsonl'}")
 

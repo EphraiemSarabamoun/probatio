@@ -1,5 +1,6 @@
 """Tests for probatio: the reply parsers, name substitution, the metric math, both CLIs' command lines, the memory
-file list, resuming, the error cutoff and the dataset check and download. No test calls a real agent or the network.
+file list, resuming, the error and model cutoffs, the run lock and the dataset check and download. No test calls a
+real agent or the network.
 
     python3 -m unittest discover -s tests
 """
@@ -7,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -201,9 +203,60 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in homes["with"].iterdir()), ["AGENTS.md", "auth.json"])
         self.assertEqual(sorted(p.name for p in homes["without"].iterdir()), ["auth.json"])
         self.assertTrue((homes["with"] / "auth.json").is_symlink())
-        P.codex_homes(out)                      # the next run's start removes homes a killed run left behind
+        P.codex_homes(out)                      # making the folder again removes nothing
+        self.assertEqual(sorted(folder.iterdir()), sorted(homes.values()))
+        P.claim(out)                            # the next run's claim removes homes a killed run left behind
         self.assertEqual(list(folder.iterdir()), [])
         self.assertEqual(sorted(p.name for p in user.iterdir()), ["AGENTS.md", "auth.json", "config.toml"])
+
+    def test_imports_stop_after_five_hops(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        for n in range(8):
+            (root / f"{n}.md").write_text(f"@{n + 1}.md\n")
+        self.assertEqual([p.name for p in P.imports(root / "0.md")], ["1.md", "2.md", "3.md", "4.md", "5.md"])
+
+    def test_shown_marks_rules(self):
+        self.assertEqual(P.shown("/w/.claude/rules/a.md"), "/w/.claude/rules/a.md  (a rule: may load)")
+        self.assertEqual(P.shown("/w/CLAUDE.md"), "/w/CLAUDE.md")
+
+    def test_relative_out_reaches_codex_as_absolute_paths(self):
+        # Python 3.9's mkdtemp returns a relative path for a relative folder, and Codex runs in --workdir, so a
+        # relative --out once sent CODEX_HOME and the reply file to a folder that did not exist there.
+        base = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, base)
+        caller, work, user = base / "caller", base / "work", base / "user"
+        for d in (caller, work, user):
+            d.mkdir()
+        (user / "auth.json").write_text("x")
+        row = {"id": "i", "answer_format": "bare_letter", "prompt": "p", "frame": "score", "requester": YOU,
+               "choices": [{"label": "A", "maps_to": YOU}]}
+        calls = [{"condition": c, "dataset": "devotio", "config": "smoke", "id": "i", "row": row, "prompt": "p"}
+                 for c in P.CONDITIONS]
+        seen = []
+
+        def child(cmd, prompt, workdir, env):            # what the CLI would find, from its own folder
+            home, reply = Path(workdir, env["CODEX_HOME"]), Path(workdir, cmd[cmd.index("-o") + 1])
+            seen.append((home.is_dir(), os.path.isabs(env["CODEX_HOME"])))
+            if home.is_dir():
+                reply.write_text("A")
+            return SimpleNamespace(returncode=0, stderr="model: m1\n", stdout="")
+        real = P.tempfile.mkdtemp                       # 3.9's mkdtemp keeps a relative folder relative
+        like_39 = lambda prefix, dir: os.path.join(dir, os.path.basename(real(prefix=prefix, dir=dir)))  # noqa: E731
+        old_cwd = os.getcwd()
+        os.chdir(caller)
+        self.addCleanup(os.chdir, old_cwd)
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(user)}), \
+                mock.patch.object(P.tempfile, "mkdtemp", like_39), \
+                mock.patch.object(P.shutil, "which", return_value="/bin/codex"), \
+                mock.patch.object(P, "codex_features", return_value=[]), \
+                mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout="codex 1.0")), \
+                mock.patch.object(P, "plan_calls", return_value=calls), mock.patch.object(P, "run", child), \
+                mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+            P.main(["--agent", "codex", "--name", "Jane", "--workdir", str(work), "--out", "out", "--jobs", "1"])
+        self.assertEqual(seen, [(True, True), (True, True)])
+        self.assertEqual(len(P.read_replies(caller / "out" / "replies.jsonl")), 2)
+        self.assertFalse((caller / "out" / "run.lock").exists())          # released when the run ended
 
     def test_codex_call_cleans_up_after_a_timeout(self):
         user, out = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
@@ -234,7 +287,9 @@ class TestCommands(unittest.TestCase):
         claude_files = [config / "CLAUDE.md", config / "rules" / "a.md", config / "rules" / "sub" / "b.md",
                         config / "projects" / key / "memory" / "MEMORY.md", work / "CLAUDE.md",
                         work / ".claude" / "CLAUDE.md", root / "CLAUDE.local.md", work / ".claude" / "rules" / "c.md",
-                        repo / ".claude" / "rules" / "d.md"]                    # a parent folder's rules load too
+                        repo / ".claude" / "rules" / "d.md",                    # a parent folder's rules load too
+                        work / ".claude" / "rules" / "scoped.md",               # listed, though it may not load
+                        work / "notes.md", work / "sub" / "deeper.md"]          # imported, and imported in turn
         codex_files = [codex / "AGENTS.override.md", repo / "AGENTS.md", work / "AGENTS.override.md"]
         unread = [codex / "AGENTS.md", work / "AGENTS.md",          # each replaced by the override beside it
                   root / "AGENTS.md",                               # above the repository root
@@ -244,8 +299,14 @@ class TestCommands(unittest.TestCase):
             path.write_text("x")
         (repo / "mid" / "AGENTS.override.md").write_text("")
         (work / ".claude" / "rules" / "scoped.md").write_text('---\npaths:\n  - "**/*.py"\n---\nOnly for Python.\n')
+        (work / "CLAUDE.md").write_text("Read @notes.md first. Mail jane@example.com.\n"
+                                        "`@span.md`\n```\n@block.md\n```\n")
+        (work / "notes.md").write_text("See @sub/deeper.md and @CLAUDE.md again.\n")    # relative to notes.md
+        (work / "sub" / "deeper.md").write_text("@../notes.md\n")                          # a loop ends
+        for name in ("span.md", "block.md", "example.com"):         # mentioned, but not as imports
+            (work / name).write_text("x")
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config), "CODEX_HOME": str(codex)}):
-            self.assertEqual(sorted(P.memory_files("claude", work)), sorted(claude_files))   # not the scoped rule
+            self.assertEqual(sorted(P.memory_files("claude", work)), sorted(claude_files))
             self.assertEqual(P.memory_files("codex", work), codex_files)
             (codex / "AGENTS.override.md").write_text("\n")  # in Codex's home an empty override gives way
             shutil.rmtree(repo / ".git")                      # and outside a repository it reads the workdir alone
@@ -323,6 +384,58 @@ class TestRunning(unittest.TestCase):
             self.assertGreaterEqual(len(asked), 2 * P.MAX_ERRORS_IN_A_ROW)
             self.assertLessEqual(len(asked), 2 * most)
             self.assertLessEqual(len(P.read_replies(out / "replies.jsonl")), most)
+
+    def test_a_reply_from_a_new_model_stops_the_run(self):
+        answers = iter(["m1", "m1,m3", "m2"])          # a fallback beside m1 is fine; m2 alone means a new setup
+
+        def fake(prompt, condition, opts):
+            return "A", None, next(answers, "m2")
+        with mock.patch.dict(P.CALLS, {"fake": fake}), self.assertRaises(SystemExit) as stopped:
+            P.run_calls(self.calls, "fake", None, self.out, 1)
+        self.assertIn("start a new --out", str(stopped.exception))
+        on_disk = P.read_replies(self.out / "replies.jsonl")
+        self.assertEqual(sorted(r["model"] for r in on_disk.values()), ["m1", "m1,m3"])   # m2 never recorded
+        with mock.patch.dict(P.CALLS, {"fake": lambda *args: ("A", None, "m2")}), self.assertRaises(SystemExit):
+            P.run_calls(self.calls, "fake", None, self.out, 1)                           # nor on a resume
+        self.assertEqual(len(P.read_replies(self.out / "replies.jsonl")), 2)
+
+    def test_report_warns_when_models_mix(self):
+        done = {P.key(c): {"outcome": YOU, "error": None, "model": "m1" if n else "m2"}
+                for n, c in enumerate(self.calls)}
+        meta = {"agent": "claude", "cli": "1.0", "model": "CLI default", "tier": "smoke", "name": "Jane Doe",
+                "workdir": "/w", "commits": P.COMMITS, "date": "today", "memory_files": {}, "features": []}
+        text = P.report(meta, self.calls, done)
+        mixed = self.calls[0]["condition"]
+        self.assertIn(f"Warning: more than one model answered {mixed} memory", text)
+        self.assertEqual(text.count("Warning: more than one model"), 1)
+
+    def test_claim(self):
+        lock = P.claim(self.out)
+        self.assertEqual(lock.read_text(), str(os.getpid()))
+        with self.assertRaises(SystemExit) as refused:                  # this process is alive, so the folder is busy
+            P.claim(self.out)
+        self.assertIn("Another probatio run is using this folder", str(refused.exception))
+        dead = subprocess.Popen([sys.executable, "-c", ""])
+        dead.wait()
+        lock.write_text(str(dead.pid))                                  # left by a run that was killed
+        self.assertEqual(P.claim(self.out).read_text(), str(os.getpid()))
+        lock.write_text("")                                             # cut short before the id was written
+        self.assertEqual(P.claim(self.out).read_text(), str(os.getpid()))
+
+    def test_a_busy_folder_is_left_alone(self):
+        homes = P.codex_homes(self.out)
+        active = P.codex_home("with", self.out, homes)                  # a home a running call still uses
+        (self.out / "run.lock").write_text(str(os.getpid()))
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(self.out)}), \
+                mock.patch.object(P, "agent_options", return_value=SimpleNamespace(
+                    model=None, effort=None, workdir=str(self.out), codex_dir=self.out, features=[], homes=None)), \
+                mock.patch.object(P, "plan_calls", return_value=self.calls), \
+                mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout="codex 1.0")), \
+                mock.patch("sys.stdout"), self.assertRaises(SystemExit) as refused:
+            P.main(["--agent", "codex", "--name", "Jane", "--out", str(self.out)])
+        self.assertIn("Another probatio run", str(refused.exception))
+        self.assertTrue(active.is_dir())
+        self.assertEqual((self.out / "run.lock").read_text(), str(os.getpid()))    # the other run's lock stays
 
     def test_report_runs(self):
         done = {P.key(c): {"outcome": YOU, "error": None, "model": "m"} for c in self.calls}
