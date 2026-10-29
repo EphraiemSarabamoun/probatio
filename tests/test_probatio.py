@@ -1,5 +1,5 @@
-"""Tests for probatio: the reply parsers, name substitution, the metric math, both CLIs' command lines, resuming and
-the dataset check. No test calls a real agent or the network.
+"""Tests for probatio: the reply parsers, name substitution, the metric math, both CLIs' command lines, the memory
+file list, resuming, the error cutoff and the dataset check and download. No test calls a real agent or the network.
 
     python3 -m unittest discover -s tests
 """
@@ -10,7 +10,9 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -188,17 +190,32 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(cmd[-3:], ["-o", "/r.txt", "-"])
 
     def test_codex_home(self):
-        user = Path(tempfile.mkdtemp())
+        user, out = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, user)
+        self.addCleanup(shutil.rmtree, out)
         for name in ("auth.json", "AGENTS.md", "config.toml"):
             (user / name).write_text("x")
-        homes = {c: P.codex_home(c, user) for c in P.CONDITIONS}
+        folder = P.codex_homes(out)
+        homes = {c: P.codex_home(c, user, folder) for c in P.CONDITIONS}
+        self.assertEqual({h.parent for h in homes.values()}, {out / "codex-homes"})    # inside the run's folder
         self.assertEqual(sorted(p.name for p in homes["with"].iterdir()), ["AGENTS.md", "auth.json"])
         self.assertEqual(sorted(p.name for p in homes["without"].iterdir()), ["auth.json"])
         self.assertTrue((homes["with"] / "auth.json").is_symlink())
-        for home in homes.values():
-            shutil.rmtree(home)                                         # as codex_call cleans up
+        P.codex_homes(out)                      # the next run's start removes homes a killed run left behind
+        self.assertEqual(list(folder.iterdir()), [])
         self.assertEqual(sorted(p.name for p in user.iterdir()), ["AGENTS.md", "auth.json", "config.toml"])
+
+    def test_codex_call_cleans_up_after_a_timeout(self):
+        user, out = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, user)
+        self.addCleanup(shutil.rmtree, out)
+        (user / "auth.json").write_text("x")
+        opts = SimpleNamespace(codex_dir=user, homes=P.codex_homes(out), model=None, effort=None, features=[],
+                               workdir=str(out))
+        with mock.patch.object(P, "run", side_effect=P.subprocess.TimeoutExpired("codex", 1)):
+            with self.assertRaises(P.subprocess.TimeoutExpired):
+                P.codex_call("A", "with", opts)
+        self.assertEqual(list(opts.homes.iterdir()), [])
 
     def test_codex_settings(self):
         user = Path(tempfile.mkdtemp())
@@ -211,17 +228,30 @@ class TestCommands(unittest.TestCase):
     def test_memory_files(self):
         root = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, root)
-        config, work = root / "cfg", root / "work"
+        config, codex, repo = root / "cfg", root / "codex", root / "repo"
+        work = repo / "mid" / "work"
         key = "".join(c if c.isalnum() else "-" for c in str(work))
-        for path in (config / "CLAUDE.md", config / "projects" / key / "memory" / "MEMORY.md", work / "CLAUDE.md",
-                     work / ".claude" / "CLAUDE.md", root / "CLAUDE.local.md", work / "AGENTS.md"):
+        claude_files = [config / "CLAUDE.md", config / "rules" / "a.md", config / "rules" / "sub" / "b.md",
+                        config / "projects" / key / "memory" / "MEMORY.md", work / "CLAUDE.md",
+                        work / ".claude" / "CLAUDE.md", root / "CLAUDE.local.md", work / ".claude" / "rules" / "c.md",
+                        repo / ".claude" / "rules" / "d.md"]                    # a parent folder's rules load too
+        codex_files = [codex / "AGENTS.override.md", repo / "AGENTS.md", work / "AGENTS.override.md"]
+        unread = [codex / "AGENTS.md", work / "AGENTS.md",          # each replaced by the override beside it
+                  root / "AGENTS.md",                               # above the repository root
+                  repo / "mid" / "AGENTS.md"]                       # hidden by an empty override in a project folder
+        for path in claude_files + codex_files + unread + [repo / ".git" / "HEAD"]:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("x")
-        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config), "CODEX_HOME": str(root / "codex")}):
-            claude = P.memory_files("claude", work)
-            codex = P.memory_files("codex", work)
-        self.assertEqual(len(claude), 5)
-        self.assertEqual(codex, [work / "AGENTS.md"])
+        (repo / "mid" / "AGENTS.override.md").write_text("")
+        (work / ".claude" / "rules" / "scoped.md").write_text('---\npaths:\n  - "**/*.py"\n---\nOnly for Python.\n')
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config), "CODEX_HOME": str(codex)}):
+            self.assertEqual(sorted(P.memory_files("claude", work)), sorted(claude_files))   # not the scoped rule
+            self.assertEqual(P.memory_files("codex", work), codex_files)
+            (codex / "AGENTS.override.md").write_text("\n")  # in Codex's home an empty override gives way
+            shutil.rmtree(repo / ".git")                      # and outside a repository it reads the workdir alone
+            self.assertEqual(P.memory_files("codex", work), [codex / "AGENTS.md", work / "AGENTS.override.md"])
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(root / "none"), "CODEX_HOME": str(root / "none")}):
+            self.assertEqual(P.memory_files("codex", root / "none"), [])
 
 
 class TestRunning(unittest.TestCase):
@@ -259,6 +289,41 @@ class TestRunning(unittest.TestCase):
         self.assertEqual(result[P.key(failed)]["outcome"], YOU)
         self.assertEqual(len(P.read_replies(self.out / "replies.jsonl")), 6)
 
+    def test_torn_last_line_does_not_swallow_the_next_record(self):
+        path = self.out / "replies.jsonl"
+        first = dict({k: self.calls[0][k] for k in ("condition", "dataset", "config", "id")}, error=None, outcome=YOU)
+        path.write_text(json.dumps(first) + "\n" + '{"condition": "with", "cut sho')     # a write cut short
+        with mock.patch.dict(P.CALLS, {"fake": lambda prompt, condition, opts: ("A", None, "fake-model")}):
+            result = P.run_calls(self.calls, "fake", None, self.out, 1)
+        on_disk = P.read_replies(path)
+        self.assertEqual(set(on_disk), set(result))                     # every newly completed key is on disk
+        self.assertEqual(len(on_disk), 6)
+        lines = path.read_text().split("\n")
+        self.assertEqual(lines[-1], "")
+        for line in lines[:-1]:
+            json.loads(line)                                            # and every line reads back
+        path.write_text(path.read_text() + "{not json}\n")              # an unreadable last line is cut off too
+        self.assertEqual(len(P.read_replies(path)), 6)
+        self.assertFalse(path.read_text().endswith("{not json}\n"))
+
+    def test_error_cutoff_starts_no_new_call(self):
+        asked = []
+
+        def failing(prompt, condition, opts):
+            asked.append(prompt)
+            return None, "logged out", None
+        calls = [dict(self.calls[0], id=f"x{n}") for n in range(40)]
+        for jobs, most in ((1, P.MAX_ERRORS_IN_A_ROW), (3, P.MAX_ERRORS_IN_A_ROW + 2)):
+            asked.clear()
+            out = self.out / f"jobs{jobs}"
+            out.mkdir()
+            with mock.patch.dict(P.CALLS, {"fake": failing}), self.assertRaises(SystemExit):
+                P.run_calls(calls, "fake", None, out, jobs)
+            # each call is tried twice (one retry); after the cutoff only calls already running may finish
+            self.assertGreaterEqual(len(asked), 2 * P.MAX_ERRORS_IN_A_ROW)
+            self.assertLessEqual(len(asked), 2 * most)
+            self.assertLessEqual(len(P.read_replies(out / "replies.jsonl")), most)
+
     def test_report_runs(self):
         done = {P.key(c): {"outcome": YOU, "error": None, "model": "m"} for c in self.calls}
         meta = {"agent": "claude", "cli": "1.0", "model": "CLI default", "tier": "smoke", "name": "Jane Doe",
@@ -268,15 +333,55 @@ class TestRunning(unittest.TestCase):
         self.assertIn("none found", text)
 
     def test_resume_refuses_other_settings(self):
-        meta = {"agent": "claude", "name": "Jane Doe", "tier": "smoke", "model": "CLI default", "workdir": "/w",
-                "commits": P.COMMITS}
+        meta = {"agent": "codex", "cli": "codex 1.0", "name": "Jane Doe", "tier": "smoke", "model": "m1",
+                "effort": "high", "workdir": "/w", "commits": P.COMMITS, "memory_files": {"/m/AGENTS.md": "ab"},
+                "features": ["hooks"], "date": "today"}
         P.check_resume(self.out, meta)
-        P.check_resume(self.out, dict(meta))
-        with self.assertRaises(SystemExit):
-            P.check_resume(self.out, dict(meta, name="John Roe"))
+        P.check_resume(self.out, dict(meta, date="tomorrow"))           # only the date may differ
+        for field, value in (("name", "John Roe"), ("cli", "codex 1.1"), ("model", "m2"), ("effort", "low"),
+                             ("features", []), ("memory_files", {"/m/AGENTS.md": "cd"}), ("memory_files", {}),
+                             ("workdir", "/v"), ("tier", "full"), ("commits", {})):
+            with self.assertRaises(SystemExit) as refused:
+                P.check_resume(self.out, dict(meta, **{field: value}))
+            self.assertIn(f"({field} changed)", str(refused.exception))
+
+    def test_resume_sees_an_edited_memory_file(self):
+        work = self.out / "work"
+        (work / ".claude").mkdir(parents=True)
+        memory = work / "CLAUDE.md"
+        a = SimpleNamespace(agent="claude", tier="smoke", jobs=1)
+        opts = SimpleNamespace(model=None, effort=None, workdir=str(work), features=[])
+        version = SimpleNamespace(stdout="2.0 (Claude Code)")
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.out / "cfg")}), \
+                mock.patch.object(P.subprocess, "run", return_value=version), mock.patch("sys.stdout"):
+            memory.write_text("Be loyal to Jane.")
+            P.check_resume(self.out, P.preflight(a, opts, "Jane Doe", self.calls))
+            P.check_resume(self.out, P.preflight(a, opts, "Jane Doe", self.calls))
+            memory.write_text("Be loyal to John.")
+            with self.assertRaises(SystemExit) as refused:
+                P.check_resume(self.out, P.preflight(a, opts, "Jane Doe", self.calls))
+        self.assertIn("(memory_files changed)", str(refused.exception))
+        self.assertNotIn("Jane", (self.out / "run.json").read_text().split('"memory_files"')[1])   # a hash, no text
 
 
 class TestDatasetCheck(unittest.TestCase):
+    def test_download_failure_is_a_short_message(self):
+        cache = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, cache)
+        for failure in (urllib.error.URLError("network unavailable"),
+                        urllib.error.HTTPError("https://x", 503, "Service Unavailable", {}, None),
+                        TimeoutError("timed out")):
+            with mock.patch.object(P, "CACHE", cache), \
+                    mock.patch.object(P.urllib.request, "urlopen", side_effect=failure), \
+                    self.assertRaises(SystemExit) as refused:
+                P.load_rows("devotio", "smoke")
+            message = str(refused.exception)
+            self.assertIn("devotio/smoke", message)
+            self.assertIn(str(cache), message)
+            self.assertIn("rerun", message)
+        self.assertEqual(list(cache.rglob("*.jsonl")), [])              # nothing that looks like a dataset is left
+
+
     def test_sha256_and_count(self):
         good = {"id": "x", "prompt": "Hello {PRINCIPAL}"}
         good["prompt_sha256_public"] = hashlib.sha256(good["prompt"].encode()).hexdigest()

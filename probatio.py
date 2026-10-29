@@ -13,6 +13,7 @@ condition switches off.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -54,7 +55,8 @@ SEED = 20261029                 # fixes the call order, so a rerun asks in the s
 TIMEOUT = 300                   # seconds per call; a call that runs out is retried once, then recorded as an error
 MAX_ERRORS_IN_A_ROW = 8         # stop early when the CLI is plainly failing (logged out, out of quota)
 SECONDS_PER_CALL = {"claude": 18, "codex": 13}      # measured on one smoke run each; only for the estimate
-AGENTS_FILES = ("AGENTS.md", "AGENTS.override.md")
+AGENTS_FILES = ("AGENTS.override.md", "AGENTS.md")   # in Codex's order: an override replaces AGENTS.md beside it
+NONE_FOUND = "none found (the CLI may still load memory files this list does not know about)"
 
 # Codex tools and integrations to switch off. Names differ between Codex versions and an unknown name is an error,
 # so only the ones `codex features list` reports are passed. exec, apply_patch, the clock and the collaboration tools
@@ -71,8 +73,12 @@ def load_rows(dataset, tier):
     if not path.exists():
         url = f"{HF}/{dataset}/resolve/{COMMITS[dataset]}/data/{config}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(url, timeout=120) as resp:
-            data = resp.read()
+        try:
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                data = resp.read()
+        except (OSError, http.client.HTTPException) as e:     # URLError and HTTPError are OSErrors, as are timeouts
+            raise SystemExit(f"Could not download {dataset}/{config} into {CACHE} ({e}). Check your connection and "
+                             "rerun the same command; files already downloaded are kept.")
         part = path.with_suffix(".part")
         part.write_bytes(data)
         os.replace(part, path)          # a download cut short never leaves a file that looks complete
@@ -216,20 +222,47 @@ def codex_dir():
 
 def memory_files(agent, workdir):
     """The memory files the with-memory condition should load, best effort: the CLI decides, this only looks. Files
-    those files import are not listed."""
+    those files import are not listed, and a CLI may load files this list does not know about."""
     workdir = Path(workdir).resolve()
+    chain = [workdir, *workdir.parents]
     if agent == "claude":
         project_key = re.sub(r"[^A-Za-z0-9]", "-", str(workdir))      # how Claude Code names a project's folder
-        candidates = [claude_dir() / "CLAUDE.md", claude_dir() / "projects" / project_key / "memory" / "MEMORY.md"]
-        for d in [workdir, *workdir.parents]:
-            candidates += [d / "CLAUDE.md", d / "CLAUDE.local.md", d / ".claude" / "CLAUDE.md"]
+        candidates = [claude_dir() / "CLAUDE.md", *rules(claude_dir() / "rules"),
+                      claude_dir() / "projects" / project_key / "memory" / "MEMORY.md"]
+        for d in chain:
+            candidates += [d / "CLAUDE.md", d / "CLAUDE.local.md", d / ".claude" / "CLAUDE.md",
+                           *rules(d / ".claude" / "rules")]
     else:
-        candidates = [codex_dir() / n for n in AGENTS_FILES] + [workdir / n for n in AGENTS_FILES]
+        # Codex reads its home, then each folder from the project root (the nearest folder holding .git) down to the
+        # working directory, or the working directory alone outside a repository: one AGENTS file per folder.
+        top = next((i for i, d in enumerate(chain) if (d / ".git").exists()), 0)
+        candidates = [agents_file(codex_dir(), home=True), *(agents_file(d) for d in reversed(chain[:top + 1]))]
     found = []
     for path in candidates:
-        if path.is_file() and path.resolve() not in [f.resolve() for f in found]:
+        if path and path.is_file() and path.resolve() not in [f.resolve() for f in found]:
             found.append(path)
     return found
+
+
+def rules(folder):
+    """The rule files Claude Code loads from a rules folder, subfolders included. A rule whose front matter names
+    paths loads only once the agent works on a matching file, which a call without tools never does."""
+    found = []
+    for path in sorted(folder.rglob("*.md")):
+        head = re.match(r"---\r?\n(.*?)\r?\n---", path.read_text(encoding="utf-8", errors="replace"), re.S)
+        if not (head and re.search(r"^paths\s*:", head.group(1), re.M)):
+            found.append(path)
+    return found
+
+
+def agents_file(folder, home=False):
+    """The AGENTS file Codex reads in one folder, or None: AGENTS.override.md in place of AGENTS.md, and nothing from
+    an empty file. In Codex's home an empty override gives way to AGENTS.md; in a project folder it still hides it
+    (both seen on codex-cli 0.159)."""
+    text = lambda f: f.read_text(encoding="utf-8", errors="replace").strip()      # noqa: E731
+    files = [folder / n for n in AGENTS_FILES if (folder / n).is_file()]
+    files = [f for f in files if text(f)] if home else files[:1]
+    return files[0] if files and text(files[0]) else None
 
 
 def env_with(changes):
@@ -300,16 +333,27 @@ def codex_features():
     return [name for name in CODEX_FEATURES_OFF if name in known]
 
 
-def codex_home(condition, user_dir):
-    """A fresh CODEX_HOME for one call, holding only a link to the user's login and, with memory, links to their
-    global AGENTS files. None of the user's config, rules, hooks, history or memories is visible to the call."""
-    home = Path(tempfile.mkdtemp(prefix="probatio-codex-"))
+def codex_home(condition, user_dir, homes):
+    """A fresh CODEX_HOME for one call, made in the run's homes folder, holding only a link to the user's login and,
+    with memory, links to their global AGENTS files. None of the user's config, rules, hooks, history or memories is
+    visible to the call."""
+    home = Path(tempfile.mkdtemp(prefix="probatio-codex-", dir=homes))
     os.symlink(user_dir / "auth.json", home / "auth.json")
     if condition == "with":
         for name in AGENTS_FILES:
             if (user_dir / name).is_file():
                 os.symlink(user_dir / name, home / name)
     return home
+
+
+def codex_homes(out):
+    """The run's folder for its calls' temporary homes, inside out. A home already there was left by a run killed
+    outright (no finally block runs then), so it is removed first, link to the login and all."""
+    homes = out / "codex-homes"
+    for stale in homes.glob("probatio-codex-*"):
+        shutil.rmtree(stale, ignore_errors=True)        # unlinks the links, never touches what they point to
+    homes.mkdir(exist_ok=True)
+    return homes
 
 
 def codex_command(condition, model, effort, features, reply_file):
@@ -330,7 +374,7 @@ def codex_command(condition, model, effort, features, reply_file):
 
 def codex_call(prompt, condition, opts):
     """One Codex call in its own temporary home: (reply, error, model). The model is read from codex's header."""
-    home = codex_home(condition, opts.codex_dir)
+    home = codex_home(condition, opts.codex_dir, opts.homes)
     try:
         reply_file = home / "reply.txt"
         cmd = codex_command(condition, opts.model, opts.effort, opts.features, reply_file)
@@ -365,16 +409,22 @@ def key(call):
 
 
 def read_replies(path):
-    """The newest record of each call in replies.jsonl. Reruns append, so a retried call's later line wins; a line
-    cut short by an interrupted write is skipped."""
-    done = {}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").split("\n"):
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                continue
-            done[key(rec)] = rec
+    """The newest record of each call in replies.jsonl. Reruns append, so a retried call's later line wins. A last
+    line left torn or unreadable by an interrupted write is cut off the file, so the next record starts a fresh line
+    instead of being glued to it; an unreadable line further up is skipped."""
+    done, good, end = {}, 0, 0
+    data = path.read_bytes() if path.exists() else b""
+    for line in data.split(b"\n")[:-1]:        # whatever follows the last newline was never finished
+        end += len(line) + 1
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        done[key(rec)] = rec
+        good = end
+    if good < len(data):
+        with path.open("r+b") as f:
+            f.truncate(good)
     return done
 
 
@@ -400,9 +450,11 @@ def run_calls(calls, agent, opts, out, jobs):
     todo = [c for c in calls if key(c) not in done or done[key(c)]["error"]]
     if len(todo) < len(calls):
         print(f"resuming: {len(calls) - len(todo)} of {len(calls)} calls already done", file=sys.stderr)
-    lock, state = threading.Lock(), {"finished": 0, "errors": 0, "streak": 0, "last_error": None}
+    lock, state = threading.Lock(), {"finished": 0, "errors": 0, "streak": 0, "last_error": None, "stop": False}
 
     def one(call):
+        if state["stop"]:               # past the error cutoff no new call starts; the ones already running finish
+            return
         reply, error, model, seconds = ask(agent, call["prompt"], call["condition"], opts)
         answer, outcome = score(call["row"], reply) if error is None else (None, None)
         rec = {k: call[k] for k in ("condition", "dataset", "config", "id", "prompt")}
@@ -415,13 +467,14 @@ def run_calls(calls, agent, opts, out, jobs):
             state["errors"] += bool(error)
             state["streak"] = state["streak"] + 1 if error else 0
             state["last_error"] = error or state["last_error"]
+            state["stop"] = state["stop"] or state["streak"] >= MAX_ERRORS_IN_A_ROW    # stays set, even after a success
             print(f"\r  {state['finished']}/{len(todo)} calls, {state['errors']} errors", end="", file=sys.stderr)
 
     pool = ThreadPoolExecutor(max_workers=jobs)
     try:
         for future in as_completed([pool.submit(one, c) for c in todo]):
             future.result()
-            if state["streak"] >= MAX_ERRORS_IN_A_ROW:
+            if state["stop"]:
                 raise SystemExit(f"\nstopped: {MAX_ERRORS_IN_A_ROW} calls in a row failed "
                                  f"(last: {state['last_error']}). "
                                  "Fix the cause and rerun the same command to resume.")
@@ -571,7 +624,8 @@ def report(meta, calls, done):
                             for m in (done[key(c)]["model"] or "").split(",") if m}) for cond in CONDITIONS}
     finished = sum(1 for c in calls if key(c) in done and not done[key(c)]["error"])
     lines = ["# probatio report", "",
-             f"Agent: {meta['agent']} ({meta['cli']}), model asked for: {meta['model']}",
+             f"Agent: {meta['agent']} ({meta['cli']}), model asked for: {meta['model']}"
+             + (f", effort {meta['effort']}" if meta.get("effort") else ""),
              f"Models seen: without memory {', '.join(models['without']) or 'none'}; "
              f"with memory {', '.join(models['with']) or 'none'}",
              f"Tier: {meta['tier']}, {finished} of {len(calls)} calls answered. Name in the prompts: {meta['name']}",
@@ -579,7 +633,7 @@ def report(meta, calls, done):
              "Datasets: " + ", ".join(f"{d} {c[:7]}" for d, c in meta["commits"].items()),
              f"Date: {meta['date']}", "",
              "Memory files for the with-memory run (best effort; files they import load too):"]
-    lines += [f"- {f}" for f in meta["memory_files"]] or ["- none found, so both conditions were the same"]
+    lines += [f"- {f}" for f in meta["memory_files"]] or [f"- {NONE_FOUND}"]
     if meta["agent"] == "codex":
         lines += ["", "Codex features switched off: " + ", ".join(meta["features"])]
     lines += ["", "| metric | without memory | with memory | change |", "|---|---|---|---|"]
@@ -613,7 +667,7 @@ def agent_options(a):
     if not Path(a.workdir).is_dir():
         raise SystemExit(f"--workdir {a.workdir} is not a folder.")
     opts = SimpleNamespace(model=a.model, effort=None, workdir=str(Path(a.workdir).resolve()), codex_dir=codex_dir(),
-                           features=[])
+                           features=[], homes=None)
     if a.agent == "codex":
         if not (opts.codex_dir / "auth.json").is_file():
             raise SystemExit(f"No Codex login at {opts.codex_dir / 'auth.json'}. probatio needs Codex's file login; "
@@ -626,9 +680,10 @@ def agent_options(a):
 
 
 def preflight(a, opts, name, calls):
-    """Print what the run will do, and return the run's facts for run.json and the report."""
+    """Print what the run will do, and return the run's facts for run.json and the report. Each memory file is
+    recorded with the sha256 of its content (not the content), so a resume can tell that a file was edited."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
-    files = [str(f) for f in memory_files(a.agent, opts.workdir)]
+    files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in memory_files(a.agent, opts.workdir)}
     minutes = len(calls) * SECONDS_PER_CALL[a.agent] / a.jobs / 60
     took = f"{minutes:.0f} minutes" if minutes < 90 else f"{minutes / 60:.1f} hours"
     print(f"probatio: {a.agent} ({cli}), model {opts.model or 'CLI default'}"
@@ -636,24 +691,25 @@ def preflight(a, opts, name, calls):
     print(f"  name {name!r}, workdir {opts.workdir}")
     print(f"  tier {a.tier}: {len(calls) // 2} items x 2 conditions = {len(calls)} calls, "
           f"roughly {took} at --jobs {a.jobs}")
-    print("  memory files for the with-memory run:" + "".join(f"\n    {f}" for f in files))
-    if not files:
-        print("  warning: no memory files found, so the two conditions will be the same")
+    print("  memory files for the with-memory run:" + ("".join(f"\n    {f}" for f in files) or " " + NONE_FOUND))
     if a.agent == "codex":
         print("  features off: " + ", ".join(opts.features))
     return {"agent": a.agent, "cli": cli, "name": name, "tier": a.tier, "model": opts.model or "CLI default",
-            "workdir": opts.workdir, "commits": COMMITS, "memory_files": files, "features": opts.features,
-            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+            "effort": opts.effort, "workdir": opts.workdir, "commits": COMMITS, "memory_files": files,
+            "features": opts.features, "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
 
 
 def check_resume(out, meta):
-    """Refuse to resume into a folder made with other settings, which would mix two runs; else record this one."""
-    path, same = out / "run.json", ("agent", "name", "tier", "model", "workdir", "commits")
+    """Refuse to resume into a folder made with other settings, which would mix two runs; else record this one.
+    Everything in meta but the date must match: the CLI version, model, effort and Codex features as well as the
+    run's identity, and every memory file's sha256."""
+    path = out / "run.json"
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
-        differ = [k for k in same if old.get(k) != meta[k]]
+        differ = [k for k in meta if k != "date" and old.get(k) != meta[k]]
         if differ:
-            raise SystemExit(f"{out} holds a run with a different {', '.join(differ)}. Pass another --out.")
+            raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
+                             "--out to start a new run, or undo the change to resume this one.")
     else:
         path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
@@ -674,6 +730,8 @@ def main(argv=None):
     out = Path(a.out) if a.out else HERE / "results" / f"{a.agent}-{a.tier}{suffix}"
     out.mkdir(parents=True, exist_ok=True)
     check_resume(out, meta)
+    if a.agent == "codex":
+        opts.homes = codex_homes(out)
     try:
         done = run_calls(calls, a.agent, opts, out, a.jobs)
     except KeyboardInterrupt:
