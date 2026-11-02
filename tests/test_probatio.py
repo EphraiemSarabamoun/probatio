@@ -362,7 +362,7 @@ class TestRunning(unittest.TestCase):
                  "requester": YOU,
                  "choices": [{"label": "A", "maps_to": YOU}, {"label": "B", "maps_to": "musk"}]} for n in range(3)]
         with mock.patch.object(P, "load_rows", lambda dataset, tier: rows if dataset == "devotio" else []):
-            self.calls = P.plan_calls("smoke", "Jane Doe")
+            self.calls = P.plan_calls("smoke", "Jane Doe", P.SURVEYS)
 
     def test_plan_pairs_conditions(self):
         self.assertEqual(len(self.calls), 6)
@@ -444,7 +444,7 @@ class TestRunning(unittest.TestCase):
         meta = {"agent": "claude", "cli": "1.0", "model": "CLI default", "tier": "smoke", "name": "Jane Doe",
                 "dataset": "all", "workdir": "/w", "commits": P.COMMITS, "date": "today", "memory_files": {},
                 "features": []}
-        text = P.report(meta, self.calls, done, P.table(self.calls, done, "smoke", P.DATASETS))
+        text = P.report(meta, self.calls, done, P.table(self.calls, done, "smoke", P.SURVEYS))
         mixed = self.calls[0]["condition"]
         self.assertIn(f"Warning: more than one model answered {mixed} memory", text)
         self.assertEqual(text.count("Warning: more than one model"), 1)
@@ -500,7 +500,7 @@ class TestRunning(unittest.TestCase):
         meta = {"agent": "claude", "cli": "1.0", "model": "CLI default", "tier": "smoke", "name": "Jane Doe",
                 "dataset": "all", "workdir": "/w", "commits": P.COMMITS, "date": "today", "memory_files": [],
                 "features": []}
-        text = P.report(meta, self.calls, done, P.table(self.calls, done, "smoke", P.DATASETS))
+        text = P.report(meta, self.calls, done, P.table(self.calls, done, "smoke", P.SURVEYS))
         self.assertIn("| devotio: valid replies | 3/3, 0 errors | 3/3, 0 errors | +0 pts |", text)
         self.assertIn("none found", text)
 
@@ -566,7 +566,7 @@ class TestDatasetCheck(unittest.TestCase):
 
 def cached():
     """True when every full config is already in .cache, so a test can read the real rows without the network."""
-    return all((P.CACHE / d / P.COMMITS[d] / f"{P.CONFIGS[d]['full'][0]}.jsonl").exists() for d in P.DATASETS)
+    return all((P.CACHE / d / P.COMMITS[d] / f"{P.CONFIGS[d]['full'][0]}.jsonl").exists() for d in P.SURVEYS)
 
 
 @unittest.skipUnless(cached(), "needs the full datasets in .cache; any run with --tier full --dry-run downloads them")
@@ -577,7 +577,7 @@ class TestSlim(unittest.TestCase):
         patcher = mock.patch.object(P.urllib.request, "urlopen", side_effect=AssertionError("no network in tests"))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.slim = {d: P.load_rows(d, "slim") for d in P.DATASETS}
+        self.slim = {d: P.load_rows(d, "slim") for d in P.SURVEYS}
 
     def test_counts(self):
         self.assertEqual({d: len(rows) for d, rows in self.slim.items()},
@@ -636,16 +636,16 @@ class TestSlim(unittest.TestCase):
             self.assertEqual(set(sizes.values()), {4} if d == "par-potestas" else {2}, d)
 
     def test_the_seed_is_fixed_in_code(self):
-        before = [r["id"] for d in P.DATASETS for r in self.slim[d]]
+        before = [r["id"] for d in P.SURVEYS for r in self.slim[d]]
         random.seed(1)                                              # neither the global generator
         with mock.patch.object(P, "SEED", 7):                       # nor the call-order seed moves the draw
-            again = [r["id"] for d in P.DATASETS for r in P.load_rows(d, "slim")]
+            again = [r["id"] for d in P.SURVEYS for r in P.load_rows(d, "slim")]
         self.assertEqual(again, before)
-        fingerprint = hashlib.sha256("\n".join(f"{d}|{r['id']}" for d in P.DATASETS for r in self.slim[d])
+        fingerprint = hashlib.sha256("\n".join(f"{d}|{r['id']}" for d in P.SURVEYS for r in self.slim[d])
                                      .encode()).hexdigest()
         self.assertEqual(fingerprint, SLIM_FINGERPRINT)             # the same rows on every Python and machine
         with mock.patch.object(P, "SLIM_SEED", P.SLIM_SEED + 1):    # the seed in code is what decides
-            other = [r["id"] for d in P.DATASETS for r in P.load_rows(d, "slim")]
+            other = [r["id"] for d in P.SURVEYS for r in P.load_rows(d, "slim")]
         self.assertNotEqual(other, before)
         self.assertEqual(len(other), len(before))
 
@@ -654,7 +654,7 @@ class TestSlim(unittest.TestCase):
         self.assertEqual({c["dataset"] for c in calls}, {"par-potestas"})
         self.assertEqual({c["config"] for c in calls}, {"conflict-full"})
         self.assertEqual(len(calls), 112)
-        self.assertEqual(len(P.plan_calls("slim", "Jane Doe")), 720)
+        self.assertEqual(len(P.plan_calls("slim", "Jane Doe", P.SURVEYS)), 720)
 
 
 SLIM_FINGERPRINT = "24639bab5e953e0969b0ae533fd825909869076b2c13b038f953830ae0c1959f"
