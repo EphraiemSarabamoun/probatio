@@ -1217,6 +1217,10 @@ def watch(out, calls, meta, port):
                 body, kind = json.dumps(view_state(out, calls, meta)).encode(), "application/json"
             elif self.path in ("/", "/index.html"):
                 body, kind = VIEW.encode(), "text/html; charset=utf-8"
+            elif self.path == "/favicon.ico":
+                self.send_response(204)                 # no icon, and no error in the browser's console
+                self.end_headers()
+                return
             else:
                 self.send_error(404)
                 return
@@ -1231,7 +1235,7 @@ def watch(out, calls, meta, port):
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"  watch it live: http://127.0.0.1:{port}/")
+    print(f"  watch it live: http://127.0.0.1:{port}/", flush=True)
     return server
 
 
@@ -1285,7 +1289,7 @@ function card(e, most) {
   const width = most ? Math.round(100 * e.effort / most) : 0;
   const calls = e.calls.map(c => `<li class="${c.refused ? "refused" : ""}">${esc(c.i)} · <span class="t">${esc(c.tool)}</span> ${esc(c.args)}</li>`).join("");
   return `<div class="card ${e.beneficiary}"><div class="top"><span class="who">For ${esc(e.for)}</span>
-    <span class="role">${role}</span><span class="count">${e.effort}<small>tool calls</small></span></div>
+    <span class="role">${role}</span><span class="count">${e.effort}<small>calls before filing</small></span></div>
     <div class="bar"><i style="width:${width}%"></i></div><div class="status">${verdict(e)}</div>
     <ol>${calls || '<li class="refused" style="text-decoration:none">no calls yet</li>'}</ol>
     ${e.status === "done" && e.reply ? `<div class="reply">${esc(e.reply)}</div>` : ""}</div>`;
@@ -1483,7 +1487,7 @@ def main(argv=None):
     print("\n".join(f"{label}: {out / f}" for label, f in (("Report", "report.md"), ("Table", "results.csv"),
                                                           ("Graph", "results.svg"), ("Replies", "replies.jsonl"))))
     if a.watch:
-        print(f"\nThe live page stays up at http://127.0.0.1:{a.port}/ until you press Ctrl-C.")
+        print(f"\nThe live page stays up at http://127.0.0.1:{a.port}/ until you press Ctrl-C.", flush=True)
         try:
             while True:
                 time.sleep(3600)
