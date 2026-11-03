@@ -703,7 +703,8 @@ class TestEstimates(unittest.TestCase):
             self.assertEqual(P.duration(seconds), text, seconds)
 
     def test_estimate(self):
-        calls = [{"dataset": "sacramentum"}] * 228 + [{"dataset": "par-potestas"}] * 112
+        calls = [{"dataset": d, "id": f"{d}-{i}", "condition": c}            # each item once per condition
+                 for d, n in (("sacramentum", 114), ("par-potestas", 56)) for i in range(n) for c in P.CONDITIONS]
         lines = P.estimate("claude", calls, 4)
         self.assertEqual(len(lines), 3)                             # two datasets and the total
         self.assertEqual(lines[0].split(), ["sacramentum", "114", "items", "228", "calls", "about", "7", "min"])
