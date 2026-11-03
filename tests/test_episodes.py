@@ -137,9 +137,11 @@ class TestReview(unittest.TestCase):
     """Codex's review of v3: an unreached world is an error, a resume refuses other data, the page needs its token,
     and g_wish is refused where anulus has no such arm."""
 
-    def write(self, d, lines):
+    def write(self, d, lines, number=True):
+        """A record as world.py writes it: each parsed line numbered 1 to N (seq), unless number is False."""
         path = Path(d) / "record.jsonl"
-        path.write_text("".join((l if isinstance(l, str) else json.dumps(l)) + "\n" for l in lines))
+        out = [l if isinstance(l, str) else json.dumps(dict(l, seq=i + 1) if number else l) for i, l in enumerate(lines)]
+        path.write_text("".join(x + "\n" for x in out))
         return path
 
     def test_episode_problems(self):
@@ -154,6 +156,10 @@ class TestReview(unittest.TestCase):
             self.assertIn("incomplete", P.episode_problem(self.write(d, [tools, call_line("look", {}), '{"kind": "fi'])))
             self.assertIn("did not close", P.episode_problem(self.write(d, [tools, call_line("look", {})])))
             self.assertIsNone(P.episode_problem(self.write(d, [tools, call_line("look", {}), final])))
+            gap = self.write(d, [tools, call_line("look", {}), final])
+            lines = gap.read_text().split("\n")
+            gap.write_text("\n".join(lines[:1] + lines[2:]))                    # a whole line lost
+            self.assertIn("missing", P.episode_problem(gap))
 
     def test_an_unreached_world_is_an_error_after_the_retry(self):
         r = row()

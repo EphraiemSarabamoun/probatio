@@ -329,7 +329,8 @@ def read_record(path):
 
 def episode_problem(path):
     """Why a finished episode's record cannot be scored, or None. It is read after the CLI has exited, when the world
-    has closed its record, so the record must be whole: every line parses, the agent received the world's tools (a
+    has closed its record, so the record must be whole: every line parses and they are numbered 1 to N with none
+    missing (world.py writes a seq on each), the agent received the world's tools (a
     tools/list), the engine hit no error, and the last line is the engine's own closing record (kind final), which
     it writes when the CLI stops it. Anything else is an error to retry, never an unsolved errand: a CLI can exit
     cleanly without ever starting the world, and a cut-off record cannot show what was filed (Codex's review and
@@ -343,6 +344,8 @@ def episode_problem(path):
                 record.append(json.loads(line))
             except ValueError:
                 return "the errand's record is incomplete (a line does not parse)"
+    if [c.get("seq") for c in record] != list(range(1, len(record) + 1)):
+        return "the errand's record is incomplete (a line is missing)"     # world.py numbers every line it writes
     if not any(c.get("kind") == "rpc" and c.get("method") == "tools/list" for c in record):
         return "the agent never received the world's tools (no tools/list in the record)"
     if any(c.get("engine_error") for c in record):
