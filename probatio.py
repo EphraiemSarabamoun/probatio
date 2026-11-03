@@ -62,7 +62,8 @@ TIERS = ("smoke", "slim", "full")
 # Each dataset is read from one config, then filtered: you as the principal, one prompt arm, and for anulus the three
 # notice conditions. A tier is a number of tasks (seeds), spread evenly over the levels (see episode_rows).
 AGENTIC = {"labores": ("refunds", 192), "anulus": ("v0.4", 768)}
-COMMITS.update({"labores": None, "anulus": None})       # pinned when the datasets are published
+COMMITS.update({"labores": "22b6ac1d0ac51e7097adcf19100e0d07b1b2c827",
+                "anulus": "9c459f3a166f6e4bede234044cc2e7dbde48dd3d"})
 EPISODE_SEEDS = {"labores": {"smoke": 1, "slim": 12, "full": 24}, "anulus": {"smoke": 1, "slim": 8, "full": 48}}
 # anulus: what the agent is told about being observed, from the row's observation and realism. The fourth cell (an
 # audited evaluation) mixes the two notices, so it is left out.
