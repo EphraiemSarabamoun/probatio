@@ -2,7 +2,7 @@
 
 ## What it does
 
-probatio benchmarks a person's own Claude Code or Codex agent on four public loyalty datasets from Hugging Face. Every prompt is sent twice, once with the agent's memory files loaded and once with them switched off, and the replies are scored mechanically. The report compares the two conditions, so it shows how much the memory files change whom the agent favours. A run can cover one dataset or all four, at one of three sizes (smoke, slim, full), and it saves a CSV and a graph beside the report. The README explains the conditions and the outputs for users; this file is for someone reading or changing the code.
+probatio benchmarks a person's own Claude Code or Codex agent on six public loyalty datasets from Hugging Face: four of questions (sacramentum, devotio, par-potestas, salus-populi) and two of errands done with tools (labores and anulus). Every item is asked twice, once with the agent's memory files loaded and once with them switched off, and scored mechanically: a question by its reply, an errand by the record of its tool calls. The report compares the two conditions, so it shows how much the memory files change whom the agent favours. A run can cover one dataset or all six, at one of three sizes (smoke, slim, full), and it saves a CSV and a graph beside the report. The README explains the conditions and the outputs for users; this file is for someone reading or changing the code.
 
 ## Where execution starts
 
@@ -27,6 +27,10 @@ flowchart TD
     H -->|codex| J["codex_call: codex exec in a fresh temporary CODEX_HOME"]
     I --> K["score: parse the reply, map the choice to its meaning"]
     J --> K
+    H -.->|"labores, anulus"| W["start_episode: a fresh world.json; world.py is the only MCP server, appending record.jsonl"]
+    W -.-> X["episode_outcome: solved, filed and tool calls, from the record"]
+    X --> L
+    W -.-> V["--watch: view_state reads every record live for the page"]
     K --> L["replies.jsonl: one line per call, appended as it finishes"]
     L --> M["table: measures and quality per condition, for the chosen datasets"]
     M --> N["report.md, also printed"]
@@ -35,6 +39,19 @@ flowchart TD
 ```
 
 The calls are planned before anything runs: each row becomes two calls, one per condition, side by side in a seeded shuffle, so drift during the run (load, rate limits) hits both conditions alike. `ask` makes one call with one retry and keeps errors (timeouts, CLI failures) apart from abstentions (replies that break the answer format). Each finished call is appended to replies.jsonl at once, so a rerun with the same `--out` resumes: `read_replies` keeps the newest line per call and cuts a torn last line, and failed calls are tried again. Before it reads or writes anything in the folder, `main` takes an OS lock on out/run.lock (`claim`), which the system releases however the process ends, so two runs never share a folder. `check_resume` refuses a resume when anything recorded in run.json has changed, memory-file hashes included, and `run_calls` stops when a reply comes from a model none of the earlier replies came from, or after eight failures in a row. The docstrings of these functions give the details.
+
+## The errands (labores and anulus)
+
+An agentic row is an episode: an errand in a simulated firm, for you or for a teammate.
+- **Rows.** `episode_rows` keeps you as the principal, one prompt arm (`--arm`) and, for anulus, the three notices in NOTICES. It then takes the tier's tasks with `spread`, evenly over the levels, or the one `--seed`.
+- **Plan.** `plan_calls` gives each call its world with your name in it (`personalise_world`, which fills the placeholders string by string so a name is never read as JSON) and the name of the person its errand is for.
+- **Each attempt.** `ask` passes the call's folder, and `start_episode` writes a fresh world for every attempt and returns the MCP server: world.py on this Python, isolated (`-I`).
+- **The CLIs.** `claude_command` and `codex_command` add that one server, Claude Code with only its tools allowed and the turns capped, Codex with its tools approved in advance, and the call gets EPISODE_TIMEOUT.
+- **Scoring.** Afterwards `episode_outcome` reads `record.jsonl` (`read_record`, `served`, REFUSED): solved when the last served call of the finish tool filed exactly the answer key, filed when anything was filed, and calls, the tool calls before filing.
+- **Measures.** `episode_measures` (with `extra_calls`, which pairs your errand with a teammate's on the same task) gives the report's rows.
+- **world.py** is castra's episode engine, byte for byte. WORLD_SHA256 pins it, and `main` refuses to run an errand if it changed.
+
+**The live page.** `--watch` starts `watch`, a small HTTP server on 127.0.0.1 in a background thread. The page (VIEW) asks /state once a second, and `view_state` answers from the run's replies.jsonl (read without touching it, `read_lines`) and each episode's record. `--demo` (`demo_setup`) is a run of one task, with memory only, every errand at once, watched.
 
 ## The important parts of probatio.py
 
@@ -55,6 +72,8 @@ The calls are planned before anything runs: each row becomes two calls, one per 
 | file | what it is |
 |---|---|
 | probatio.py | the whole program |
+| world.py | the episode engine: castra's, byte for byte (sha256 in WORLD_SHA256), standard library only |
+| tests/test_episodes.py | the errands: rows, worlds, command lines, outcomes, measures, the live page's state, and one real episode served by world.py |
 | tests/test_probatio.py | unit tests: parsers, substitution, metrics, command lines, resuming, the dataset check, the dataset choice, the slim tier, estimates and the outputs |
 | README.md | for users: quick start, the two conditions, what is sent where, the time table, results, limits, citations |
 | results/README.md | what each run folder holds and every column of results.csv; the only tracked file in results/ |

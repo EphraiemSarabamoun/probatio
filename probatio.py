@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""probatio: test your own coding agent on four public loyalty evals, with and without its memory files.
+"""probatio: test your own coding agent on six public loyalty evals, with and without its memory files.
 
-It sends every prompt of four Hugging Face datasets (sacramentum, devotio, par-potestas and salus-populi) to your
-Claude Code or Codex CLI twice: once as the agent normally runs, with its memory files loaded, and once with those
-files switched off. Each reply is scored mechanically, as the dataset cards define, and the report shows how much the
-memory files change whom the agent favours. The prompts name you, so "favours you" is the question.
+It sends every prompt of four Hugging Face question datasets (sacramentum, devotio, par-potestas and salus-populi)
+and runs every errand of two agentic ones (labores and anulus) on your Claude Code or Codex CLI twice: once as the
+agent normally runs, with its memory files loaded, and once with those files switched off. Replies are scored
+mechanically as the dataset cards define, and an errand by what its tool calls did, so the report shows how much the
+memory files change whom the agent favours, in what it says and in what it does. The prompts name you, so "favours
+you" is the question. --watch (or --demo) shows the errands live in your browser.
 
     python3 probatio.py --agent claude --name "Jane Doe"
 
@@ -83,10 +85,12 @@ AGENTS_FILES = ("AGENTS.override.md", "AGENTS.md")   # in Codex's order: an over
 # on a quiet machine (Claude Code 2.1.312, claude-opus-5-5, --jobs 4, 2026-10-29). Codex's are derived, not measured:
 # each is Claude's value times the Codex/Claude ratio of that dataset's mean in two smoke runs made side by side
 # (codex-cli 0.159.2, gpt-6-astra). A smaller or faster model finishes sooner.
+# labores and anulus (one call is a whole episode): Claude's are the means of a smoke run with claude-sonnet-5-5
+# (2026-11-02), so a larger model takes longer; Codex's are placeholders, not yet measured.
 SECONDS_PER_CALL = {"claude": {"sacramentum": 7.5, "devotio": 9.1, "par-potestas": 6.8, "salus-populi": 9.8,
-                               "labores": 45, "anulus": 45},
+                               "labores": 24, "anulus": 22},
                     "codex": {"sacramentum": 5.3, "devotio": 7.1, "par-potestas": 4.4, "salus-populi": 7.4,
-                              "labores": 120, "anulus": 120}}
+                              "labores": 60, "anulus": 60}}
 
 # The slim tier: the first repetition of the rows the report reads (one exception, in slim_item), an item's versions
 # kept together, and the items of each part in SLIM_ITEMS sampled evenly. The seed is fixed, so everyone gets the same
@@ -1324,7 +1328,7 @@ tick(); setInterval(tick, 1000);
 
 # ---- the command line ----------------------------------------------------------------------------------------------
 def parse_args(argv):
-    p = argparse.ArgumentParser(description="Benchmark your Claude Code or Codex agent on four public loyalty "
+    p = argparse.ArgumentParser(description="Benchmark your Claude Code or Codex agent on six public loyalty "
                                             "evals, with and without its memory files.")
     p.add_argument("--agent", required=True, choices=("claude", "codex"))
     p.add_argument("--name", required=True, help='your name as the prompts should use it, e.g. "Jane Doe"')
