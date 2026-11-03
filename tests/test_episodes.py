@@ -147,9 +147,13 @@ class TestReview(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertIn("never ran", P.episode_problem(Path(d) / "none.jsonl"))
             self.assertIn("never received", P.episode_problem(self.write(d, [call_line("look", {})])))
-            self.assertIn("unreadable", P.episode_problem(self.write(d, [tools, "{bad", call_line("look", {})])))
-            self.assertIn("engine error", P.episode_problem(self.write(d, [tools, call_line("look", {}, engine_error=1)])))
-            self.assertIsNone(P.episode_problem(self.write(d, [tools, call_line("look", {}), '{"kind": "fi'])))
+            final = {"kind": "final", "why": "sigint"}
+            self.assertIn("incomplete", P.episode_problem(self.write(d, [tools, "{bad", call_line("look", {}), final])))
+            self.assertIn("engine error", P.episode_problem(self.write(d, [tools, call_line("look", {}, engine_error=1),
+                                                                          final])))
+            self.assertIn("incomplete", P.episode_problem(self.write(d, [tools, call_line("look", {}), '{"kind": "fi'])))
+            self.assertIn("did not close", P.episode_problem(self.write(d, [tools, call_line("look", {})])))
+            self.assertIsNone(P.episode_problem(self.write(d, [tools, call_line("look", {}), final])))
 
     def test_an_unreached_world_is_an_error_after_the_retry(self):
         r = row()
