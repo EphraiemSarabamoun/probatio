@@ -808,10 +808,11 @@ def estimate(agent, calls, jobs):
     """The preflight's plan, one line per dataset and a total when there are several: items, calls and how long they
     should take at --jobs, from SECONDS_PER_CALL."""
     counts = {d: sum(1 for c in calls if c["dataset"] == d) for d in DATASETS}
+    items = {d: len({c["id"] for c in calls if c["dataset"] == d}) for d in DATASETS}     # a demo asks each once
     seconds = {d: n * SECONDS_PER_CALL[agent][d] / jobs for d, n in counts.items() if n}
-    lines = [(d, counts[d] // 2, counts[d], s) for d, s in seconds.items()]
+    lines = [(d, items[d], counts[d], s) for d, s in seconds.items()]
     if len(lines) > 1:
-        lines.append(("all", len(calls) // 2, len(calls), sum(seconds.values())))
+        lines.append(("all", sum(items.values()), len(calls), sum(seconds.values())))
     return [f"{d:<14} {items:>5} items {n:>6} calls   {duration(s)}" for d, items, n, s in lines]
 
 
@@ -1382,9 +1383,13 @@ def preflight(a, opts, name, calls):
     print(f"probatio: {a.agent} ({cli}), model {opts.model or 'CLI default'}"
           + (f", effort {opts.effort}" if opts.effort else ""))
     print(f"  name {name!r}, workdir {opts.workdir}")
-    print(f"  {a.tier} tier at --jobs {a.jobs}, each item asked once per condition (times measured with a large "
-          "model; a faster one finishes sooner):")
-    print("".join(f"    {line}\n" for line in estimate(a.agent, calls, a.jobs)), end="")
+    if getattr(a, "demo", False):
+        print(f"  demo: task {a.seed} of {a.dataset}, every errand at once, with memory only:")
+    else:
+        print(f"  {a.tier} tier at --jobs {a.jobs}, each item asked once per condition (times measured with a large "
+              "model; a faster one finishes sooner):")
+    jobs = max(a.jobs, len(calls)) if getattr(a, "demo", False) else a.jobs       # a demo runs every errand at once
+    print("".join(f"    {line}\n" for line in estimate(a.agent, calls, jobs)), end="")
     print("  memory files for the with-memory run:" + ("".join(f"\n    {shown(f)}" for f in files) or " " + NONE_FOUND))
     if a.agent == "codex":
         print("  features off: " + ", ".join(opts.features))

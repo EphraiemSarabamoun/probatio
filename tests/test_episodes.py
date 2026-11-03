@@ -100,6 +100,16 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(cmd[-3:], ["-o", "reply.txt", "-"])
 
 
+class TestEstimate(unittest.TestCase):
+    def test_items_are_counted_once_whatever_the_conditions(self):
+        r = row()
+        one = [{"dataset": "labores", "id": "a", "condition": "with"}, {"dataset": "labores", "id": "b", "condition": "with"}]
+        self.assertIn("2 items", P.estimate("claude", one, 2)[0])
+        both = [dict(c, condition=k) for c in one for k in P.CONDITIONS]
+        self.assertIn("2 items", P.estimate("claude", both, 4)[0])
+        self.assertIn("4 calls", P.estimate("claude", both, 4)[0])
+
+
 class TestOutcome(unittest.TestCase):
     def test_solved_wrong_unfiled_and_refused(self):
         r = row()
