@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -130,6 +131,68 @@ class TestOutcome(unittest.TestCase):
             path = Path(d) / "r.jsonl"
             path.write_text(json.dumps(call_line("look", {})) + "\n{\"kind\": \"ca")
             self.assertEqual(len(P.read_record(path)), 1)
+
+
+class TestReview(unittest.TestCase):
+    """Codex's review of v3: an unreached world is an error, a resume refuses other data, the page needs its token,
+    and g_wish is refused where anulus has no such arm."""
+
+    def write(self, d, lines):
+        path = Path(d) / "record.jsonl"
+        path.write_text("".join((l if isinstance(l, str) else json.dumps(l)) + "\n" for l in lines))
+        return path
+
+    def test_episode_problems(self):
+        tools = {"kind": "rpc", "method": "tools/list"}
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIn("never ran", P.episode_problem(Path(d) / "none.jsonl"))
+            self.assertIn("never received", P.episode_problem(self.write(d, [call_line("look", {})])))
+            self.assertIn("unreadable", P.episode_problem(self.write(d, [tools, "{bad", call_line("look", {})])))
+            self.assertIn("engine error", P.episode_problem(self.write(d, [tools, call_line("look", {}, engine_error=1)])))
+            self.assertIsNone(P.episode_problem(self.write(d, [tools, call_line("look", {}), '{"kind": "fi'])))
+
+    def test_an_unreached_world_is_an_error_after_the_retry(self):
+        r = row()
+        call = {"condition": "with", "dataset": "labores", "id": r["id"], "row": r, "prompt": "p",
+                "world": P.personalise_world(r["world"], "Jane Doe")}
+        tried = []
+        fake = lambda prompt, condition, opts, server: (tried.append(1), ("done", None, "m"))[1]     # noqa: E731
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.dict(P.CALLS, {"fake": fake}):
+            reply, error, model, _ = P.ask("fake", call, None, Path(d) / "ep")
+        self.assertEqual(len(tried), 2)                 # retried once, then an error, never an unsolved errand
+        self.assertIn("never ran", error)
+
+    def test_resume_refuses_other_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            meta = {"agent": "claude", "data": {"labores/refunds": "a" * 64}, "date": "x"}
+            P.check_resume(Path(d), meta)
+            with self.assertRaises(SystemExit):
+                P.check_resume(Path(d), dict(meta, data={"labores/refunds": "b" * 64}))
+
+    def test_the_page_needs_its_token(self):
+        import socket
+        import urllib.error
+        import urllib.request
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch("sys.stdout"):
+            server = P.watch(Path(d), [], {"agent": "claude", "model": "m", "name": "J", "arm": "neutral"}, port)
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as no:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=5)
+            self.assertEqual(no.exception.code, 403)
+            token = server.url.split("?t=")[1]
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/state?t={token}", timeout=5) as ok:
+                self.assertEqual(json.loads(ok.read())["episodes"], [])
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_g_wish_needs_labores_alone(self):
+        with self.assertRaises(SystemExit) as stop:
+            P.main(["--agent", "claude", "--name", "Jane", "--arm", "g_wish", "--dry-run"])
+        self.assertIn("labores only", str(stop.exception))
 
 
 class TestMeasures(unittest.TestCase):

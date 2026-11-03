@@ -24,6 +24,7 @@ import math
 import os
 import random
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -116,6 +117,7 @@ def config_of(dataset, tier):
 
 
 LOCAL = None       # --local: a folder holding <dataset>/data/<config>.jsonl, read in place of Hugging Face
+DATA = {}          # dataset/config -> sha256 of the file read, so a resume refuses other data (Codex review of v3, H2)
 
 
 def load_rows(dataset, tier, arm="neutral", seed=None):
@@ -151,7 +153,9 @@ def read_config(dataset, config, expected):
         part.write_bytes(data)
         os.replace(part, path)          # a download cut short never leaves a file that looks complete
     # split on "\n" only: str.splitlines would also break on separators that may sit raw inside a JSON string
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
+    data = path.read_bytes()
+    DATA[f"{dataset}/{config}"] = hashlib.sha256(data).hexdigest()
+    rows = [json.loads(line) for line in data.decode("utf-8").split("\n") if line.strip()]
     check_rows(rows, f"{dataset}/{config}", expected)
     return rows
 
@@ -321,6 +325,29 @@ def read_record(path):
         except ValueError:
             continue
     return lines
+
+
+def episode_problem(path):
+    """Why an episode's record cannot be scored, or None. The world must have run and given the agent its tools (a
+    tools/list in the record), every line but a last one cut short must parse, and the engine must have hit no
+    error. Anything else is an error to retry, never an unsolved errand: a CLI can exit cleanly without ever starting
+    the world (Codex review of v3, H1)."""
+    if not path.exists():
+        return "the errand's world never ran (no record)"
+    lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+    last = max((i for i, line in enumerate(lines) if line.strip()), default=-1)    # may be cut short
+    record = []
+    for i, line in enumerate(lines):
+        try:
+            record.append(json.loads(line))
+        except ValueError:
+            if line.strip() and i != last:
+                return "the errand's record has an unreadable line"
+    if not any(c.get("kind") == "rpc" and c.get("method") == "tools/list" for c in record):
+        return "the agent never received the world's tools (no tools/list in the record)"
+    if any(c.get("engine_error") for c in record):
+        return "the errand's world hit an engine error"
+    return None
 
 
 def served(record):
@@ -726,6 +753,8 @@ def ask(agent, call, opts, folder=None):
                                    else CALLS[agent](call["prompt"], call["condition"], opts))
         except subprocess.TimeoutExpired:
             reply, error, model = None, f"timeout after {EPISODE_TIMEOUT if server else TIMEOUT} s", None
+        if error is None and folder:
+            error = episode_problem(folder / "record.jsonl")
         if error is None:
             break
     return reply, error, model, round(time.time() - start, 2)
@@ -1214,19 +1243,29 @@ def view_state(out, calls, meta):
 
 
 def watch(out, calls, meta, port):
-    """Serve the live page from a background thread for as long as this process runs; returns the server."""
+    """Serve the live page from a background thread for as long as this process runs; returns the server. Only on
+    127.0.0.1, and only to a request carrying this run's random token (printed in the page's address), since replies
+    and tool arguments can hold what the agent knows and another local user could otherwise read them (Codex review of
+    v3, M3)."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlsplit
+    token = secrets.token_urlsafe(16)
 
     class Page(BaseHTTPRequestHandler):
         def do_GET(self):
+            url = urlsplit(self.path)
+            if url.path == "/favicon.ico":
+                self.send_response(204)                 # no icon, and no error in the browser's console
+                self.end_headers()
+                return
+            if parse_qs(url.query).get("t") != [token]:
+                self.send_error(403)
+                return
+            self.path = url.path
             if self.path.startswith("/state"):
                 body, kind = json.dumps(view_state(out, calls, meta)).encode(), "application/json"
             elif self.path in ("/", "/index.html"):
                 body, kind = VIEW.encode(), "text/html; charset=utf-8"
-            elif self.path == "/favicon.ico":
-                self.send_response(204)                 # no icon, and no error in the browser's console
-                self.end_headers()
-                return
             else:
                 self.send_error(404)
                 return
@@ -1241,7 +1280,8 @@ def watch(out, calls, meta, port):
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"  watch it live: http://127.0.0.1:{port}/", flush=True)
+    server.url = f"http://127.0.0.1:{port}/?t={token}"
+    print(f"  watch it live: {server.url}", flush=True)
     return server
 
 
@@ -1302,7 +1342,7 @@ function card(e, most) {
 }
 async function tick() {
   try {
-    const s = await (await fetch("/state", {cache: "no-store"})).json();
+    const s = await (await fetch("/state" + location.search, {cache: "no-store"})).json();
     document.getElementById("sub").textContent = `${s.agent}, model ${s.model}, prompt arm ${s.arm}. ` +
       `The principal is ${s.name}. The two errands of a task are worded alike but for the name.`;
     const tasks = new Map();
@@ -1401,7 +1441,8 @@ def preflight(a, opts, name, calls):
     return {"agent": a.agent, "cli": cli, "name": name, "dataset": a.dataset, "tier": a.tier,
             "model": opts.model or "CLI default", "effort": opts.effort, "workdir": opts.workdir, "commits": COMMITS,
             "memory_files": files, "features": opts.features, "arm": arm, "seed": seed, "demo": demo,
-            "local": str(LOCAL) if LOCAL else None, "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+            "local": str(LOCAL) if LOCAL else None, "data": dict(sorted(DATA.items())),
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
 
 
 def claim(out):
@@ -1466,6 +1507,8 @@ def main(argv=None):
     LOCAL = a.local and Path(a.local).resolve()
     if a.demo:
         demo_setup(a)
+    if a.arm != "neutral" and "anulus" in chosen(a.dataset):
+        raise SystemExit(f"--arm {a.arm} exists for labores only; add --dataset labores.")
     if set(AGENTIC) & set(chosen(a.dataset)) and hashlib.sha256(WORLD.read_bytes()).hexdigest() != WORLD_SHA256:
         raise SystemExit(f"{WORLD} is not the episode engine the datasets were made with; restore it from git.")
     opts = agent_options(a)
@@ -1484,8 +1527,7 @@ def main(argv=None):
         check_resume(out, meta)
         if a.agent == "codex":
             opts.homes = codex_homes(out)
-        if a.watch:
-            watch(out, calls, meta, a.port)
+        page = watch(out, calls, meta, a.port) if a.watch else None
         jobs = max(a.jobs, len(calls)) if a.demo else a.jobs      # a demo runs every errand at once
         done = run_calls(calls, a.agent, opts, out, jobs)
         text = write_results(out, meta, calls, done)
@@ -1497,7 +1539,7 @@ def main(argv=None):
     print("\n".join(f"{label}: {out / f}" for label, f in (("Report", "report.md"), ("Table", "results.csv"),
                                                           ("Graph", "results.svg"), ("Replies", "replies.jsonl"))))
     if a.watch:
-        print(f"\nThe live page stays up at http://127.0.0.1:{a.port}/ until you press Ctrl-C.", flush=True)
+        print(f"\nThe live page stays up at {page.url} until you press Ctrl-C.", flush=True)
         try:
             while True:
                 time.sleep(3600)
