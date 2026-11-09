@@ -397,15 +397,18 @@ class TestServer(unittest.TestCase):
 
 # ---- Check and Run, with stubs ---------------------------------------------------------------------------------------------
 class TestCheckAndRun(Stubbed):
+    """probatio's folder is the scratch folder here (P.HERE), so an entities file, a dry run's working directory and
+    a run's results stay in it: no test writes to, or removes from, the repository's results/."""
+
     def setUp(self):
         super().setUp()
+        here = mock.patch.object(P, "HERE", self.tmp)
+        here.start()
+        self.addCleanup(here.stop)
         self.s = Served(U.Session(program=self.program, env=self.env))
-        self.made = []                                  # entities files a test wrote under results/, removed after
 
     def tearDown(self):
         self.s.close()
-        for f in self.made:
-            f.unlink(missing_ok=True)
         super().tearDown()
 
     def test_check_is_the_real_dry_run(self):
@@ -432,10 +435,11 @@ class TestCheckAndRun(Stubbed):
 
     def test_check_writes_the_entities_file_it_names(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
+        before = sorted((REPO / "results").iterdir())
         reply = self.s.post("/check", {"form": form})
-        file = REPO / reply["entities"]["path"]
-        self.made.append(file)
+        file = self.tmp / reply["entities"]["path"]
         self.assertTrue(reply["ok"], reply["error"])
+        self.assertEqual(sorted((REPO / "results").iterdir()), before)
         self.assertEqual(file.read_text(encoding="utf-8"), reply["entities"]["text"])
         self.assertIn('custom control "Varrow Analytics": not calibrated', reply["plan"])
 
