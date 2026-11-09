@@ -15,27 +15,30 @@ it sits the answer: the exact command, its plan and its run.
                     verbatim) and the calibration words for its roster (load_entities, fixtures_label)
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
                     with no model call beyond the CLI's version probe
-    Runner          one run at a time: the checked argv plus --watch in a subprocess, its watch link, the last lines
-                    of its output, its results folders and scorecards, and Stop (SIGINT to that child alone, as Ctrl-C
-                    in a terminal: the calls already running finish, and the same command resumes)
+    Runner          one run at a time: the checked argv (--watch is always in it) in a subprocess, its watch link,
+                    the last lines of its output, its results folders and scorecards, and Stop (SIGINT to that child
+                    alone, as Ctrl-C in a terminal: the calls already running finish, and the same command resumes)
 
 probatio.py imports this module only for --ui (import_ui), and this module imports probatio and live, as live.py
 imports probatio. Standard library only, Python 3.9 or later.
 """
 import contextlib
+import errno
 import functools
 import hashlib
 import io
 import json
 import os
 import re
+import secrets
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import threading
 import time
-from collections import deque
+from collections import deque, namedtuple
 from pathlib import Path
 
 import live
@@ -44,9 +47,10 @@ import probatio as P
 # ---- the page's numbers, words and patterns: one home ----------------------------------------------------------------
 PROGRAM = ("python3", "probatio.py")   # how the page writes the command, run from the probatio folder
 LISTS = ("comparators", "controls")   # the roster lists the form edits; targets go on the command line as --target
-ENTITIES = "ui-entities-{}.json"      # under results/, named by the first 8 hex of the file's sha256
+ENTITIES = "ui-entities-{}.json"      # under results/, named by the file's whole sha256: one name, one content
+SNAPSHOT_MODE = 0o444                 # a roster snapshot is read-only once written
 AUTO_MEMORY_OFF = "off"               # --auto-memory's other choice (its default is the parser's)
-WATCH_DEFAULT = True                  # the page starts with --watch on; Run always adds it, to read the live link
+WATCH = "--watch"                     # always on: the page reads the run's live link, and Run runs what Check checked
 TAIL = 40                             # the newest lines of a run's output on the page
 CHECK_SECONDS = 120                   # a dry run that takes longer is reported, not waited for
 STOP_SECONDS = 10                     # after a second Ctrl-C, how long the page waits for its run to end
@@ -82,7 +86,7 @@ def defaults():
     return {
         "default": {"type": a.target_type, "agent": a.agent, "tier": a.tier, "classes": list(a.classes),
                     "memory": a.memory, "auto_memory": a.auto_memory, "effort": a.effort, "model": a.model,
-                    "jobs": a.jobs, "watch": WATCH_DEFAULT},
+                    "jobs": a.jobs},
         "types": list(P.TARGET_TYPES),
         "rosters": {t: {part: rosters[t][part] for part in LISTS + ("targets",)} for t in P.TARGET_TYPES},
         "counts": {part: list(P.LIST_COUNTS[part]) for part in LISTS},
@@ -99,7 +103,8 @@ def defaults():
 # ---- the form as a command line (pure) ---------------------------------------------------------------------------------
 # The page sends its form as JSON: {"types": [...], "name": text, "targets": {type: text}, "rosters": {type:
 # {"comparators": text, "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort",
-# "model", "jobs", "watch": bool}, every list of names one name per line. A field left out is its default.
+# "model", "jobs"}, every list of names one name per line. A field left out is its default; --watch is always on, so a
+# "watch" field is ignored.
 def text_of(value):
     """A form field as text, stripped; anything that is not text reads as empty."""
     return value.strip() if isinstance(value, str) else ""
@@ -148,8 +153,9 @@ def entities_text(form, types, base):
 
 
 def entities_path(text):
-    """Where the entities file goes, relative to probatio's folder (the command's working directory)."""
-    return f"results/{ENTITIES.format(hashlib.sha256(text.encode('utf-8')).hexdigest()[:8])}"
+    """Where the entities file goes, relative to probatio's folder (the command's working directory): named by the
+    whole sha256 of its bytes, so one name can hold one content only."""
+    return f"results/{ENTITIES.format(hashlib.sha256(text.encode('utf-8')).hexdigest())}"
 
 
 def build_command(form, base=None):
@@ -158,8 +164,9 @@ def build_command(form, base=None):
     --compare (none for the default type alone; probatio's canonical form for two or three types); typed names become
     --target TYPE=NAME, and with none an individual run scores --name, as probatio does; roster edits become
     --entities results/ui-entities-<sha8>.json. Classes are left out when they are all three or exactly the ones the
-    tier plans; an empty choice is passed on so the parser says why. Pure: it reads nothing and writes nothing (Check
-    writes the file)."""
+    tier plans; an empty choice is passed on so the parser says why. --watch is always last: the page reads the run's
+    live link from it, and the command shown is the one Check checks and Run runs, byte for byte. Pure: it reads
+    nothing and writes nothing (Check writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
     default, types = base["default"], types_of(form, base)
@@ -197,8 +204,7 @@ def build_command(form, base=None):
     jobs = text_of(str(form["jobs"])) if form.get("jobs") is not None else ""
     if jobs and jobs != str(default["jobs"]):
         argv += ["--jobs", jobs]
-    if form.get("watch") is True:
-        argv.append("--watch")
+    argv.append(WATCH)
     return argv, entities
 
 
@@ -283,23 +289,108 @@ def plan_summary(text):
     return {"calls": calls, "time": total or (times[0] if len(times) == 1 else None), "hint": hint, "rates": rates}
 
 
-def write_entities(text):
-    """The entities file under probatio's results/, written once: its name is its content's hash."""
-    path = P.HERE / entities_path(text)
-    path.parent.mkdir(exist_ok=True)
-    if not path.is_file() or path.read_text(encoding="utf-8") != text:
-        path.write_text(text, encoding="utf-8")
-    return path
+# ---- roster snapshots: immutable and bound to their content ----------------------------------------------------------
+# An entities file the page writes is a snapshot: named by the whole sha256 of its bytes, created once, exclusively and
+# atomically, as a read-only regular file inside a real results/ folder, and never overwritten. Every step works
+# through results/'s own directory descriptor, opened without following a symbolic link, so neither results/ nor a
+# snapshot can be a link that sends a write or a read anywhere else. P.HERE is already resolved, so results/ is the
+# one parent to check. A Check binds the bytes it read; a Run reads them again and refuses any difference.
+class SnapshotRefused(Exception):
+    """A roster snapshot the page will not write or use; the message, shown on the page, says why and what to do."""
 
 
-def run_folders(argv):
-    """The results folder of each run argv makes, named as probatio names them (prepare_runs, run_folder), with no
-    call to any CLI. The entities file is read from probatio's folder, the run's working directory."""
+def results_folder():
+    """probatio's results/ as an open directory descriptor, made if it is missing: a real folder, never a symbolic
+    link (O_NOFOLLOW) or anything else. The caller closes it."""
+    path = P.HERE / "results"
+    try:
+        path.mkdir(exist_ok=True)
+        return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as e:
+        why = "a symbolic link" if path.is_symlink() else os.strerror(e.errno or 0)
+        raise SnapshotRefused(f"results/ is not a plain folder ({why}), so the page writes no roster file into it; "
+                              "make results/ a real folder and check again") from e
+
+
+def read_snapshot(folder, name):
+    """A snapshot's bytes from results/ (folder, its descriptor), read only from a regular file and without following
+    a symbolic link or waiting on a pipe."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError as e:
+        what = "is a symbolic link" if e.errno == errno.ELOOP else "is missing" if e.errno == errno.ENOENT else \
+            f"cannot be read ({os.strerror(e.errno or 0)})"
+        raise SnapshotRefused(f"results/{name} {what}; remove it if it is there, and check again") from e
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise SnapshotRefused(f"results/{name} is not a regular file; remove it and check again")
+        chunks = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+
+
+def snapshot_bytes(text):
+    """The bytes the snapshot for this entities text holds now (read_snapshot), or SnapshotRefused."""
+    name = Path(entities_path(text)).name
+    folder = results_folder()
+    try:
+        return read_snapshot(folder, name)
+    except OSError as e:
+        raise SnapshotRefused(f"results/{name} cannot be read ({os.strerror(e.errno or 0)})") from e
+    finally:
+        os.close(folder)
+
+
+def write_snapshot(text):
+    """The snapshot of this entities text under results/, written once: a private temporary file is created
+    exclusively without following a link, written, made read-only, then hard-linked to the snapshot's name, which
+    fails if anything holds that name, so the name never shows a partial file and nothing is overwritten. An existing
+    snapshot is used only when it is a regular file holding exactly these bytes; anything else is refused. Returns
+    the bytes as read back from the snapshot."""
+    data, name = text.encode("utf-8"), Path(entities_path(text)).name
+    folder = results_folder()
+    try:
+        temp = f".{name}.{secrets.token_hex(8)}.tmp"
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        try:
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fchmod(fd, SNAPSHOT_MODE)
+            finally:
+                os.close(fd)
+            try:
+                os.link(temp, name, src_dir_fd=folder, dst_dir_fd=folder)
+            except FileExistsError:
+                pass                                    # made before: it must hold exactly these bytes, below
+        finally:
+            os.unlink(temp, dir_fd=folder)              # the temporary goes, whatever happened after it was made
+        held = read_snapshot(folder, name)
+    except OSError as e:                                # a full disk, a folder it may not write: the page says so
+        raise SnapshotRefused(f"results/{name} could not be written ({os.strerror(e.errno or 0)}); check again "
+                              "once results/ can take it") from e
+    finally:
+        os.close(folder)
+    if held != data:
+        raise SnapshotRefused(f"results/{name} exists with other content, and the page never overwrites a roster "
+                              "file; remove it and check again")
+    return held
+
+
+def prepared(argv):
+    """argv's runs as probatio prepares them (prepare_runs), with no call to any CLI: each run's results folder
+    (run_folder) and plan fingerprint (plan_fingerprint), in run order. The entities file is read from probatio's
+    folder, the run's working directory."""
     absolute = [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
     a = P.parse_args_v4(absolute)
-    prepared = P.prepare_runs(a, False)              # the page never writes --target-type
-    runs = prepared[4]
-    return [P.run_folder(a, run, len(runs) > 1) for run in runs]
+    runs = P.prepare_runs(a, False)[4]               # the page never writes --target-type
+    return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
 
 
 def shown(path):
@@ -376,15 +467,22 @@ class Runner:
                     "lines": list(self.lines), "code": self.code, "started": self.started}
 
 
+# What the last passing Check approved, and the only thing Run may start: the exact argv, the exact bytes of its roster
+# snapshot (None without one) and each run's plan fingerprint.
+Approval = namedtuple("Approval", "argv entities fingerprints")
+
+
 class Session:
-    """The page's server side: its actions (preview, check, run, stop), the last command whose Check passed, and the
-    one run it may have going. program is how a dry run or a run starts probatio, env their environment (None: this
-    process's), both for the tests."""
+    """The page's server side: its actions (preview, check, run, stop), the approval of the last Check if it passed,
+    and the one run it may have going. Checks and Runs take turns (gate), so no Check can come between another's
+    snapshot, dry run and approval, nor a Run's verification and start. program is how a dry run or a run starts
+    probatio, env their environment (None: this process's), both for the tests."""
 
     def __init__(self, program=None, env=None):
         self.program = list(program or [sys.executable, *(["-B"] if sys.flags.dont_write_bytecode else []),
                                         str(P.HERE / "probatio.py")])
         self.env, self.lock, self.checked, self.runner = env, threading.Lock(), None, None
+        self.gate = threading.RLock()                  # re-entrant only so a nested call in one thread cannot hang
 
     def actions(self):
         return {"/command": self.command, "/check": self.check, "/run": self.run, "/stop": self.stop}
@@ -398,48 +496,69 @@ class Session:
         return preview(request.get("form"))
 
     def check(self, request):
-        """The real --dry-run of the form's command, in a subprocess in probatio's folder (the entities file written
-        first): its preflight and the totals, or probatio's message verbatim. A command that passes may be run."""
+        """The real --dry-run of the form's command, in a subprocess in probatio's folder: its preflight and the totals,
+        or probatio's message verbatim. Its roster snapshot is written first (write_snapshot) and must hold the same
+        bytes after the dry run; then the plan is prepared in this process from the same argv and snapshot, and the
+        approval binds the argv, those bytes and each run's plan fingerprint. Only the last Check can approve, and
+        only if it passed."""
         argv, entities = build_command(request.get("form"))
         reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
                  "entities": entities_view(entities)}
-        if entities:
-            write_entities(entities)
-        try:
-            proc = subprocess.run([*self.program, *argv, "--dry-run"], cwd=P.HERE, env=self.child_env(),
-                                  stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", timeout=CHECK_SECONDS)
-        except subprocess.TimeoutExpired:
-            return dict(reply, ok=False, plan="", summary=None,
-                        error=f"the dry run took longer than {CHECK_SECONDS} s; run the command with --dry-run in a "
-                              "terminal to see why")
-        ok = proc.returncode == 0
-        if ok:
-            with self.lock:
-                self.checked = (tuple(argv), entities)
-        return dict(reply, ok=ok, plan=proc.stdout, summary=plan_summary(proc.stdout) if ok else None,
-                    error=None if ok else exit_message(None, proc.stderr))
+        with self.gate:
+            self.checked = None
+            try:
+                snapshot = write_snapshot(entities) if entities else None
+            except SnapshotRefused as e:
+                return dict(reply, ok=False, plan="", summary=None, error=str(e))
+            try:
+                proc = subprocess.run([*self.program, *argv, "--dry-run"], cwd=P.HERE, env=self.child_env(),
+                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+                                      errors="replace", timeout=CHECK_SECONDS)
+            except subprocess.TimeoutExpired:
+                return dict(reply, ok=False, plan="", summary=None,
+                            error=f"the dry run took longer than {CHECK_SECONDS} s; run the command with --dry-run in "
+                                  "a terminal to see why")
+            if proc.returncode != 0:
+                return dict(reply, ok=False, plan=proc.stdout, summary=None, error=exit_message(None, proc.stderr))
+            try:
+                if entities and snapshot_bytes(entities) != snapshot:
+                    raise SnapshotRefused(f"{entities_path(entities)} changed during the check; check again")
+                plans = tuple(fingerprint for _, fingerprint in prepared(argv))
+            except SnapshotRefused as e:
+                return dict(reply, ok=False, plan=proc.stdout, summary=None, error=str(e))
+            except SystemExit as e:
+                return dict(reply, ok=False, plan=proc.stdout, summary=None, error=exit_message(e.code))
+            self.checked = Approval(tuple(argv), snapshot, plans)
+        return dict(reply, ok=True, plan=proc.stdout, summary=plan_summary(proc.stdout), error=None)
 
     def run(self, request):
-        """Start the form's command with --watch, once it is confirmed and only when it is the command the last Check
-        passed, and no run of the page's is going."""
+        """Start the form's command exactly as shown and checked (--watch included), once it is confirmed, only when it
+        is the command the last Check passed, and while no run of the page's is going."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
         argv, entities = build_command(request.get("form"))
-        with self.lock:
-            if self.runner is not None and self.runner.code is None:
-                return {"error": "a run is already going from this page; stop it before starting another"}
-            if self.checked != (tuple(argv), entities):
+        with self.gate:
+            with self.lock:
+                if self.runner is not None and self.runner.code is None:
+                    return {"error": "a run is already going from this page; stop it before starting another"}
+            approved = self.checked
+            if approved is None or approved.argv != tuple(argv) or \
+                    approved.entities != (entities.encode("utf-8") if entities else None):
                 return {"error": "check this command first: Run starts only the command the last Check passed"}
-            if entities:
-                write_entities(entities)
             try:
-                folders = run_folders(argv)
+                if entities and snapshot_bytes(entities) != approved.entities:
+                    raise SnapshotRefused(f"{entities_path(entities)} is not the roster Check approved; check again")
+                plans = prepared(argv)
+            except SnapshotRefused as e:
+                return {"error": str(e)}
             except SystemExit as e:
                 return {"error": exit_message(e.code)}
-            self.runner = Runner(self.program, argv if "--watch" in argv else [*argv, "--watch"], folders,
-                                 self.child_env())
-            return {"run": self.runner.state()}
+            if tuple(fingerprint for _, fingerprint in plans) != approved.fingerprints:
+                return {"error": "the plan is no longer the one Check approved; check again"}
+            with self.lock:
+                self.runner = Runner(self.program, list(approved.argv), [folder for folder, _ in plans],
+                                     self.child_env())
+                return {"run": self.runner.state()}
 
     def stop(self, request):
         with self.lock:
@@ -502,10 +621,10 @@ def main(argv, stream=None):
 
 # ---- the page ----------------------------------------------------------------------------------------------------------
 # The --watch page's palette and type (live.PAGE_BASE), light and dark. The form is on the left, the answer (the command,
-# its run once there is one, its plan) on the right and sticky; under 860 px they stack. The script builds every node with textContent,
-# never innerHTML, reads the token from location.search (it is never embedded), and sends every action as a POST with
-# the token in the X-Probatio-Token header. The defaults arrive with the first /state; nothing on the page is a default
-# of its own except --watch on.
+# its run once there is one, its plan) on the right and sticky; under 860 px they stack. The script builds every node
+# with textContent, never innerHTML, reads the token from location.search (it is never embedded), and sends every
+# action as a POST with the token in the X-Probatio-Token header. The defaults arrive with the first /state; nothing on
+# the page is a default of its own, and --watch is not a choice: it is always on.
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>probatio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
@@ -558,6 +677,7 @@ details.setup .seg { margin-top:6px; }
 .box { border:1px solid var(--line); border-radius:10px; background:var(--band); }
 pre { margin:0; font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 pre.cmd { padding:12px; white-space:pre-wrap; font-size:13px; } pre.cmd span { white-space:nowrap; }
+pre.cmd span.long { white-space:normal; overflow-wrap:anywhere; }
 .cmdbar { display:flex; gap:8px; align-items:center; border-top:1px solid var(--line); padding:6px 8px 6px 12px;
   font-size:12.5px; color:var(--muted); } .cmdbar button { margin-left:auto; }
 .labels { color:var(--muted); font-size:12.5px; margin:8px 0 0; } .labels .warn { color:var(--pending); }
@@ -636,8 +756,7 @@ function fresh() {
   const d = D.default, rosters = {}, targets = {};
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
   return {types: [d.type], name: "", targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
-          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs),
-          watch: d.watch};
+          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs)};
 }
 // ---- the form
 function choices(key, values, opts) {
@@ -740,10 +859,8 @@ function how() {
     "default " + d.memory + " · both asks each item with and without the memory files"));
   add(s, row("effort", choices("effort", D.efforts.map(e => [e, e])), "default " + d.effort));
   add(s, row("model", field(F, "model", "the CLI's default"), "default: the CLI's own model"));
-  const watch = el("input"); watch.type = "checkbox"; watch.checked = F.watch; watch.id = "watch";
-  watch.addEventListener("change", () => { F.watch = watch.checked; changed(); });
-  const label = add(el("label"), watch, document.createTextNode("follow it live in your browser (--watch)"));
-  add(s, row("watch", label, "on by default here (probatio's own default is off); Run always adds it"));
+  add(s, row("watch", el("div", null, "always on: you follow the run live in your browser (--watch)"),
+    "the command shows it, so Run starts exactly the command Check checked"));
   const jobs = field(F, "jobs", String(d.jobs)); jobs.type = "number"; jobs.min = "1";
   const more = add(el("details", "more"), el("summary", null, "more: jobs, auto memory"),
     row("jobs", jobs, "default " + d.jobs + " calls at once"),
@@ -767,7 +884,8 @@ async function refresh() {
 }
 function render() {
   const cmd = $("cmd"); cmd.replaceChildren();
-  if (said) said.words.forEach((w, i) => add(cmd, i ? document.createTextNode(" ") : null, el("span", null, w)));
+  if (said) said.words.forEach((w, i) => add(cmd, i ? document.createTextNode(" ") : null,
+    el("span", w.length > 40 ? "long" : null, w)));                     // a flag stays whole; a long path may break
   else cmd.textContent = "…";
   $("where").textContent = D ? "in the probatio folder" : "";
   const labels = $("labels"); labels.replaceChildren();
@@ -776,7 +894,7 @@ function render() {
   const files = $("files"); files.replaceChildren();
   if (said && said.entities) {
     add(files, document.createTextNode("Your roster edits go in "), el("code", null, said.entities.path),
-      document.createTextNode(", written when you check."));
+      document.createTextNode(", a read-only file named by its content, written when you check."));
     const det = add(el("details"), el("summary", null, "the file"), el("pre", null, said.entities.text));
     files.appendChild(det);
   }
