@@ -16,7 +16,8 @@ the exact command, its plan and its run.
     preview         the command as the form changes: probatio's own parser on it (in this process, its message
                     verbatim) and the calibration words for its roster (load_entities, fixtures_label)
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
-                    with no model call beyond the CLI's version probe
+                    with no model call beyond the CLI's version probe; then probatio's own resume check, read only,
+                    for each results folder that already holds a run (resume_refusals)
     Runner          one run at a time: the checked argv (with --watch unless it is chosen off) in a subprocess,
                     its watch link (probatio's own line, and only with --watch), the last lines of its output, its
                     results folders and scorecards, and Stop
@@ -40,6 +41,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque, namedtuple
@@ -80,11 +82,16 @@ ALL_RUNS = re.compile(r"^\s+all \d+ comparisons: (.+?)(?: \((.+)\))?$")
 TIME_HINT = re.compile(r"^\s+(about [\d.]+ minutes; to shorten: .+)$")
 PARSE_LOCK = threading.Lock()         # the in-process parser borrows sys.stderr, one request at a time
 # What the page refuses before probatio sees the command, each bounded (it never repeats a value): a length it does not
-# offer (smoke is the calibration's setup plan, for a terminal), a NUL, which no command line can carry, and a value
-# the reply's redactor would change, so the command shown would not be the one that runs.
+# offer (smoke is the calibration's setup plan, for a terminal), a NUL, which no command line can carry, a "=" in a
+# row's name (the type is the type buttons', never TYPE=NAME in a row; any other name the guard refuses gets the
+# guard's own words, under ROW_LABEL), and a value the reply's redactor would change, so the command shown would not
+# be the one that runs.
 TIER_REFUSED = (f"the page runs {', '.join(P.USER_TIERS[:-1])} or {P.USER_TIERS[-1]}; smoke, the calibration's "
                 "setup plan, runs from a terminal (--tier smoke)")
 NUL_REFUSED = "a name or the model holds a NUL character, which no command line can carry; remove it"
+NAME_EQUALS = ('a name in the {} row holds "=", which no name can hold; the type is chosen with the type buttons, so '
+               "pick it there and type the bare name in its row")
+ROW_LABEL = "a name in the {} row"     # check_name's label for a row's name, so its message says where to look
 UNSHOWN = ("{} holds text the page would not show as it is (a control or format character, or the shape of a key, "
            "a secret or the page's token), so the command shown would not be the one that runs; remove it")
 
@@ -181,27 +188,50 @@ def entities_path(text):
 
 
 class FormRefused(ValueError):
-    """A form the page writes no command for; the message, shown on the page, says why (TIER_REFUSED, NUL_REFUSED)."""
+    """A form the page writes no command for; the message, shown on the page, says why (TIER_REFUSED, NUL_REFUSED,
+    NAME_EQUALS, or the name guard's own words)."""
+
+
+def row_name(name, kind):
+    """A row's name as the command writes it: probatio's name guard's own form of it (check_name: NFC, one space
+    between words), or FormRefused. A NUL gets NUL_REFUSED and a "=" the page's NAME_EQUALS (probatio would read
+    TYPE=NAME, or an unknown type); anything else the guard refuses gets its own message, under the row's label."""
+    if "\x00" in name:
+        raise FormRefused(NUL_REFUSED)
+    if "=" in name:
+        raise FormRefused(NAME_EQUALS.format(kind))
+    try:
+        return P.check_name(name, ROW_LABEL.format(kind))
+    except P.NameRefused as e:
+        raise FormRefused(str(e)) from None
+
+
+def target_words(value):
+    """--target and its value as the command writes them: two words, or one, --target=VALUE, when the value starts
+    with "-", which argparse would otherwise read as an option (a name such as "-Jane" passes the guard)."""
+    return [f"--target={value}"] if value.startswith("-") else ["--target", value]
 
 
 def build_command(form, base=None):
-    """The form as probatio's argv, with only the flags that change something (an option at its parser default is
-    left out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run is
-    written as README teaches it, so it takes v4's own path and shares its folders with a terminal's runs (run.json
-    alike, so either resumes the other): --target-type TYPE for an organization or a nation (none for the default
-    individual) and each target as --target NAME. Two or three types compared are --compare, probatio's canonical
-    form, with each target as --target TYPE=NAME, which is the only place the type is needed. A person (you or anyone)
-    is a target like any other, typed in the individual row, so the page never writes --name: --target NAME plans
-    the same run, item for item. With no target, a single-type run stops with probatio's own message. Several
-    targets of one type, or roster edits, take probatio's options path whatever the form, and --target-type keeps
-    their comparison. Roster edits become --entities results/ui-entities-<sha256>.json. Classes are left out only
-    when all three are chosen, the form's own default, which is the parser's "all" (each tier then asks its own
-    classes); any other choice is passed on as --class, so a subset stays explicit at every tier, even one equal to
-    the tier's classes (I,II at quick, which probatio compares with standard's I,II), and an empty one so the parser
-    says why. --watch comes last unless the form's watch is off (the page then shows the run's output without a live
-    link); either way the command shown is the one Check checks and Run runs, byte for byte (preview and Check
-    refuse a command the reply's redactor would change: unshown). FormRefused, with no command, for a tier outside
-    USER_TIERS (smoke is a terminal's) or a NUL in any argument. Pure: it reads nothing and writes nothing (Check
+    """The form as probatio's argv, with only the flags that change something (an option at its parser default is left
+    out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run is
+    written as README teaches it, so it takes v4's own path and shares the default results folder with a terminal's runs
+    (with one target and the default rosters its run.json is the terminal's, so either resumes the other): --target-type
+    TYPE for an organization or a nation (none for the default individual) and each target as --target NAME. Two or
+    three types compared are --compare, probatio's canonical form, with each target as --target TYPE=NAME, which is the
+    only place the type is needed. A person (you or anyone) is a target like any other, typed in the individual row, so
+    the page never writes --name: --target NAME plans the same run, item for item. Each name goes through probatio's
+    name guard first and is written in its form (row_name), as --target=NAME when it starts with "-" (target_words).
+    With no target, a single-type run stops with probatio's own message. Several targets of one type, or roster edits,
+    take probatio's options path whatever the form, and --target-type keeps their comparison. Roster edits become
+    --entities results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own
+    default, which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as
+    --class, so a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which
+    probatio compares with standard's I,II), and an empty one so the parser says why. --watch comes last unless the
+    form's watch is off (the page then shows the run's output without a live link); either way the command shown is the
+    one Check checks and Run runs, byte for byte (preview and Check refuse a command the reply's redactor would change:
+    unshown). FormRefused, with no command, for a tier outside USER_TIERS (smoke is a terminal's), a NUL in any
+    argument, or a row's name the guard or the page refuses (row_name). Pure: it reads nothing and writes nothing (Check
     writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
@@ -218,7 +248,8 @@ def build_command(form, base=None):
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
     for t in types:
         for n in names_of(targets.get(t)):
-            argv += ["--target", n if single else f"{t}={n}"]
+            name = row_name(n, t)
+            argv += target_words(name if single else f"{t}={name}")
     entities = entities_text(form, types, base)
     if entities:
         argv += ["--entities", entities_path(entities)]
@@ -255,7 +286,9 @@ def unshown(argv, redactor):
     word it would change shows as something it is not. The message names the word's option, never the word."""
     for i, word in enumerate(argv):
         if redactor(word) != word:
-            return UNSHOWN.format(f"the value of {argv[i - 1]}" if i and argv[i - 1].startswith("--") else "an option")
+            flag = word.partition("=")[0] if word.startswith("--") and "=" in word else \
+                argv[i - 1] if i and argv[i - 1].startswith("--") else None
+            return UNSHOWN.format(f"the value of {flag}" if flag else "an option")
     return None
 
 
@@ -284,6 +317,47 @@ def exit_message(code, stderr=""):
     if lines and lines[0].startswith("usage: ") and ": error: " in lines[-1]:
         return lines[-1].split(": error: ", 1)[1]
     return (stderr or "").strip()
+
+
+# probatio's refusals whose advice names what the page does not show (an entities file's keys, --compare), each as a
+# pattern of probatio's message and the page's words for it: run the names separately, rename one, pick the type. The
+# page shows its words; probatio's own message stays, verbatim, in the whole preflight (told).
+PAGE_WORDS = (
+    (re.compile(r"^(?P<who>.+) both have the key (?P<key>\".*\"), and a target's key names its results; "
+                r"give one its own key under \w+ targets in the --entities file"),
+     "{who} both have the key {key}, which names a run's results folder, so they cannot run together: run them "
+     "separately (the second once the first's folder is moved or renamed), or rename one"),
+    (re.compile(r"^(?P<runs>.+) would both write to (?P<folder>/.+); give the target its own key in the --entities "
+                r"file$"),
+     "{runs} would both write to {folder}, so they cannot run together: run them separately, or rename one"),
+    (re.compile(r"^--target .+ names (?P<what>an? \w+), which this run does not compare; add (?P<kind>\w+) to "
+                r"--compare$"),
+     "a name in a row names {what}, which this run does not measure: pick {kind} with the type buttons and type the "
+     "name in its row"),
+)
+
+
+def page_words(message):
+    """The page's words for a refusal of probatio's whose advice the page cannot follow (PAGE_WORDS), or None when the
+    message is one the page shows as it is. A folder is named as the page names it (shown)."""
+    for pattern, words in PAGE_WORDS:
+        m = pattern.match(message or "")
+        if m:
+            return words.format(**{k: shown(v) if k == "folder" else v for k, v in m.groupdict().items()})
+    return None
+
+
+def told(preflight, *messages):
+    """The whole preflight with probatio's own messages after it, as a terminal shows them: stdout, then each
+    refusal."""
+    return preflight + "".join(m.rstrip("\n") + "\n" for m in messages if m)
+
+
+def refusal(said, preflight):
+    """A refusal of probatio's as Check shows it, (error, plan): the page's words with probatio's own message kept in
+    the whole preflight (page_words), or the message itself."""
+    words = page_words(said)
+    return (words, told(preflight, said)) if words else (said, preflight)
 
 
 def parser_error(argv):
@@ -445,12 +519,17 @@ def write_snapshot(text):
     return held
 
 
+def absolute(argv):
+    """argv with its entities file named from probatio's folder, the run's working directory, so another process or
+    folder reads the same file."""
+    return [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
+
+
 def prepared(argv):
     """argv's runs as probatio prepares them (prepare_runs), with no call to any CLI: each run's results folder
     (run_folder) and plan fingerprint (plan_fingerprint), in run order. The entities file is read from probatio's
     folder, the run's working directory."""
-    absolute = [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
-    a = P.parse_args_v4(absolute)
+    a = P.parse_args_v4(absolute(argv))
     runs = P.prepare_runs(a, "--target-type" in argv)[4]     # as main_v4 tells it; the page writes it as one word
     return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
 
@@ -461,6 +540,123 @@ def shown(path):
         return str(Path(path).resolve().relative_to(P.HERE))
     except ValueError:
         return str(path)
+
+
+# ---- a folder an earlier run holds: probatio's own resume check, read only ------------------------------------------
+# A run goes into its default results folder (the page writes no --out), and probatio refuses there, before any call,
+# when the folder's run.json records other settings (check_resume). The dry run never reads run.json, so Check asks
+# check_resume itself, for each prepared folder that already holds one, with the record the run would write. That
+# record holds the CLI's version and the memory files' hashes, so it is built where the run's are, in a child process
+# with the run's environment (resume_child: probatio's own preflight, as main_v4 calls it under --dry-run, its printing
+# discarded), and checked against a copy of run.json in a temporary folder, so the run's folder is never written.
+# Check approves only when every such run would go on.
+RESUME_CHILD = "import sys; sys.path.insert(0, {!r}); import ui; ui.resume_child()"
+BLOCKED = ("{folder} holds an earlier run{changed} that this command cannot continue: to resume that run, set the "
+           "page back to its settings; to start a new one, move or rename that folder (probatio's own words are in "
+           "the whole preflight)")
+CHANGED = re.compile(r"\(([^()]*) changed\)")          # check_resume's list of what differs
+
+
+class ResumeUnread(Exception):
+    """Check could not compare a prepared run with the run its folder already holds; the message says why, bounded."""
+
+
+def resume_refusals(argv, plans, env):
+    """probatio's refusal for each prepared run (plans: prepared's (folder, fingerprint) pairs) whose folder already
+    holds a run.json and would refuse it, as (folder, probatio's message), in run order; [] when every run would go
+    on, and at once when no folder holds one. The record is built in a child process (RESUME_CHILD) with env, the
+    run's environment; ResumeUnread when that fails or its plans are not the page's."""
+    if not any((Path(folder) / "run.json").exists() for folder, _ in plans):
+        return []
+    request = {"argv": absolute(argv), "folders": [str(folder) for folder, _ in plans]}
+    try:
+        proc = subprocess.run([sys.executable, "-I", "-B", "-c", RESUME_CHILD.format(str(Path(__file__).parent))],
+                              input=json.dumps(request), cwd=P.HERE, env=env, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=CHECK_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise ResumeUnread(f"comparing with the runs already in the results folders took longer than {CHECK_SECONDS} "
+                           "s; check again") from None
+    except (ValueError, OSError) as e:
+        raise ResumeUnread(not_started("check of the results folders", e)) from None
+    try:
+        answer = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except ValueError:
+        answer = None
+    if not isinstance(answer, dict) or answer.get("fingerprints") != [fp for _, fp in plans] or \
+            not isinstance(answer.get("refusals"), list) or len(answer["refusals"]) != len(plans):
+        why = (proc.stderr.strip().splitlines() or ["no answer"])[-1][:200]
+        raise ResumeUnread(f"Check could not compare this command with the runs already in its results folders "
+                           f"({why}); check again")
+    return [(folder, said) for (folder, _), said in zip(plans, answer["refusals"]) if said]
+
+
+def blocked_words(refusals):
+    """The page's words for each folder that blocks the run (resume_refusals): which folder, what differs when
+    probatio names it, and what to do from the page."""
+    words = []
+    for folder, said in refusals:
+        changed = CHANGED.search(said)
+        words.append(BLOCKED.format(folder=shown(folder),
+                                    changed=f" with other settings ({changed.group(1)} changed)" if changed else ""))
+    return " ".join(words)
+
+
+def would_be_metas(argv):
+    """The run.json record each run of argv would write, in run order: probatio's own preflight (preflight_v4 or
+    preflight_runs) as main_v4 calls it under --dry-run, its printing discarded. It asks the CLI its version and
+    reads the memory files, as the run will, so it runs in resume_child's process, with the run's environment."""
+    metas, v4, several = [], P.preflight_v4, P.preflight_runs
+
+    def one(*args):
+        metas.append(v4(*args))
+        return metas[-1]
+
+    def each(*args):
+        got = several(*args)
+        metas.extend(got)
+        return got
+    P.preflight_v4, P.preflight_runs = one, each
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            P.main_v4([*argv, "--dry-run"])
+    finally:
+        P.preflight_v4, P.preflight_runs = v4, several
+    return metas
+
+
+def resume_refusal(folder, meta):
+    """probatio's own check_resume for meta against a copy of folder's run.json in a temporary folder, so the run's
+    folder is never written: its refusal, with the folder's own path in it, or None when the run would go on (or
+    run.json is gone, so the run starts afresh). A run.json that is not a regular file, or not a record probatio can
+    read, refuses too, as the run would stop on it."""
+    path = folder / "run.json"
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return f"{path} is not a regular file"
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        return f"{path} cannot be read ({os.strerror(e.errno or 0)})"
+    with tempfile.TemporaryDirectory(prefix="probatio-ui-resume-") as d:
+        (Path(d) / "run.json").write_bytes(data)
+        try:
+            P.check_resume(Path(d), meta)
+        except SystemExit as e:
+            return str(e.code).replace(d, str(folder))
+        except Exception as e:                      # noqa: BLE001 (not JSON, not a record: the run stops on it too)
+            return f"{path} is not a run record probatio can read ({type(e).__name__})"
+    return None
+
+
+def resume_child():
+    """resume_refusals' child process: reads {"argv", "folders"} on stdin and writes {"fingerprints", "refusals"} on
+    stdout, one refusal (or null) per run, for the folders that hold a run.json."""
+    request = json.load(sys.stdin)
+    metas = would_be_metas(request["argv"])
+    json.dump({"fingerprints": [m.get("plan_fingerprint") for m in metas],
+               "refusals": [resume_refusal(Path(f), m) if (Path(f) / "run.json").exists() else None
+                            for f, m in zip(request["folders"], metas)]}, sys.stdout)
 
 
 # ---- one run at a time ---------------------------------------------------------------------------------------------------
@@ -576,7 +772,10 @@ class Session:
         bytes after the dry run; then the plan is prepared in this process from the same argv and snapshot, and the
         approval binds the argv, those bytes and each run's plan fingerprint. Only the last Check can approve, and
         only if it passed. A form build_command refuses, a command the reply's redactor would change (unshown) and a
-        dry run that cannot start are refusals too, before anything is written or after nothing ran."""
+        dry run that cannot start are refusals too, before anything is written or after nothing ran. A refusal whose
+        advice the page cannot follow is in the page's words, probatio's own kept in the whole preflight (refusal).
+        A results folder that already holds a run this command would refuse to continue (resume_refusals) is named,
+        with the page's fix, and approves nothing, since the run would stop on it at once."""
         with self.gate:
             self.checked = None
             try:
@@ -603,16 +802,22 @@ class Session:
             except (ValueError, OSError) as e:
                 return dict(reply, ok=False, plan="", summary=None, error=not_started("dry run", e))
             if proc.returncode != 0:
-                return dict(reply, ok=False, plan=proc.stdout, summary=None, error=exit_message(None, proc.stderr))
+                error, plan = refusal(exit_message(None, proc.stderr), proc.stdout)
+                return dict(reply, ok=False, plan=plan, summary=None, error=error)
             try:
                 if entities and snapshot_bytes(entities) != snapshot:
                     raise SnapshotRefused(f"{entities_path(entities)} changed during the check; check again")
-                plans = tuple(fingerprint for _, fingerprint in prepared(argv))
-            except SnapshotRefused as e:
+                plans = prepared(argv)
+                refusals = resume_refusals(argv, plans, self.child_env())
+            except (SnapshotRefused, ResumeUnread) as e:
                 return dict(reply, ok=False, plan=proc.stdout, summary=None, error=str(e))
             except SystemExit as e:
-                return dict(reply, ok=False, plan=proc.stdout, summary=None, error=exit_message(e.code))
-            self.checked = Approval(tuple(argv), snapshot, plans)
+                error, plan = refusal(exit_message(e.code), proc.stdout)
+                return dict(reply, ok=False, plan=plan, summary=None, error=error)
+            if refusals:                    # the run would stop at once on a folder an earlier run holds
+                return dict(reply, ok=False, plan=told(proc.stdout, *(said for _, said in refusals)), summary=None,
+                            error=blocked_words(refusals))
+            self.checked = Approval(tuple(argv), snapshot, tuple(fingerprint for _, fingerprint in plans))
         return dict(reply, ok=True, plan=proc.stdout, summary=plan_summary(proc.stdout), error=None)
 
     def run(self, request):
@@ -1154,19 +1359,22 @@ function renderPlan(stale) {
   if (!plan) { box.appendChild(el("p", "empty", "Check runs probatio's dry run of this exact command: every guard, " +
     "the calls and the time, the names as the items write them. It makes no model call.")); return; }
   if (stale) box.appendChild(el("p", "muted", "This plan is for an earlier command."));
-  if (!plan.ok) {
+  if (!plan.ok) {                         // a refusal: the page's words, and probatio's own in the whole preflight
     add(box, add(el("div", "err"), el("b", null, "probatio: "), document.createTextNode(plan.error)));
+    if (plan.plan) box.appendChild(preflight(plan.plan));
     return;
   }
   const sm = plan.summary || {};
   const head = [sm.calls !== null && sm.calls !== undefined ? sm.calls + " calls" : null, sm.time].filter(Boolean);
   if (head.length) box.appendChild(el("div", "big", head.join(" · ")));
   if (sm.hint) box.appendChild(el("div", "hintline", sm.hint));
-  const det = add(el("details", "small"), el("summary", null, "The whole preflight"),
-    lined(el("pre", "out"), plan.plan));
+  box.appendChild(preflight(plan.plan));
+}
+function preflight(text) {                // the dry run's whole output, in a fold that stays as the user left it
+  const det = add(el("details", "small"), el("summary", null, "The whole preflight"), lined(el("pre", "out"), text));
   det.open = opened.preflight;
   det.addEventListener("toggle", () => { opened.preflight = det.open; });
-  box.appendChild(det);
+  return det;
 }
 const RUN_WORDS = {running: "running", stopping: "stopping: the calls already running finish first",
   scored: "scored; its live page stays up until you stop it", finished: "finished", stopped: "stopped; the same " +
