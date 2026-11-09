@@ -13,7 +13,8 @@ it sits the answer: the exact command, its plan and its run.
     build_command   the form as an argv with only the options it changed, and the entities file its roster edits
                     need (pure)
     preview         the command as the form changes: probatio's own parser on it (in this process, its message
-                    verbatim) and the calibration words for its roster (load_entities, fixtures_label)
+                    verbatim), the calibration words for its roster (load_entities, fixtures_label) and the rates its
+                    time estimate assumes (run_profile)
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
                     with no model call beyond the CLI's version probe
     Runner          one run at a time: the checked argv (--watch is always in it) in a subprocess, its watch link,
@@ -51,6 +52,8 @@ LISTS = ("comparators", "controls")   # the roster lists the form edits; targets
 ENTITIES = "ui-entities-{}.json"      # under results/, named by the file's whole sha256: one name, one content
 SNAPSHOT_MODE = 0o444                 # a roster snapshot is read-only once written
 AUTO_MEMORY_OFF = "off"               # --auto-memory's other choice (its default is the parser's)
+MODEL_EXAMPLES = {"claude": "sonnet, opus, fable or haiku, or a full model name",   # what --model takes, per CLI
+                  "codex": "a Codex model name, e.g. gpt-6.1-sol"}
 WATCH = "--watch"                     # always on: the page reads the run's live link, and Run runs what Check checked
 TAIL = 40                             # the newest lines of a run's output on the page
 CHECK_SECONDS = 120                   # a dry run that takes longer is reported, not waited for
@@ -91,7 +94,7 @@ def defaults():
         "types": list(P.TARGET_TYPES),
         "rosters": {t: {part: rosters[t][part] for part in LISTS + ("targets",)} for t in P.TARGET_TYPES},
         "counts": {part: list(P.LIST_COUNTS[part]) for part in LISTS},
-        "agents": [[k, P.AGENT_NAMES[k]] for k in P.AGENT_NAMES],
+        "agents": [[k, P.AGENT_NAMES[k]] for k in P.AGENT_NAMES], "models": dict(MODEL_EXAMPLES),
         "tiers": list(P.USER_TIERS), "setup": [t for t in P.V4_TIERS if t not in P.USER_TIERS],
         "planned": {t: list(P.resolve_classes(t, "all")) for t in P.V4_TIERS},
         "classes": list(P.V4_CLASSES), "memory": list(P.MEMORY_MODES), "efforts": list(P.EFFORTS),
@@ -102,10 +105,10 @@ def defaults():
 
 
 # ---- the form as a command line (pure) ---------------------------------------------------------------------------------
-# The page sends its form as JSON: {"types": [...], "name": text, "targets": {type: text}, "rosters": {type:
-# {"comparators": text, "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort",
-# "model", "jobs"}, every list of names one name per line. A field left out is its default; --watch is always on, so a
-# "watch" field is ignored.
+# The page sends its form as JSON: {"types": [...], "targets": {type: text}, "rosters": {type: {"comparators": text,
+# "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort", "model", "jobs"}, every
+# list of names one name per line. A field left out is its default; --watch is always on, so a "watch" field is
+# ignored, and a person is a target like any other, so a "name" field is ignored too.
 def text_of(value):
     """A form field as text, stripped; anything that is not text reads as empty."""
     return value.strip() if isinstance(value, str) else ""
@@ -163,7 +166,9 @@ def build_command(form, base=None):
     """The form as probatio's argv, with only the flags that change something (an option at its parser default is
     left out), and the entities file its roster edits need, as text, or None. base is defaults(). The comparison is
     --compare (none for the default type alone; probatio's canonical form for two or three types); typed names become
-    --target TYPE=NAME, and with none an individual run scores --name, as probatio does; roster edits become
+    --target TYPE=NAME, a person (you or anyone) included, typed in the individual row, so the page never writes
+    --name, whose one job, an individual run's target when none is given, --target does (the same plan, item for item);
+    with no target, a single-type run stops with probatio's own message. Roster edits become
     --entities results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own
     default, which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as
     --class, so a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which
@@ -177,9 +182,6 @@ def build_command(form, base=None):
     agent = text_of(form.get("agent"))
     if agent:
         argv += ["--agent", agent]
-    name = text_of(form.get("name"))
-    if name:
-        argv += ["--name", name]
     if types != [default["type"]]:
         argv += ["--compare", types[0] if len(types) == 1 else P.canonical_compare([tuple(types)])["compare"]]
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
@@ -233,16 +235,16 @@ def exit_message(code, stderr=""):
     return (stderr or "").strip()
 
 
-def parser_error(argv):
-    """probatio's own parser (parse_args_v4) on argv, in this process: None when it accepts the command line, else its
-    message verbatim. Only the parser runs here; every other guard runs in Check's dry run."""
+def parsed(argv):
+    """probatio's own parser (parse_args_v4) on argv, in this process: (its namespace, None) when it accepts the
+    command line, else (None, its message verbatim). Only the parser runs here; every other guard runs in Check's dry
+    run."""
     err = io.StringIO()
     with PARSE_LOCK, contextlib.redirect_stderr(err):
         try:
-            P.parse_args_v4(argv)
+            return P.parse_args_v4(argv), None
         except SystemExit as e:
-            return exit_message(e.code, err.getvalue())
-    return None
+            return None, exit_message(e.code, err.getvalue())
 
 
 def entities_view(text):
@@ -252,15 +254,19 @@ def entities_view(text):
 
 def preview(form, base=None):
     """The answer to the form as it changes: the command (argv and its text), the entities file it needs, the parser's
-    verdict (verbatim), and the calibration words probatio prints for the selection and the roster: cross-type and
+    verdict (verbatim), the calibration words probatio prints for the selection and the roster: cross-type and
     unregistered (DESIGN 11's labels), and fixtures_label, "custom roster: not calibrated (fixtures …)" when the
-    lists differ from the defaults. A roster that load_entities refuses gives its message instead."""
+    lists differ from the defaults, and the rates the time estimate assumes for its agent, model and effort, as the
+    preflight names them (run_profile; None until the parser accepts the command). A roster that load_entities refuses
+    gives its message instead."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
     argv, entities = build_command(form, base)
     types = types_of(form, base)
+    a, error = parsed(argv)
     reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
-             "entities": entities_view(entities), "error": parser_error(argv), "labels": [], "roster": None}
+             "entities": entities_view(entities), "error": error, "labels": [], "roster": None,
+             "rates": P.run_profile(a)[1] if a is not None else None}
     if len(types) > 1:
         reply["labels"].append(P.CROSS_LABEL)
         if not P.canonical_compare([tuple(types)])["registered"]:
@@ -758,7 +764,7 @@ function defaultRoster(t) {
 function fresh() {
   const d = D.default, rosters = {}, targets = {};
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
-  return {types: [d.type], name: "", targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
+  return {types: [d.type], targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
           memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs)};
 }
 // ---- the form
@@ -806,14 +812,11 @@ function measure() {
   add(s, row("type", choices("types", D.types.map(t => [t, t]), {multi: true, after: build}),
     "default " + D.default.type + " · " + (cross ? "two or three are compared with each other: " + D.labels.cross :
       "one is scored against an invented control of its type; pick two or three to compare them")));
-  add(s, row("your name", field(F, "name", "e.g. Jane Doe"), cross ? "--name alone does not put you in a comparison: " +
-    "to include yourself, type your own name in the individual row, with individual chosen" :
-    "--name: the individual a run scores by default"));
-  for (const t of F.types) {
-    const place = cross ? (t === "individual" ? "your own name, to include yourself" : "none (optional)") :
-      t === "individual" ? "you, by your name" : "the " + t + " to score";
-    add(s, row(t, field(F.targets, t, place, true),
-      (cross ? "named targets, optional; " : "the target; ") + "one per line, each --target " + t + "=NAME"));
+  for (const t of F.types) {                         // a person, you or anyone, is the individual row's, in every run
+    const person = t === "individual";
+    const place = person ? "your own name, or anyone's" : cross ? "none (optional)" : "the " + t + " to score";
+    add(s, row(t, field(F.targets, t, place, true), (cross ? "named targets, optional; " : "the target; ") +
+      (person ? "type your own name to score yourself; " : "") + "one per line, each --target " + t + "=NAME"));
   }
 }
 function against() {
@@ -864,7 +867,9 @@ function how() {
   add(s, row("memory", choices("memory", D.memory.map(m => [m, m])),
     "default " + d.memory + " · both asks each item with and without the memory files"));
   add(s, row("effort", choices("effort", D.efforts.map(e => [e, e])), "default " + d.effort));
-  add(s, row("model", field(F, "model", "the CLI's default"), "default: the CLI's own model"));
+  const model = row("model", field(F, "model", "the CLI's default"), " ");
+  model.lastChild.id = "modelnote";
+  add(s, model); modelNote();
   add(s, row("watch", el("div", null, "always on: you follow the run live in your browser (--watch)"),
     "the command shows it, so Run starts exactly the command Check checked"));
   const jobs = field(F, "jobs", String(d.jobs)); jobs.type = "number"; jobs.min = "1";
@@ -874,6 +879,13 @@ function how() {
       "default " + d.auto_memory + " · off disables auto memory in both conditions"));
   more.open = String(F.jobs) !== String(d.jobs) || F.auto_memory !== d.auto_memory;
   s.appendChild(more);
+}
+function modelNote() {                // the chosen CLI's model names (both before one is chosen), and probatio's rates
+  const box = $("modelnote");
+  if (!box) return;
+  const say = F.agent ? D.models[F.agent] : D.agents.map(([k, word]) => word + ": " + D.models[k]).join(" · ");
+  box.replaceChildren(el("div", null, "default: the CLI's own model · " + say));
+  if (said && said.rates) box.appendChild(el("div", null, "time estimate: " + said.rates));
 }
 function build() { marks = []; measure(); against(); how(); }
 // ---- the answer
@@ -894,6 +906,7 @@ function render() {
     el("span", w.length > 40 ? "long" : null, w)));                     // a flag stays whole; a long path may break
   else cmd.textContent = "…";
   $("where").textContent = D ? "in the probatio folder" : "";
+  modelNote();
   const labels = $("labels"); labels.replaceChildren();
   (said ? said.labels : []).forEach((l, i) => add(labels, i ? document.createTextNode(" · ") : null,
     el("span", /not (calibrated|registered)/.test(l) ? "warn" : null, l)));
