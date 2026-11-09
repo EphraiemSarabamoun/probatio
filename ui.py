@@ -18,7 +18,8 @@ the exact command, its plan and its run.
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
                     with no model call beyond the CLI's version probe
     Runner          one run at a time: the checked argv (with --watch unless it is chosen off) in a subprocess,
-                    its watch link if any, the last lines of its output, its results folders and scorecards, and Stop
+                    its watch link (probatio's own line, and only with --watch), the last lines of its output, its
+                    results folders and scorecards, and Stop
                     (SIGINT to that child alone, as Ctrl-C in a terminal: the calls already running finish, and the
                     same command resumes)
 
@@ -67,8 +68,10 @@ STOP_SECONDS = 10                     # after a second Ctrl-C, how long the page
 BOUNDARY = ("Local to this machine. Check makes no model call (only the CLI's version check); Run uses your own CLI "
             "login and quota.")
 # What the page reads from probatio's output: the --watch link, a scored run's result lines, the held page's line,
-# and the preflight's totals (each run's calls and time, several runs' total time, the 45-minute hint).
-WATCH_LINK = re.compile(r"watch it live: (http://127\.0\.0\.1:\d+/\?t=[A-Za-z0-9_-]+)")
+# and the preflight's totals (each run's calls and time, several runs' total time, the 45-minute hint). The link is
+# probatio's own line, whole (live.Watch prints it before any call), read only when the run's argv has --watch and
+# only the first time: text elsewhere in the output (a model's name, a CLI's error) never becomes the link.
+WATCH_LINK = re.compile(r"^  watch it live: (http://127\.0\.0\.1:\d+/\?t=[A-Za-z0-9_-]+)$")
 RESULT_LINE = re.compile(r"^(Scorecard|Report): (\S.*)$")
 HELD_LINE = "The live page stays up at "
 RUN_TOTAL = re.compile(r"^\s+all\s+\d+ items\s+(\d+) calls\s+(.+?)(?: \((.+)\))?$")
@@ -76,6 +79,14 @@ CROSS_TOTAL = re.compile(r"^\s+\d+ units, (\d+) calls\s+(.+?)(?: \((.+)\))?$")
 ALL_RUNS = re.compile(r"^\s+all \d+ comparisons: (.+?)(?: \((.+)\))?$")
 TIME_HINT = re.compile(r"^\s+(about [\d.]+ minutes; to shorten: .+)$")
 PARSE_LOCK = threading.Lock()         # the in-process parser borrows sys.stderr, one request at a time
+# What the page refuses before probatio sees the command, each bounded (it never repeats a value): a length it does not
+# offer (smoke is the calibration's setup plan, for a terminal), a NUL, which no command line can carry, and a value
+# the reply's redactor would change, so the command shown would not be the one that runs.
+TIER_REFUSED = (f"the page runs {', '.join(P.USER_TIERS[:-1])} or {P.USER_TIERS[-1]}; smoke, the calibration's "
+                "setup plan, runs from a terminal (--tier smoke)")
+NUL_REFUSED = "a name or the model holds a NUL character, which no command line can carry; remove it"
+UNSHOWN = ("{} holds text the page would not show as it is (a control or format character, or the shape of a key, "
+           "a secret or the page's token), so the command shown would not be the one that runs; remove it")
 
 
 # ---- the defaults, from probatio ---------------------------------------------------------------------------------------
@@ -90,8 +101,8 @@ def defaults():
     """Everything the form starts from, read from probatio and never typed here: every option's default from
     parse_args_v4's own parser (the one command line it accepts without --agent, which has no default), the choices
     from probatio's constants, and each type's comparators, controls and targets from print_entities, exactly the
-    --entities starter file. The offered tiers are USER_TIERS; the others (smoke) sit in More options, as the
-    setup plan."""
+    --entities starter file. The page offers USER_TIERS alone: smoke, the calibration's setup plan, is a terminal's
+    (--tier smoke)."""
     a = P.parse_args_v4(["--print-entities"])
     rosters = json.loads(P.print_entities(P.load_entities(None, bank()), bank()))
     return {
@@ -103,8 +114,7 @@ def defaults():
         "counts": {part: list(P.LIST_COUNTS[part]) for part in LISTS},
         "agents": [[k, P.AGENT_NAMES[k]] for k in P.AGENT_NAMES], "models": {k: list(v) for k, v in MODELS.items()},
         "watch": list(WATCH_CHOICES), "measured_jobs": P.pricing()["measured"]["jobs"],
-        "tiers": list(P.USER_TIERS), "setup": [t for t in P.V4_TIERS if t not in P.USER_TIERS],
-        "planned": {t: list(P.resolve_classes(t, "all")) for t in P.V4_TIERS},
+        "tiers": list(P.USER_TIERS), "planned": {t: list(P.resolve_classes(t, "all")) for t in P.USER_TIERS},
         "classes": list(P.V4_CLASSES), "memory": list(P.MEMORY_MODES), "efforts": list(P.EFFORTS),
         "auto_memory": [a.auto_memory, AUTO_MEMORY_OFF],
         "labels": {"cross": P.CROSS_LABEL},
@@ -170,6 +180,10 @@ def entities_path(text):
     return f"results/{ENTITIES.format(hashlib.sha256(text.encode('utf-8')).hexdigest())}"
 
 
+class FormRefused(ValueError):
+    """A form the page writes no command for; the message, shown on the page, says why (TIER_REFUSED, NUL_REFUSED)."""
+
+
 def build_command(form, base=None):
     """The form as probatio's argv, with only the flags that change something (an option at its parser default is
     left out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run is
@@ -185,8 +199,10 @@ def build_command(form, base=None):
     classes); any other choice is passed on as --class, so a subset stays explicit at every tier, even one equal to
     the tier's classes (I,II at quick, which probatio compares with standard's I,II), and an empty one so the parser
     says why. --watch comes last unless the form's watch is off (the page then shows the run's output without a live
-    link); either way the command shown is the one Check checks and Run runs, byte for byte.
-    Pure: it reads nothing and writes nothing (Check writes the file)."""
+    link); either way the command shown is the one Check checks and Run runs, byte for byte (preview and Check
+    refuse a command the reply's redactor would change: unshown). FormRefused, with no command, for a tier outside
+    USER_TIERS (smoke is a terminal's) or a NUL in any argument. Pure: it reads nothing and writes nothing (Check
+    writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
     default, types = base["default"], types_of(form, base)
@@ -207,6 +223,8 @@ def build_command(form, base=None):
     if entities:
         argv += ["--entities", entities_path(entities)]
     tier = text_of(form.get("tier")) or default["tier"]
+    if tier not in P.USER_TIERS:
+        raise FormRefused(TIER_REFUSED)
     if tier != default["tier"]:
         argv += ["--tier", tier]
     picked = form.get("classes")
@@ -226,7 +244,24 @@ def build_command(form, base=None):
         argv += ["--jobs", jobs]
     if form.get("watch") not in (False, "off"):
         argv.append(WATCH)
+    if any("\x00" in word for word in argv):
+        raise FormRefused(NUL_REFUSED)
     return argv, entities
+
+
+def unshown(argv, redactor):
+    """Why the page would show argv other than as it runs, or None: every reply passes the server's redactor
+    (live.ViewRedactor: control and format characters removed, every secret value and key shape <redacted>), so a
+    word it would change shows as something it is not. The message names the word's option, never the word."""
+    for i, word in enumerate(argv):
+        if redactor(word) != word:
+            return UNSHOWN.format(f"the value of {argv[i - 1]}" if i and argv[i - 1].startswith("--") else "an option")
+    return None
+
+
+def refused(error):
+    """preview's reply to a form FormRefused: no command, only why."""
+    return {"argv": [], "command": "", "words": [], "entities": None, "error": error, "labels": [], "roster": None}
 
 
 def command_words(argv):
@@ -268,17 +303,23 @@ def entities_view(text):
     return {"path": entities_path(text), "text": text} if text else None
 
 
-def preview(form, base=None):
+def preview(form, base=None, redactor=None):
     """The answer to the form as it changes: the command (argv and its text), the entities file it needs, the parser's
     verdict (verbatim), and the calibration words probatio prints for the selection and the roster: cross-type and
     unregistered (DESIGN 11's labels), and fixtures_label, "custom roster: not calibrated (fixtures …)" when the
-    lists differ from the defaults. A roster that load_entities refuses gives its message instead."""
+    lists differ from the defaults. A roster that load_entities refuses gives its message instead. A form
+    build_command refuses has no command, only why; a command the reply's redactor (the server's; None: one built
+    from this process's environment) would change gets unshown's message once the parser accepts it."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
-    argv, entities = build_command(form, base)
+    try:
+        argv, entities = build_command(form, base)
+    except FormRefused as e:
+        return refused(str(e))
     types = types_of(form, base)
     reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
-             "entities": entities_view(entities), "error": parser_error(argv), "labels": [], "roster": None}
+             "entities": entities_view(entities), "labels": [], "roster": None,
+             "error": parser_error(argv) or unshown(argv, redactor or live.ViewRedactor())}
     if len(types) > 1:
         reply["labels"].append(P.CROSS_LABEL)
         if not P.canonical_compare([tuple(types)])["registered"]:
@@ -423,13 +464,23 @@ def shown(path):
 
 
 # ---- one run at a time ---------------------------------------------------------------------------------------------------
+def not_started(what, error):
+    """Why a dry run or a run did not start, bounded: subprocess refused its command line (ValueError) or the system
+    could not start it (OSError, by its errno's words); never the command."""
+    why = os.strerror(error.errno) if isinstance(error, OSError) and error.errno else \
+        "its command line holds what no program can take"
+    return f"the {what} could not start ({why})"
+
+
 class Runner:
     """One probatio run started by the page: program + argv in a subprocess in its own session (so a Ctrl-C at the
-    page's terminal reaches the page, which passes one SIGINT on), its output read line by line: the --watch link,
-    the newest TAIL lines, each run's result lines, the held page's line, and its exit code."""
+    page's terminal reaches the page, which passes one SIGINT on), its output read line by line: the --watch link
+    (WATCH_LINK, only when argv has --watch, the first), the newest TAIL lines, each run's result lines, the held
+    page's line, and its exit code. A process that cannot start raises subprocess's ValueError or OSError."""
 
     def __init__(self, program, argv, folders, env):
         self.argv, self.folders = list(argv), [str(f) for f in folders]
+        self.watching = WATCH in self.argv
         self.lines, self.results, self.watch, self.held = deque(maxlen=TAIL), [], None, False
         self.stopping, self.code, self.lock = False, None, threading.Lock()
         self.started = time.strftime("%H:%M")
@@ -445,8 +496,8 @@ class Runner:
             line = raw.rstrip("\n").split("\r")[-1]
             with self.lock:
                 self.lines.append(line)
-                link = WATCH_LINK.search(line)
-                if link and self.watch is None:
+                link = WATCH_LINK.match(line) if self.watching and self.watch is None else None
+                if link:
                     self.watch = link.group(1)
                 result = RESULT_LINE.match(line)
                 if result:
@@ -497,12 +548,15 @@ class Session:
     """The page's server side: its actions (preview, check, run, stop), the approval of the last Check if it passed,
     and the one run it may have going. Checks and Runs take turns (gate), so no Check can come between another's
     snapshot, dry run and approval, nor a Run's verification and start. program is how a dry run or a run starts
-    probatio, env their environment (None: this process's), both for the tests."""
+    probatio, env their environment (None: this process's), both for the tests. redactor is the one every reply
+    passes (serve gives it the server's, which knows the token), so preview and Check can refuse a command it would
+    change (unshown)."""
 
     def __init__(self, program=None, env=None):
         self.program = list(program or [sys.executable, *(["-B"] if sys.flags.dont_write_bytecode else []),
                                         str(P.HERE / "probatio.py")])
         self.env, self.lock, self.checked, self.runner = env, threading.Lock(), None, None
+        self.redactor = live.ViewRedactor()
         self.gate = threading.RLock()                  # re-entrant only so a nested call in one thread cannot hang
 
     def actions(self):
@@ -514,19 +568,26 @@ class Session:
         return dict(os.environ if self.env is None else self.env, PYTHONUNBUFFERED="1")
 
     def command(self, request):
-        return preview(request.get("form"))
+        return preview(request.get("form"), redactor=self.redactor)
 
     def check(self, request):
         """The real --dry-run of the form's command, in a subprocess in probatio's folder: its preflight and the totals,
         or probatio's message verbatim. Its roster snapshot is written first (write_snapshot) and must hold the same
         bytes after the dry run; then the plan is prepared in this process from the same argv and snapshot, and the
         approval binds the argv, those bytes and each run's plan fingerprint. Only the last Check can approve, and
-        only if it passed."""
-        argv, entities = build_command(request.get("form"))
-        reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
-                 "entities": entities_view(entities)}
+        only if it passed. A form build_command refuses, a command the reply's redactor would change (unshown) and a
+        dry run that cannot start are refusals too, before anything is written or after nothing ran."""
         with self.gate:
             self.checked = None
+            try:
+                argv, entities = build_command(request.get("form"))
+            except FormRefused as e:
+                return dict(refused(str(e)), ok=False, plan="", summary=None)
+            reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
+                     "entities": entities_view(entities)}
+            why = unshown(argv, self.redactor)
+            if why:
+                return dict(reply, ok=False, plan="", summary=None, error=why)
             try:
                 snapshot = write_snapshot(entities) if entities else None
             except SnapshotRefused as e:
@@ -539,6 +600,8 @@ class Session:
                 return dict(reply, ok=False, plan="", summary=None,
                             error=f"the dry run took longer than {CHECK_SECONDS} s; run the command with --dry-run in "
                                   "a terminal to see why")
+            except (ValueError, OSError) as e:
+                return dict(reply, ok=False, plan="", summary=None, error=not_started("dry run", e))
             if proc.returncode != 0:
                 return dict(reply, ok=False, plan=proc.stdout, summary=None, error=exit_message(None, proc.stderr))
             try:
@@ -557,7 +620,10 @@ class Session:
         confirmed, only when it is the command the last Check passed, and while no run of the page's is going."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
-        argv, entities = build_command(request.get("form"))
+        try:
+            argv, entities = build_command(request.get("form"))
+        except FormRefused as e:
+            return {"error": str(e)}
         with self.gate:
             with self.lock:
                 if self.runner is not None and self.runner.code is None:
@@ -577,8 +643,11 @@ class Session:
             if tuple(fingerprint for _, fingerprint in plans) != approved.fingerprints:
                 return {"error": "the plan is no longer the one Check approved; check again"}
             with self.lock:
-                self.runner = Runner(self.program, list(approved.argv), [folder for folder, _ in plans],
-                                     self.child_env())
+                try:
+                    self.runner = Runner(self.program, list(approved.argv), [folder for folder, _ in plans],
+                                         self.child_env())
+                except (ValueError, OSError) as e:
+                    return {"ok": False, "error": not_started("run", e)}
                 return {"run": self.runner.state()}
 
     def stop(self, request):
@@ -611,6 +680,14 @@ class Session:
             runner.wait(STOP_SECONDS)
 
 
+def serve(session):
+    """The page for this session on loopback (live.serve_page), its token in the address, with the session given the
+    server's redactor, the one every reply passes."""
+    server = live.serve_page(PAGE, session.state, actions=session.actions())
+    session.redactor = server.redactor
+    return server
+
+
 def leave(signum, frame):
     """SIGTERM and SIGHUP end the page as Ctrl-C does, so its run is stopped, not orphaned."""
     raise KeyboardInterrupt
@@ -623,7 +700,7 @@ def main(argv, stream=None):
         raise SystemExit("--ui takes no other option; choose them on the page")
     defaults()                                       # probatio's defaults first: a bank that fails stops here
     session = Session()
-    server = live.serve_page(PAGE, session.state, actions=session.actions())
+    server = serve(session)
     stream = stream or sys.stderr
     stream.write(f"  open it here: {server.url}\n  {BOUNDARY}\n")
     stream.flush()
@@ -977,8 +1054,7 @@ function how() {
   note.id = "modelnote";
   add(s, add(row("model", modelChoice()), note)); modelNote();
   add(s, row("length", choices("tier", D.tiers.map(t => [t, t]), {after: how, def: d.tier}),
-    D.setup.includes(F.tier) ? "The setup plan is chosen, under More options." :
-      "Check shows the calls and the time."));
+    "Check shows the calls and the time."));
   const [more, sum] = fold("more", "more", "More options");
   sum.id = "moresum";
   add(more,
@@ -995,16 +1071,13 @@ function how() {
       "Calls at once; more is faster but heavier on your rate limit."),
     row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m]), {def: d.auto_memory}),
       "Claude Code's own saved notes (Claude Code only): leave as configured to measure your agent as it is; " +
-      "off, in both conditions, is the calibration's setting."),
-    row("setup plan", choices("tier", D.setup.map(t => [t, t]), {after: how}),
-      "The calibration's setup plan, in place of a length."));
+      "off, in both conditions, is the calibration's setting."));
   s.appendChild(more); moreSummary();
 }
 function moreSummary() {                   // More options' closed line: what differs from the defaults
   const box = $("moresum");
   if (!box) return;
   const d = D.default, diff = [];
-  if (D.setup.includes(F.tier)) diff.push("setup plan");
   if (!same(F.classes, D.classes)) diff.push("classes " + F.classes.join(", "));
   for (const [key, word, base] of [["memory", "memory", d.memory], ["effort", "effort", d.effort],
                                    ["watch", "watch", D.watch[0]], ["auto_memory", "auto memory", d.auto_memory]])
