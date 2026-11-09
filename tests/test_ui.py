@@ -645,6 +645,60 @@ class TestCheckAndRun(Stubbed):
             self.assertTrue(session.check({"form": fa})["ok"] and session.check({"form": fb})["ok"])
             self.assertIn("check this command first", session.run({"form": fa, "confirmed": True})["error"])
 
+    def test_an_explicit_class_subset_stays_explicit_at_quick(self):
+        """I and II chosen at quick are sent as --class I,II, never as "all", so the real dry run offers the shorter
+        standard run (probatio's STANDARD_SHORTER line), and the argv shown is the one Check checks and Run runs.
+        Classes left at all three send no --class, and their quick run (I and II, against a standard with III) gets
+        no such line."""
+        form = {"agent": "claude", "types": ["organization"], "targets": {"organization": "Mozilla"}, "tier": "quick",
+                "classes": ["I", "II"], "model": "claude-sonnet-5-5"}
+        shown = self.s.post("/command", {"form": form})
+        self.assertEqual(shown["argv"][shown["argv"].index("--class") + 1], "I,II")
+        checked, started, real = [], [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            checked.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+
+        class Recorder:
+            def __init__(self, program, argv, folders, env):
+                self.code = 0
+                started.append(list(argv))
+
+            def state(self):
+                return {}
+
+            def stop(self):                                     # it never ran, so the page's close has nothing to stop
+                return False
+        line = P.STANDARD_SHORTER.split("{}")[0]
+        with mock.patch.object(U.subprocess, "run", side_effect=spy), mock.patch.object(U, "Runner", Recorder):
+            reply = self.s.post("/check", {"form": form})
+            self.assertTrue(reply["ok"], reply["error"])
+            self.assertIn(line, reply["plan"])
+            self.assertNotIn("error", self.s.post("/run", {"form": form, "confirmed": True}))
+            untouched = self.s.post("/check", {"form": dict(form, classes=["I", "II", "III"])})
+        self.assertEqual(reply["argv"], shown["argv"])
+        self.assertEqual(checked[0], [*self.program, *shown["argv"], "--dry-run"])
+        self.assertEqual(started, [shown["argv"]])
+        self.assertTrue(untouched["ok"], untouched["error"])
+        self.assertNotIn("--class", untouched["argv"])
+        self.assertNotIn(line, untouched["plan"])
+
+    def test_in_a_comparison_only_the_individual_row_includes_the_user(self):
+        """--name alone puts no one in a comparison. The page says so (the individual row's placeholder and the
+        your-name hint, when two or three types are compared), and the real dry run agrees: the name typed in the
+        individual row is a named target, and --name alone is not."""
+        self.assertIn('"your own name, to include yourself"', U.PAGE)
+        self.assertIn("--name alone does not put you in a comparison", U.PAGE)
+        base = {"agent": "claude", "types": ["individual", "organization"], "tier": "quick", "name": "Jane Doe"}
+        alone = self.s.post("/check", {"form": base})
+        named = self.s.post("/check", {"form": dict(base, targets={"individual": "Jane Doe"})})
+        self.assertTrue(alone["ok"] and named["ok"], (alone["error"], named["error"]))
+        self.assertNotIn("--target", alone["argv"])
+        self.assertIn("individual=Jane Doe", named["argv"])
+        self.assertNotIn("named targets", alone["plan"])
+        self.assertIn("named targets: individual Jane Doe", named["plan"])
+
     def test_run_refuses_what_check_did_not_approve(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
         file = self.tmp / U.entities_path(U.build_command(form)[1])

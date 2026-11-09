@@ -10,7 +10,8 @@ it sits the answer: the exact command, its plan and its run.
 
     defaults        everything the form starts from, read from probatio and never typed here: each option's default
                     from parse_args_v4 and each type's rosters from print_entities
-    build_command   the form as the shortest argv that does it, and the entities file its roster edits need (pure)
+    build_command   the form as an argv with only the options it changed, and the entities file its roster edits
+                    need (pure)
     preview         the command as the form changes: probatio's own parser on it (in this process, its message
                     verbatim) and the calibration words for its roster (load_entities, fixtures_label)
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
@@ -163,10 +164,12 @@ def build_command(form, base=None):
     left out), and the entities file its roster edits need, as text, or None. base is defaults(). The comparison is
     --compare (none for the default type alone; probatio's canonical form for two or three types); typed names become
     --target TYPE=NAME, and with none an individual run scores --name, as probatio does; roster edits become
-    --entities results/ui-entities-<sha8>.json. Classes are left out when they are all three or exactly the ones the
-    tier plans; an empty choice is passed on so the parser says why. --watch is always last: the page reads the run's
-    live link from it, and the command shown is the one Check checks and Run runs, byte for byte. Pure: it reads
-    nothing and writes nothing (Check writes the file)."""
+    --entities results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own
+    default, which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as
+    --class, so a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which
+    probatio compares with standard's I,II), and an empty one so the parser says why. --watch is always last: the page
+    reads the run's live link from it, and the command shown is the one Check checks and Run runs, byte for byte.
+    Pure: it reads nothing and writes nothing (Check writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
     default, types = base["default"], types_of(form, base)
@@ -192,7 +195,7 @@ def build_command(form, base=None):
     picked = form.get("classes")
     if isinstance(picked, list):
         classes = tuple(k for k in P.V4_CLASSES if k in picked)
-        if set(classes) != set(P.V4_CLASSES) and classes != tuple(P.resolve_classes(tier, "all")):
+        if set(classes) != set(P.V4_CLASSES):
             argv += ["--class", ",".join(classes)]
     for key, flag in (("memory", "--memory"), ("auto_memory", "--auto-memory"), ("effort", "--effort")):
         value = text_of(form.get(key))
@@ -803,9 +806,12 @@ function measure() {
   add(s, row("type", choices("types", D.types.map(t => [t, t]), {multi: true, after: build}),
     "default " + D.default.type + " · " + (cross ? "two or three are compared with each other: " + D.labels.cross :
       "one is scored against an invented control of its type; pick two or three to compare them")));
-  add(s, row("your name", field(F, "name", "e.g. Jane Doe"), "--name: the individual a run scores by default"));
+  add(s, row("your name", field(F, "name", "e.g. Jane Doe"), cross ? "--name alone does not put you in a comparison: " +
+    "to include yourself, type your own name in the individual row, with individual chosen" :
+    "--name: the individual a run scores by default"));
   for (const t of F.types) {
-    const place = cross ? "none (optional)" : t === "individual" ? "you, by your name" : "the " + t + " to score";
+    const place = cross ? (t === "individual" ? "your own name, to include yourself" : "none (optional)") :
+      t === "individual" ? "you, by your name" : "the " + t + " to score";
     add(s, row(t, field(F.targets, t, place, true),
       (cross ? "named targets, optional; " : "the target; ") + "one per line, each --target " + t + "=NAME"));
   }
