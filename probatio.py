@@ -4399,8 +4399,12 @@ def parse_args_v4(argv):
     p.add_argument("--watch", action="store_true",
                    help="follow the run on a page on this machine (127.0.0.1, behind a token in the address printed "
                         "on stderr); it shows what the agent writes, which can quote what it knows")
+    p.add_argument("--ui", action="store_true",
+                   help="choose a run on a page on this machine instead (127.0.0.1, behind a token in the address "
+                        "printed on stderr): it shows the defaults, builds this command line, checks it and runs it; "
+                        "takes no other option")
     a = p.parse_args(argv)
-    if a.agent is None and not a.print_entities:
+    if a.agent is None and not (a.print_entities or a.ui):
         p.error("the following arguments are required: --agent")
     a.classes = resolve_classes(a.tier, a.classes)
     return a
@@ -4910,6 +4914,17 @@ def import_live():
     except ImportError as e:
         raise SystemExit(f"A v4 run needs live.py beside probatio.py ({e}). Restore it from git.")
     return live
+
+
+def import_ui():
+    """ui.py beside probatio.py: the --ui page, imported only for --ui."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    try:
+        import ui
+    except ImportError as e:
+        raise SystemExit(f"--ui needs ui.py beside probatio.py ({e}). Restore it from git.")
+    return ui
 
 
 def live_line(a, opts, label=None):
@@ -5464,8 +5479,10 @@ def main_v4(argv):
     make the calls with v3's runner, saving replies, records, reports and quota.jsonl, then score the folder
     (score_run) and print the scorecard. A command line using any option of docs/ordo/DESIGN.md 11 (--compare,
     --entities, --print-entities, TYPE=NAME or a second --target) is main_compare's; with none of them this path is
-    v4's, unchanged (requirement 1: its plan is byte for byte 86e918c's)."""
+    v4's, unchanged (requirement 1: its plan is byte for byte 86e918c's). --ui serves ui.py's page instead."""
     a = parse_args_v4(argv)
+    if a.ui:
+        return import_ui().main(argv)
     if a.jobs < 1:
         raise SystemExit("--jobs must be at least 1.")
     if uses_options(a):
