@@ -5,8 +5,9 @@ dry run, and runs it.
 
 One page on 127.0.0.1 behind a random token, served by live.serve_page with the --watch page's hardening (the token on
 every route, the Host allowlist, exact routes, the hash-only CSP, no referrer) and four POST actions, which carry the
-token in a header as well. The form has three short sections (what to measure, against whom, how to run), and beside
-it sits the answer: the exact command, its plan and its run.
+token in a header as well. The form shows who is measured, the agent and model, and the length; the rosters and the
+other options wait in two folds whose closed lines say what differs from the defaults. Beside it sits the answer:
+the exact command, its plan and its run.
 
     defaults        everything the form starts from, read from probatio and never typed here: each option's default
                     from parse_args_v4 and each type's rosters from print_entities
@@ -89,7 +90,8 @@ def defaults():
     """Everything the form starts from, read from probatio and never typed here: every option's default from
     parse_args_v4's own parser (the one command line it accepts without --agent, which has no default), the choices
     from probatio's constants, and each type's comparators, controls and targets from print_entities, exactly the
-    --entities starter file. The offered tiers are USER_TIERS; the others (smoke) sit behind the page's setup check."""
+    --entities starter file. The offered tiers are USER_TIERS; the others (smoke) sit in More options, as the
+    setup plan."""
     a = P.parse_args_v4(["--print-entities"])
     rosters = json.loads(P.print_entities(P.load_entities(None, bank()), bank()))
     return {
@@ -639,88 +641,127 @@ def main(argv, stream=None):
 
 
 # ---- the page ----------------------------------------------------------------------------------------------------------
-# The --watch page's palette and type (live.PAGE_BASE), light and dark. The form is on the left, the answer (the command,
-# its run once there is one, its plan) on the right and sticky; under 860 px they stack. The script builds every node
-# with textContent, never innerHTML, reads the token from location.search (it is never embedded), and sends every
-# action as a POST with the token in the X-Probatio-Token header. The defaults arrive with the first /state; nothing on
-# the page is a default of its own (watch's, on, arrives with them). A model is the CLI's default, one of MODELS for the
-# chosen CLI, or any other name; choosing another CLI resets it to the default.
+# The --watch page's palette and type (live.PAGE_BASE), light and dark, with its one accent: filled on Run, tinted on a
+# selected choice. One system font; monospace only for probatio's own text (the command, the preflight, a run's
+# output). The form shows who is measured, the agent and model, and the length; the rest waits in two folds whose
+# closed lines say what differs from the defaults. The command, Check, Run and the plan sit on the right, sticky; under
+# 880 px they follow the form. The script builds every node with textContent, never innerHTML, reads the token from
+# location.search (it is never embedded), and sends every action as a POST with the token in the X-Probatio-Token
+# header. The defaults arrive with the first /state; nothing on the page is a default of its own (watch's, on, arrives
+# with them, its choices default first). A model is the CLI's default, one of MODELS for the chosen CLI, or any other
+# name; choosing another CLI resets it to the default. On an untouched page with no agent yet, the missing agent is a
+# calm first step; once anything changes, probatio's own message shows, in red, word for word.
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>probatio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:,">
 <style>
 """ + live.PAGE_BASE + """:root { color-scheme:light dark; }
-main { max-width:1180px; margin:0 auto; padding:20px 16px 40px; }
-header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-h1 { font-size:20px; margin:0; font-weight:650; } header .sub { color:var(--muted); }
-h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink2); margin:26px 0 8px;
-  font-weight:600; display:flex; gap:12px; flex-wrap:wrap; align-items:baseline; }
-h2 .aside { text-transform:none; letter-spacing:0; font-weight:500; color:var(--muted); margin-left:auto; }
-.pill { font-size:13px; color:var(--ink2); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
-.pill::before { content:""; width:9px; height:9px; border-radius:50%; background:var(--muted); }
+[hidden] { display:none !important; }
+main { max-width:1160px; margin:0 auto; padding:28px 24px 56px; }
+header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0 0 24px; }
+h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-.01em; } header .sub { color:var(--muted); }
+h2 { font-size:14px; font-weight:600; margin:0 0 6px; display:flex; gap:10px; align-items:baseline; }
+h2 .aside { font-size:12.5px; font-weight:400; color:var(--muted); margin-left:auto; }
+#how { margin-top:28px; }
+.pill { font-size:12.5px; color:var(--ink2); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
+.pill::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--muted); }
 .pill.running::before, .pill.scored::before { background:var(--good); }
 .pill.stopped::before, .pill.failed::before, .pill.lost::before { background:var(--bad); }
-.pill.stopping::before { background:var(--pending); } .pill.finished::before { background:var(--ink2); }
-.layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,440px); gap:32px; align-items:start; }
+.pill.finished::before { background:var(--ink2); }
+.layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,420px); gap:56px; align-items:start; }
 .layout > * { min-width:0; }
-.answer { position:sticky; top:12px; max-height:calc(100vh - 24px); overflow:auto; padding-bottom:8px; }
-.row { display:grid; grid-template-columns:118px minmax(0,1fr); column-gap:14px; row-gap:4px; align-items:baseline;
-  padding:8px 0; border-bottom:1px solid var(--line); }
-.row > .k { color:var(--ink2); } .row .def { grid-column:2; font-size:12.5px; color:var(--muted); }
-button { font:inherit; font-size:13px; color:var(--ink); background:var(--surface); border:1px solid var(--axis);
-  border-radius:8px; padding:5px 12px; cursor:pointer; }
-button:disabled { opacity:.45; cursor:default; }
-button.primary { background:var(--ink); color:var(--surface); border-color:var(--ink); }
-button.link { border:0; padding:0; background:none; color:var(--muted); text-decoration:underline; font-size:12.5px; }
-.seg { display:flex; flex-wrap:wrap; gap:5px; }
-.seg button { color:var(--ink2); border-color:var(--line); padding:4px 10px; }
-.seg button[aria-pressed=true] { color:var(--ink); border-color:var(--ink2); background:var(--band); font-weight:600; }
-.seg button.off { color:var(--muted); text-decoration:line-through; }
-input, textarea { font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line);
-  border-radius:8px; padding:5px 9px; width:100%; }
-input[type=number] { width:90px; } input[type=checkbox] { width:auto; margin:0 6px 0 0; }
-input.other { margin-top:6px; }
-textarea { font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; resize:vertical; }
-input:focus, textarea:focus, button:focus-visible, summary:focus-visible { outline:2px solid var(--ink2);
-  outline-offset:1px; }
-details.setup, details.more { margin-top:6px; } summary { cursor:pointer; color:var(--muted); font-size:12.5px; }
-details.setup .seg { margin-top:6px; }
-.note { color:var(--muted); font-size:12.5px; margin:4px 0 10px; }
-.flag { margin:0 0 10px; font-size:13px; } .flag .label { color:var(--pending); font-weight:600; }
+.answer { position:sticky; top:20px; max-height:calc(100vh - 40px); overflow:auto; padding:0 2px 8px; }
+.answer h2 { margin-top:28px; } .answer > h2:first-child { margin-top:0; }
+.row { display:grid; grid-template-columns:104px minmax(0,1fr); column-gap:16px; row-gap:5px; align-items:baseline;
+  padding:7px 0; }
+.row > .k { color:var(--ink2); } .row > .k::first-letter { text-transform:uppercase; }
+.row .def { grid-column:2; font-size:12.5px; color:var(--muted); }
+#modelnote::first-letter { text-transform:uppercase; }
+button { font:inherit; color:var(--ink); background:var(--track); border:0; border-radius:8px; padding:7px 14px;
+  font-weight:500; cursor:pointer; }
+button:hover:not(:disabled) { background:var(--line); }
+button:disabled { opacity:.4; cursor:default; }
+button.primary { background:var(--accent); color:var(--accent-ink); font-weight:600; }
+button.primary:hover:not(:disabled) { background:var(--accent-text); }
+button.quiet, button.link { background:none; padding:2px 4px; color:var(--muted); font-size:12.5px; }
+button.quiet:hover:not(:disabled), button.link:hover:not(:disabled) { background:none; color:var(--ink); }
+button.link { text-decoration:underline; text-underline-offset:2px; }
+.seg { display:inline-flex; flex-wrap:wrap; gap:2px; padding:3px; background:var(--track); border-radius:10px;
+  justify-self:start; }
+.seg button { background:none; color:var(--ink2); padding:5px 12px; border-radius:7px; }
+.seg button:hover:not(:disabled) { background:var(--line); color:var(--ink); }
+.seg button[aria-pressed=true], .seg button[aria-pressed=true]:hover { background:var(--accent-soft);
+  color:var(--accent-text); font-weight:600; }
+.seg button.off { text-decoration:line-through; } .seg button.off:not([aria-pressed=true]) { color:var(--muted); }
+.tag { font-size:11.5px; font-weight:500; color:var(--muted); }
+.seg button[aria-pressed=true] .tag { color:var(--accent-text); }
+input, textarea, select { font:inherit; color:var(--ink); background-color:var(--field); border:0; border-radius:8px;
+  padding:7px 10px; width:100%; }
+input::placeholder, textarea::placeholder { color:var(--ink2); opacity:1; }    /* AA on the field fill */
+textarea { resize:none; display:block; }
+input[type=number] { width:96px; }
+select { width:auto; min-width:200px; justify-self:start; padding-right:32px; appearance:none; -webkit-appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+    linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 55%, calc(100% - 12px) 55%; background-size:5px 5px;
+  background-repeat:no-repeat; }
+select:disabled { opacity:.55; cursor:default; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible {
+  outline:2px solid var(--accent); outline-offset:1px; }
+.model { display:flex; gap:8px; flex-wrap:wrap; } .model input { flex:1 1 180px; width:auto; }
+.inline { display:flex; gap:10px; align-items:center; }
+details > summary { list-style:none; cursor:pointer; } details > summary::-webkit-details-marker { display:none; }
+details > summary::before { content:""; display:inline-block; width:6px; height:6px; margin:0 9px 2px 2px;
+  border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(-45deg);
+  transition:transform .15s; }
+details[open] > summary::before { transform:rotate(45deg); }
+details.fold { margin:14px 0 0; } #how details.fold { margin-top:10px; }
+details.fold > summary { padding:6px 0; font-weight:600; }
+details.fold > summary .sum { font-weight:400; font-size:12.5px; color:var(--muted); margin-left:10px; }
+details.fold > summary .sum.changed { color:var(--ink2); }
+details.small > summary { color:var(--muted); font-size:12.5px; margin:10px 0 0; }
+.note { color:var(--muted); font-size:12.5px; margin:4px 0 0; }
+.flag { margin:4px 0 0; font-size:12.5px; } .flag .label { color:var(--pending); font-weight:600; }
 .flag .hint { color:var(--muted); }
-.roster { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; }
-.roster .top { display:flex; align-items:baseline; gap:10px; } .roster .top b { font-weight:600; }
-.roster .top .link { margin-left:auto; }
-.lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-top:8px; }
-.lists .k { font-size:12.5px; color:var(--muted); display:flex; justify-content:space-between; margin:0 0 4px; }
-.lists .k span:first-child { color:var(--ink2); }
-.box { border:1px solid var(--line); border-radius:10px; background:var(--band); }
-pre { margin:0; font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-pre.cmd { padding:12px; white-space:pre-wrap; font-size:13px; } pre.cmd span { white-space:nowrap; }
+.roster { margin:14px 0 4px; } .roster .top { display:flex; align-items:baseline; gap:10px; margin:0 0 6px; }
+.roster .top b { font-weight:500; } .roster .top b::first-letter { text-transform:uppercase; }
+.lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+.lists .k { font-size:12.5px; color:var(--ink2); display:flex; justify-content:space-between; margin:0 0 4px; }
+.lists .k .n { color:var(--muted); font-variant-numeric:tabular-nums; } .lists .k .n.bad { color:var(--bad); }
+.cmdbox { background:var(--band); border-radius:12px; padding:14px 14px 10px; }
+pre { margin:0; font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+pre.cmd { white-space:pre-wrap; font-size:13px; } pre.cmd span { white-space:nowrap; }
 pre.cmd span.long { white-space:normal; overflow-wrap:anywhere; }
-.cmdbar { display:flex; gap:8px; align-items:center; border-top:1px solid var(--line); padding:6px 8px 6px 12px;
-  font-size:12.5px; color:var(--muted); } .cmdbar button { margin-left:auto; }
-.labels { color:var(--muted); font-size:12.5px; margin:8px 0 0; } .labels .warn { color:var(--pending); }
-.err { color:var(--bad); margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
-.err b { font-weight:600; }
-.files { font-size:12.5px; color:var(--ink2); margin:8px 0 0; } .files code { overflow-wrap:anywhere; }
+.cmdbar { display:flex; gap:8px; align-items:center; margin:8px 0 0; font-size:12.5px; color:var(--muted); }
+.cmdbar button { margin-left:auto; }
+.labels, .files { font-size:12.5px; color:var(--muted); margin:10px 0 0; } .labels .warn { color:var(--pending); }
+.files code { font:inherit; color:var(--ink2); overflow-wrap:anywhere; }
 .files pre { background:var(--band); border-radius:8px; padding:8px 10px; margin:6px 0 0; overflow:auto; }
-.actions { display:flex; gap:8px; margin:12px 0 0; flex-wrap:wrap; align-items:center; }
-.actions .why { color:var(--muted); font-size:12.5px; }
-.confirm { border:1px solid var(--axis); border-radius:10px; padding:10px 12px; margin:12px 0 0; }
-.confirm p { margin:0 0 10px; }
-.big { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
-.muted { color:var(--muted); font-size:12.5px; } .hintline { color:var(--pending); margin:4px 0 0; }
-.out { background:var(--band); border-radius:8px; padding:10px; margin:8px 0 0; max-height:260px; overflow:auto;
-  white-space:pre; }
-.kv { margin:6px 0 0; font-size:13px; color:var(--ink2); } .kv span { color:var(--muted); }
-.kv code { overflow-wrap:anywhere; } .runbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-.runbar a { color:var(--ink); font-weight:600; } .runbar .pill { margin-left:0; }
-.empty { color:var(--muted); }
-footer { margin-top:30px; padding-top:12px; border-top:1px solid var(--line); color:var(--ink2); font-size:13px; }
-@media (max-width:860px) {
-  .layout { grid-template-columns:minmax(0,1fr); } .answer { position:static; max-height:none; overflow:visible; }
+.err { color:var(--bad); margin:10px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; } .err b { font-weight:600; }
+.err.calm { color:var(--ink2); }
+.labels:empty, .files:empty, .err:empty { display:none; }
+.actions { display:flex; gap:8px; margin:18px 0 0; flex-wrap:wrap; align-items:center; }
+.actions .why { color:var(--muted); font-size:12.5px; margin-left:4px; }
+.confirm { background:var(--band); border-radius:12px; padding:14px; margin:18px 0 0; }
+.confirm p { margin:0 0 12px; } .confirm .actions { margin:0; }
+.big { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.muted { color:var(--muted); font-size:12.5px; } .hintline { color:var(--ink2); font-size:12.5px; margin:6px 0 0; }
+.out { background:var(--band); border-radius:10px; padding:10px 12px; margin:8px 0 0; max-height:340px; overflow:auto;
+  white-space:pre-wrap; overflow-wrap:anywhere; }
+.out div { padding-left:2ch; text-indent:-2ch; } .out .h1 { padding-left:4ch; } .out .h2 { padding-left:6ch; }
+.out .h3 { padding-left:8ch; } .out .h4 { padding-left:10ch; } .out .h5 { padding-left:12ch; }
+.out .h6 { padding-left:14ch; }
+.kv { margin:6px 0 0; font-size:12.5px; color:var(--ink2); overflow-wrap:anywhere; } .kv span { color:var(--muted); }
+.kv code { font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+.runbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 4px; }
+.runbar a { color:var(--accent-text); font-weight:600; text-underline-offset:2px; } .runbar .pill { margin-left:0; }
+.empty { color:var(--muted); margin:0; }
+footer { margin-top:48px; color:var(--muted); font-size:12.5px; }
+@media (max-width:880px) {
+  main { padding:20px 16px 40px; }
+  .layout { grid-template-columns:minmax(0,1fr); gap:36px; }
+  .answer { position:static; max-height:none; overflow:visible; padding:0; }
   .row { grid-template-columns:1fr; } .row .def { grid-column:1; }
 }
 </style></head>
@@ -731,11 +772,11 @@ footer { margin-top:30px; padding-top:12px; border-top:1px solid var(--line); co
 <div id="form"><section id="measure"></section><section id="against"></section><section id="how"></section></div>
 <aside class="answer">
 <h2>Command <span class="aside" id="cmdnote"></span></h2>
-<div class="box"><pre class="cmd" id="cmd">…</pre>
-<div class="cmdbar"><span id="where"></span><button type="button" id="copy">Copy</button></div></div>
-<div id="labels" class="labels"></div><div id="files" class="files"></div><div id="error" class="err"></div>
-<div class="actions"><button type="button" class="primary" id="check">Check</button>
-<button type="button" id="run">Run…</button><span class="why" id="why"></span></div>
+<div class="cmdbox"><pre class="cmd" id="cmd">…</pre>
+<div class="cmdbar"><span id="where"></span><button type="button" class="quiet" id="copy">Copy</button></div></div>
+<div id="labels" class="labels"></div><div id="error" class="err"></div><div id="files" class="files"></div>
+<div class="actions" id="actions"><button type="button" id="check">Check</button>
+<button type="button" class="primary" id="run">Run…</button><span class="why" id="why"></span></div>
 <div id="confirm"></div>
 <section id="runsec" hidden><h2>Run</h2><div id="runbox"></div></section>
 <h2>Plan <span class="aside">from the dry run</span></h2><div id="plan"></div>
@@ -747,8 +788,12 @@ footer { margin-top:30px; padding-top:12px; border-top:1px solid var(--line); co
 "use strict";
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
 const CLASS_WORDS = {I: "I · professed", II: "II · behavioural", III: "III · unobserved"};
+const OTHER = "(other)";                                 // the model menu's last entry; no model has this name
+const DEFAULT_MODEL = {codex: "default (config.toml)"};  // a CLI's default model, where "default" says too little
+const TIME_NOTE = {codex: "the time estimate for Codex is assumed, not measured."};    // else the Sonnet line below
 let D = null, F = null, said = null, plan = null, run = null, asked = 0, timer = null, confirming = false;
-let checking = false, marks = [];
+let checking = false, marks = [], otherModel = false, touched = false;    // touched: the user has changed something
+const opened = {roster: false, more: false, preflight: true};   // folds stay as left when the form is rebuilt
 const $ = id => document.getElementById(id);
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -763,6 +808,7 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const keyOf = r => r ? r.command + "\\n" + (r.entities ? r.entities.text : "") : null;
 const agentName = k => (D.agents.find(a => a[0] === k) || [k, k])[1];
 const going = () => run && run.code === null;
+const shownLists = () => F.types.length > 1 ? ["controls"] : ["comparators", "controls"];
 async function post(path, body) {
   const res = await fetch(path + location.search, {method: "POST", cache: "no-store",
     headers: {"Content-Type": "application/json", "X-Probatio-Token": TOKEN}, body: JSON.stringify(body)});
@@ -777,20 +823,21 @@ function fresh() {
   const d = D.default, rosters = {}, targets = {};
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
   return {types: [d.type], targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
-          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs),
-          pick: "", other: "", modelFor: d.agent, watch: D.watch[0]};
+          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", watch: D.watch[0],
+          jobs: String(d.jobs)};                    // watch's choices come default first
 }
 // ---- the form
-function choices(key, values, opts) {
+function choices(key, values, opts) {      // a segmented choice; opts: multi, after (on click), def (tagged "default")
   opts = opts || {};
   const box = el("div", "seg"), order = values.map(v => v[0]);
   box.setAttribute("role", "group");
   const mark = () => box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed",
     String(opts.multi ? F[key].includes(b.value) : F[key] === b.value)));
-  for (const [value, word, title] of values) {
+  for (const [value, word, unavailable] of values) {
     const b = el("button", null, word);
     b.type = "button"; b.value = value;
-    if (title) { b.title = title; b.classList.add("off"); }
+    if (value === opts.def) add(b, document.createTextNode(" "), el("span", "tag", "default"));
+    if (unavailable) { b.title = unavailable; b.classList.add("off"); }
     b.addEventListener("click", () => {
       if (opts.multi) {
         const has = F[key].includes(value);
@@ -816,113 +863,160 @@ function field(holder, key, place, multiline, after) {
   e.addEventListener("input", () => { holder[key] = e.value; if (multiline) grow(e); if (after) after(); changed(); });
   return e;
 }
+function lined(box, text) {                // probatio's text a line per row; a wrapped line hangs under its indent
+  for (const line of String(text).replace(/\\n$/, "").split("\\n")) {
+    const lead = line.length - line.trimStart().length;
+    box.appendChild(el("div", "h" + Math.min(lead >> 1, 6), line.trimStart() || " "));
+  }
+  return box;
+}
 function row(label, control, note) {
   return add(el("div", "row"), el("div", "k", label), control, note ? el("div", "def", note) : null);
+}
+function fold(id, key, title) {            // a fold that stays as the user left it; its closed line is .sum
+  const box = el("details", "fold"), sum = el("span", "sum");
+  box.id = id; box.open = opened[key];
+  box.addEventListener("toggle", () => { opened[key] = box.open; });
+  add(box, add(el("summary"), document.createTextNode(title), sum));
+  return [box, sum];
 }
 function measure() {
   const s = $("measure"), cross = F.types.length > 1;
   s.replaceChildren(el("h2", null, "What to measure"));
-  add(s, row("type", choices("types", D.types.map(t => [t, t]), {multi: true, after: build}),
-    "default " + D.default.type + " · " + (cross ? "two or three are compared with each other: " + D.labels.cross :
-      "one is scored against an invented control of its type; pick two or three to compare them")));
+  add(s, row("type", choices("types", D.types.map(t => [t, t]), {multi: true, after: build, def: D.default.type}),
+    cross ? "Compared with each other." : "Scored against an invented control; pick two or three to compare them."));
   for (const t of F.types) {                         // a person, you or anyone, is the individual row's, in every run
     const person = t === "individual";
     const place = person ? "your own name, or anyone's" : cross ? "none (optional)" : "the " + t + " to score";
-    add(s, row(t, field(F.targets, t, place, true), (cross ? "named targets, optional; " : "the target; ") +
-      (person ? "type your own name to score yourself; " : "") + "one per line, each --target " +
-      (cross ? t + "=NAME" : "NAME")));
+    add(s, row(t, field(F.targets, t, place, true), (cross ? "Optional, one per line" : "One per line") +
+      (person ? (cross ? "; type your own name to include yourself." : "; type your own name to score yourself.") :
+        ".")));
   }
 }
 function against() {
-  const s = $("against"), cross = F.types.length > 1, parts = cross ? ["controls"] : ["comparators", "controls"];
-  s.replaceChildren(el("h2", null, "Against whom"));
+  const s = $("against"), cross = F.types.length > 1, shown = shownLists();
+  const [box, sum] = fold("rosters", "roster", cross ? "Controls" : "Comparators and controls");
   const flag = add(el("p", "flag"), el("span", "label"), el("span", "hint",
     " · A control should be a name the model does not know."));
-  flag.id = "custom"; flag.hidden = true; s.appendChild(flag);
-  s.appendChild(el("p", "note", cross ? "Compared types meet each type's controls, its invented names (the first two " +
-    "are used); comparators are for a single type." : "The target faces the comparators, and is scored against the " +
-    "first control. One name per line; the defaults are probatio's."));
+  flag.id = "custom"; flag.hidden = true;
+  add(box, flag, el("p", "note", cross ? "Each compared type meets its own invented controls; the first two are used." :
+    "The target faces the comparators and is scored against the first control."));
+  const summarize = () => {
+    const edited = [];
+    for (const t of F.types) for (const part of shown)
+      if (!same(lines(F.rosters[t][part]), names(D.rosters[t][part]))) edited.push(t + " " + part);
+    sum.textContent = edited.length ? "edited: " + edited.join(", ") : "defaults";
+    sum.classList.toggle("changed", edited.length > 0);
+  };
   for (const t of F.types) {
-    const card = el("div", "roster"), reset = el("button", "link", "reset to defaults"), counts = {};
+    const block = el("div", "roster"), reset = el("button", "link", "reset"), counts = {};
     reset.type = "button";
-    add(card, add(el("div", "top"), el("b", null, t), reset));
+    add(block, add(el("div", "top"), el("b", null, t), reset));
     const grid = el("div", "lists");
     const mark = () => {
       let edited = false;
-      for (const part of parts) {
+      for (const part of shown) {
         const [lo, hi] = D.counts[part], n = lines(F.rosters[t][part]).length;
-        counts[part].textContent = n + " · " + lo + " to " + hi + " · default " + D.rosters[t][part].length;
+        counts[part].textContent = n + " (" + lo + " to " + hi + ")";
+        counts[part].classList.toggle("bad", n < lo || n > hi);
         edited = edited || !same(lines(F.rosters[t][part]), names(D.rosters[t][part]));
       }
       reset.hidden = !edited;
+      summarize();
     };
-    for (const part of parts) {
-      const head = add(el("div", "k"), el("span", null, part), el("span"));
+    for (const part of shown) {
+      const head = add(el("div", "k"), el("span", null, part), el("span", "n"));
       counts[part] = head.lastChild;
       add(grid, add(el("div"), head, field(F.rosters[t], part, "", true, mark)));
     }
     reset.addEventListener("click", () => { F.rosters[t] = defaultRoster(t); against(); changed(); });
-    card.appendChild(grid); s.appendChild(card); mark();
+    add(box, add(block, grid)); mark();
   }
+  summarize();
+  s.replaceChildren(box);
+}
+function modelChoice() {                   // the chosen CLI's model names: its default first, "other…" (typed) last
+  const box = el("div", "model"), menu = el("select");
+  const list = F.agent ? (D.models[F.agent] || []).filter(m => m !== "default") : [];
+  menu.id = "model"; menu.disabled = !F.agent; menu.setAttribute("aria-label", "model");
+  for (const [value, word] of [["", DEFAULT_MODEL[F.agent] || "default"], ...list.map(m => [m, m]),
+                                ...(F.agent ? [[OTHER, "other…"]] : [])]) {
+    const o = el("option", null, word);
+    o.value = value; menu.appendChild(o);
+  }
+  otherModel = otherModel || (F.model !== "" && !list.includes(F.model));
+  const typed = field(F, "model", "a model name");
+  typed.hidden = !otherModel;
+  menu.value = otherModel ? OTHER : F.model;
+  menu.addEventListener("change", () => {
+    otherModel = menu.value === OTHER;
+    typed.hidden = !otherModel;
+    if (otherModel) { typed.value = ""; F.model = ""; typed.focus(); } else F.model = menu.value;
+    changed();
+  });
+  return add(box, menu, typed);
+}
+function modelNote() {                    // what the time estimate assumes: probatio's own label when the server
+  const box = $("modelnote");             // sends one (preview's rates), else the chosen CLI's line
+  if (box) box.textContent = said && said.rates ? "time estimate: " + said.rates : TIME_NOTE[F.agent] ||
+    "the time estimate is measured on Sonnet (Opus estimated); other models show Sonnet's time.";
+}
+function jobsField() {                     // a number, tagged "default" while it is the default
+  const d = String(D.default.jobs), tag = el("span", "tag", "default");
+  const show = () => { tag.hidden = String(F.jobs).trim() !== d; };
+  const jobs = field(F, "jobs", d, false, show);
+  jobs.type = "number"; jobs.min = "1"; show();
+  return add(el("div", "inline"), jobs, tag);
 }
 function how() {
   const s = $("how"), d = D.default, planned = D.planned[F.tier] || D.classes;
   s.replaceChildren(el("h2", null, "How to run"));
-  add(s, row("agent", choices("agent", D.agents, {after: () => {
-    if (F.modelFor !== F.agent) { F.other = ""; pickModel(""); }    // another CLI: back to its default model
-    how();
-  }}), d.agent ? "default " + agentName(d.agent) : "no default: choose one; it runs on your own login"));
-  const setup = add(el("details", "setup"), el("summary", null, "setup check"),
-    choices("tier", D.setup.map(t => [t, t + ": the calibration's setup plan"]), {after: how}));
-  setup.open = D.setup.includes(F.tier);
-  add(s, row("tier", add(el("div"), choices("tier", D.tiers.map(t => [t, t]), {after: how}), setup),
-    "default " + d.tier + " · the plan shows the calls and the time"));
-  add(s, row("classes", choices("classes", D.classes.map(k => [k, CLASS_WORDS[k] || k,
-    planned.includes(k) ? null : "not run at the " + F.tier + " tier"]), {multi: true}),
-    "default all, which at " + F.tier + " is " + planned.join(", ")));
-  add(s, row("memory", choices("memory", D.memory.map(m => [m, m])),
-    "default " + d.memory + " · both asks each item with and without the memory files"));
-  add(s, row("effort", choices("effort", D.efforts.map(e => [e, e])), "default " + d.effort));
+  add(s, row("agent", choices("agent", D.agents, {after: () => { F.model = ""; otherModel = false; how(); }}),
+    F.agent ? "Runs on your own login and quota." : "Choose one; it runs on your own login and quota."));
   const note = el("div", "def");
-  for (const line of F.agent ? MODEL_NOTES[F.agent] || [] : []) note.appendChild(el("div", null, line));
-  add(s, add(row("model", modelChoice()), F.agent ? note : null));
-  add(s, row("watch", choices("watch", D.watch.map(w => [w, w])), "default " + D.watch[0] + " · on: follow the " +
-    "run live in your browser (--watch); off: this page still shows the run's newest lines, folder and scorecard"));
-  const jobs = field(F, "jobs", String(d.jobs)); jobs.type = "number"; jobs.min = "1";
-  const more = add(el("details", "more"), el("summary", null, "more: jobs, auto memory"),
-    row("jobs", jobs, "calls at once, default " + d.jobs + " · more is faster but heavier on your rate limit; the " +
-      "time estimate scales with it, from rates measured at " + D.measured_jobs),
-    row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m])), "default " + d.auto_memory +
-      " · Claude Code's own saved notes (Claude Code only): leave as configured to measure your agent as it is; " +
-      "off, in both conditions, is the calibration's setting"));
-  more.open = String(F.jobs) !== String(d.jobs) || F.auto_memory !== d.auto_memory;
-  s.appendChild(more);
+  note.id = "modelnote";
+  add(s, add(row("model", modelChoice()), note)); modelNote();
+  add(s, row("length", choices("tier", D.tiers.map(t => [t, t]), {after: how, def: d.tier}),
+    D.setup.includes(F.tier) ? "The setup plan is chosen, under More options." :
+      "Check shows the calls and the time."));
+  const [more, sum] = fold("more", "more", "More options");
+  sum.id = "moresum";
+  add(more,
+    row("classes", choices("classes", D.classes.map(k => [k, CLASS_WORDS[k] || k,
+      planned.includes(k) ? null : "not asked at " + F.tier]), {multi: true}),
+      planned.length < D.classes.length ? "At " + F.tier + ", only " + planned.join(" and ") + "." : null),
+    row("memory", choices("memory", D.memory.map(m => [m, m]), {def: d.memory}),
+      "Both asks each item with and without your memory files."),
+    row("effort", choices("effort", D.efforts.map(e => [e, e]), {def: d.effort})),
+    row("watch", choices("watch", D.watch.map(w => [w, w]), {def: D.watch[0]}),
+      "On opens a live view in your browser; off still shows the run's output here."),
+    row("jobs", jobsField(), D.measured_jobs ? "Calls at once; more is faster but heavier on your rate limit; the " +
+      "time estimate scales with it, from rates measured at " + D.measured_jobs + "." :
+      "Calls at once; more is faster but heavier on your rate limit."),
+    row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m]), {def: d.auto_memory}),
+      "Claude Code's own saved notes (Claude Code only): leave as configured to measure your agent as it is; " +
+      "off, in both conditions, is the calibration's setting."),
+    row("setup plan", choices("tier", D.setup.map(t => [t, t]), {after: how}),
+      "The calibration's setup plan, in place of a length."));
+  s.appendChild(more); moreSummary();
 }
-const MODEL_NOTES = {
-  claude: ["default: the CLI's own model · other: any model name Claude Code takes",
-           "the time estimate is measured on Sonnet (Opus estimated); other models show Sonnet's time"],
-  codex: ["default: the model in your config.toml · other: any Codex model name",
-          "the time estimate for Codex is assumed, not measured"]};
-function pickModel(pick) {            // the model: "" (the CLI's default), one of D.models[agent], or "other" (typed)
-  F.pick = pick; F.modelFor = F.agent;
-  F.model = pick === "other" ? F.other : pick;
-}
-function modelChoice() {
-  if (!F.agent) return el("div", "muted", "the CLI's default; choose an agent for its models");
-  const box = add(el("div"), choices("pick", [["", "default"], ...D.models[F.agent].map(m => [m, m]),
-    ["other", "other"]], {after: () => { pickModel(F.pick); how(); if (F.pick === "other") $("othermodel").focus(); }
-  }));
-  if (F.pick === "other") {
-    const other = field(F, "other", "a model name", false, () => pickModel("other"));
-    other.id = "othermodel"; other.className = "other";
-    box.appendChild(other);
-  }
-  return box;
+function moreSummary() {                   // More options' closed line: what differs from the defaults
+  const box = $("moresum");
+  if (!box) return;
+  const d = D.default, diff = [];
+  if (D.setup.includes(F.tier)) diff.push("setup plan");
+  if (!same(F.classes, D.classes)) diff.push("classes " + F.classes.join(", "));
+  for (const [key, word, base] of [["memory", "memory", d.memory], ["effort", "effort", d.effort],
+                                   ["watch", "watch", D.watch[0]], ["auto_memory", "auto memory", d.auto_memory]])
+    if (F[key] !== base) diff.push(word + " " + F[key]);
+  if (String(F.jobs).trim() !== String(d.jobs)) diff.push("jobs " + String(F.jobs).trim());
+  box.textContent = diff.length ? diff.join(" · ") : "defaults";
+  box.classList.toggle("changed", diff.length > 0);
 }
 function build() { marks = []; measure(); against(); how(); }
 // ---- the answer
 function changed() {
-  confirming = false;
+  confirming = false; touched = true;
   clearTimeout(timer); timer = setTimeout(refresh, 150);
   render();
 }
@@ -938,26 +1032,33 @@ function render() {
     el("span", w.length > 40 ? "long" : null, w)));                     // a flag stays whole; a long path may break
   else cmd.textContent = "…";
   $("where").textContent = D ? "in the probatio folder" : "";
+  modelNote();
   const labels = $("labels"); labels.replaceChildren();
   (said ? said.labels : []).forEach((l, i) => add(labels, i ? document.createTextNode(" · ") : null,
     el("span", /not (calibrated|registered)/.test(l) ? "warn" : null, l)));
   const files = $("files"); files.replaceChildren();
   if (said && said.entities) {
-    add(files, document.createTextNode("Your roster edits go in "), el("code", null, said.entities.path),
+    add(files, document.createTextNode("Roster edits go in "), el("code", null, said.entities.path),
       document.createTextNode(", a read-only file named by its content, written when you check."));
-    const det = add(el("details"), el("summary", null, "the file"), el("pre", null, said.entities.text));
-    files.appendChild(det);
+    files.appendChild(add(el("details", "small"), el("summary", null, "The file"),
+      el("pre", null, said.entities.text)));
   }
   const custom = $("custom");
   if (custom) { custom.hidden = !(said && said.entities); custom.firstChild.textContent = said && said.roster || ""; }
-  const error = $("error"); error.replaceChildren();
-  if (said && said.error) add(error, el("b", null, "probatio: "), document.createTextNode(said.error));
+  const error = $("error"), calm = !touched && F && !F.agent;   // untouched, no agent yet: a first step, not an error
+  error.replaceChildren(); error.classList.toggle("calm", !!(said && said.error && calm));
+  if (said && said.error && calm)
+    error.textContent = "Choose an agent to begin: " + D.agents.map(a => a[1]).join(" or ") + ".";
+  else if (said && said.error) add(error, el("b", null, "probatio: "), document.createTextNode(said.error));
   const stale = plan && plan.ok && keyOf(plan) !== keyOf(said);
   $("check").disabled = !said || !!said.error || checking;
-  const ready = plan && plan.ok && !stale && !going();
+  const ready = plan && plan.ok && !stale && !going() && !checking;     // not while a Check is in flight
   $("run").disabled = !ready;
-  $("why").textContent = going() ? "a run is going" : !plan || !plan.ok ? "check first" : stale ?
+  $("why").textContent = going() ? "a run is going" : F && !F.agent ? "choose an agent first" :
+    !plan || !plan.ok ? "check first" : stale ?
     "the command changed: check it again" : "";
+  $("actions").hidden = confirming && ready;                 // while confirming, Start the run is the one primary
+  if (D) moreSummary();
   renderConfirm(ready); renderPlan(stale);
 }
 function renderConfirm(ready) {
@@ -968,7 +1069,7 @@ function renderConfirm(ready) {
   const p = el("p", null, "Run this command? " + (size.length ? size.join(", ") : "See the plan for its size") +
     ", on " + who + " with " + (F.model.trim() ? "the model " + F.model.trim() : "the CLI's default model") +
     " at effort " + F.effort + ". It uses your own " + who + " login and quota.");
-  const go = el("button", "primary", "Start the run"), no = el("button", null, "Cancel");
+  const go = el("button", "primary", "Start the run"), no = el("button", "quiet", "Cancel");
   go.type = no.type = "button";
   go.addEventListener("click", start);
   no.addEventListener("click", () => { confirming = false; render(); });
@@ -987,10 +1088,11 @@ function renderPlan(stale) {
   const sm = plan.summary || {};
   const head = [sm.calls !== null && sm.calls !== undefined ? sm.calls + " calls" : null, sm.time].filter(Boolean);
   if (head.length) box.appendChild(el("div", "big", head.join(" · ")));
-  if (sm.rates) box.appendChild(el("div", "muted", sm.rates));
   if (sm.hint) box.appendChild(el("div", "hintline", sm.hint));
-  const det = add(el("details"), el("summary", null, "the whole preflight"), el("pre", "out", plan.plan));
-  det.open = true;
+  const det = add(el("details", "small"), el("summary", null, "The whole preflight"),
+    lined(el("pre", "out"), plan.plan));
+  det.open = opened.preflight;
+  det.addEventListener("toggle", () => { opened.preflight = det.open; });
   box.appendChild(det);
 }
 const RUN_WORDS = {running: "running", stopping: "stopping: the calls already running finish first",
@@ -1021,7 +1123,7 @@ function renderRun() {
   box.appendChild(kv("started " + run.started + ":", run.command));
   for (const f of run.folders) box.appendChild(kv("results folder", f));
   for (const [kind, path] of run.results) box.appendChild(kv(kind.toLowerCase(), path));
-  const pre = el("pre", "out", run.lines.join("\\n") || "(no output yet)");
+  const pre = lined(el("pre", "out"), run.lines.join("\\n") || "(no output yet)");
   box.appendChild(pre);
   if (keep) pre.scrollTop = pre.scrollHeight;
 }
