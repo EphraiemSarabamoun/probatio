@@ -5,7 +5,8 @@ Counts are never multiplied out of constants. They come from enumerating the pla
   comparators and memory mode;
 - a cross-type group enumerates ordo's items from bank/ordo/class1.jsonl and the task counts in bank/ordo/manifest.json,
   under the plan rules of SCORING.md 12 (name pairings per tier, the F2.b half, repetitions, red-flag cells, named
-  targets on the measured baseline pairing only, with every target item carrying the key of its fictional twin).
+  targets on the measured baseline pairing only, with every target item carrying the key of its fictional twin, and
+  measured in Class I only at quick).
 The counts are then priced with one table (PRICING, written to budget.json), the table probatio's preflight reads.
 
     estimate(selection)  -> {questions, episodes, units, by_family, claude_requests, codex_requests,
@@ -16,8 +17,8 @@ The counts are then priced with one table (PRICING, written to budget.json), the
 The rates are measured where PRICING["measured"] says (the ordo pilot, 2026-11-08: docs/ordo/timing.json, which
 docs/ordo/timing.py writes from the pilot's per-call records) and assumed for the other profiles, as their notes say.
 The tiers are smoke (the plan called quick until 2026-11-08), quick (the 15-minute estimate: standard's role-free
-rules and checks, no authority frame, the role-free errands on ordo.QUICK_TASKS of the full pool, no Class III, and for
-one target probatio's TIER_PARTS), standard and full.
+rules and checks, no authority frame, the role-free errands on ordo.QUICK_TASKS of the full pool, no Class III, a named
+target's Class I questions but not its errands, and for one target probatio's TIER_PARTS), standard and full.
 
 A selection is a dict: {"tier": "smoke"|"quick"|"standard"|"full", "memory": "on"|"off"|"both", "classes": "I,II,III",
 "single": [{"type", "targets", "comparators", "custom_controls"}], "cross": {"pairs": [[A, B], ...], "names": {type: 1|2},
@@ -74,16 +75,16 @@ CELLS = ("N0", "U", "O")
 # ---- the cross-type plan rules (SCORING.md 12) -------------------------------------------------------------------------
 STANDARD_RULES = {"f1": "crossed", "f2a": "crossed", "f2b": "diagonals", "reps": 1, "tri_sets": 2, "v12": 2,
                   "rf1_reps": 3, "rf2_modes": ("explicit", "discretion"), "rf2_cells": ("S4C4",), "rf4_sets": 2,
-                  "authority": True, "classes": "I,II,III"}
-TIER_RULES = {
+                  "authority": True, "classes": "I,II,III", "named": "I,II"}
+TIER_RULES = {          # named: the classes a named target is measured in (its questions; its counterfactual errands)
     "smoke": {"f1": "baseline", "f2a": "baseline", "f2b": "first diagonal", "reps": 1, "tri_sets": 1, "v12": 1,
               "rf1_reps": 1, "rf2_modes": ("explicit",), "rf2_cells": ("S4C4",), "rf4_sets": 1, "authority": True,
-              "classes": "I,II,III"},
-    "quick": dict(STANDARD_RULES, authority=False, classes="I,II"),   # role-free only; no Class III
-    "standard": STANDARD_RULES,
+              "classes": "I,II,III", "named": "I,II"},
+    "quick": dict(STANDARD_RULES, authority=False, classes="I,II", named="I"),   # role-free only; no Class III, and
+    "standard": STANDARD_RULES,                                                 # a named target's questions only
     "full": {"f1": "crossed", "f2a": "crossed", "f2b": "diagonals", "reps": 2, "tri_sets": 2, "v12": 4,
              "rf1_reps": 6, "rf2_modes": ("explicit", "discretion"), "rf2_cells": ("S2C2", "S4C4"), "rf4_sets": 2,
-             "authority": True, "classes": "I,II,III"},
+             "authority": True, "classes": "I,II,III", "named": "I,II"},
 }
 MANIFEST_KEY = {"smoke": "quick"}          # bank/ordo/manifest.json is pinned and names smoke's task counts "quick"
 F2B_HALF = {0: "+1", 1: "-1"}       # repetition r of F2.b runs this half (the full tier's second completes the crossing)
@@ -138,6 +139,7 @@ def cross_items(tier, pairs, names=None, named=(), classes="I,II,III", bank=None
     rows, name_sets, tier_tasks = bank or ordo_bank()
     rule = TIER_RULES[tier]
     wanted = set(classes.split(",")) & set(rule["classes"].split(","))
+    measured = set(rule["named"].split(","))            # the classes the named targets are measured in at the tier
     pairs = [tuple(sorted(p, key=TYPES.index)) for p in pairs]
     types = [t for t in TYPES if any(t in p for p in pairs)]
     n = {t: (names or {}).get(t, 2) for t in TYPES}
@@ -198,10 +200,12 @@ def cross_items(tier, pairs, names=None, named=(), classes="I,II,III", bank=None
                 for rep in range(rule["rf1_reps"]):
                     items.append(q("RF1", ("RF1", row["template_id"], "anon", rep)))
         # named targets: the baseline role-free items whose slot of the target's type holds that type's set-1 name,
-        # at the tier's measured pairings, with the target in its place; the twin is that baseline item's key
-        baseline = {i["key"] for i in items if i["key"][0] == "F1"}
-        for t in named:
-            for item in [i for i in items if i["key"][0] == "F1"]:
+        # at the tier's measured pairings, with the target in its place; the twin is that baseline item's key (the
+        # baseline list is taken once, so a second target's items never start from the first target's)
+        base_items = [i for i in items if i["key"][0] == "F1"]
+        baseline = {i["key"] for i in base_items}
+        for t in named if "I" in measured else ():
+            for item in base_items:
                 _, tid, (ta, xa), (tb, xb), rep = item["key"]
                 if t not in (ta, tb) or (xa if ta == t else xb) != nm[t][0]:
                     continue
@@ -215,7 +219,8 @@ def cross_items(tier, pairs, names=None, named=(), classes="I,II,III", bank=None
     if "II" in wanted:
         episodes += [("N0", "secretariat", b, s) for s in range(tt["role_free"]) for b in types]
         episodes += [("N0", "authority", c, s) for s in range(tt["authority"]) for c in range(cells)]
-        episodes += [("N0", f"@{t}", b, s) for t in named for s in range(tt["role_free"]) for b in types]
+        episodes += [("N0", f"@{t}", b, s) for t in (named if "II" in measured else ())
+                     for s in range(tt["role_free"]) for b in types]
     if "III" in wanted:
         episodes += [("U", "secretariat", b, s) for s in range(tt["role_free"]) for b in types]
         episodes += [("O", "secretariat", b, s) for s in range(tt["observed"]) for b in types]
@@ -325,8 +330,11 @@ def cases():
         out[f"{tier}: individual:organization:nation + named organization"] = {
             "tier": tier, "cross": {"pairs": TRIANGLE, "named": ["organization"]}}
     out["standard: individual:organization"] = {"tier": "standard", "cross": {"pairs": ONE_PAIR}}
-    out["standard: individual:organization + named organization"] = {
-        "tier": "standard", "cross": {"pairs": ONE_PAIR, "named": ["organization"]}}
+    for tier in ("quick", "standard"):
+        out[f"{tier}: individual:organization + named organization"] = {
+            "tier": tier, "cross": {"pairs": ONE_PAIR, "named": ["organization"]}}
+        out[f"{tier}: individual:organization:nation + a named target of each type"] = {
+            "tier": tier, "cross": {"pairs": TRIANGLE, "named": list(TYPES)}}
     out["standard: individual:organization,organization:nation"] = {"tier": "standard", "cross": {"pairs": TWO_PAIRS}}
     out["standard: organization, 3 comparators and 1 custom control"] = {
         "tier": "standard", "single": single(comparators=3, custom_controls=1)}

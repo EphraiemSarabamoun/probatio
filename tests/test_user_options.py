@@ -105,7 +105,7 @@ def budget_cross(tier, pairs, named):
         touching, set1 = sum(a in p for p in pairs), 1 if T["f1"] == 1 else 2
         q["survey"] += touching * 10 * set1 * T["reps"]
         q["devotio"] += touching * 4 * set1 * T["reps"]
-        cells["N0"] += T["n0"] * k
+        cells["N0"] += T["n0"] * k if "II" in P.named_classes(tier) else 0     # quick: no counterfactual worlds
     return q, cells
 
 
@@ -479,7 +479,7 @@ class TestRuns(Isolated):
         out = self.main("--agent", "claude", "--compare", "individual:organization:nation", "--target",
                         "organization=Mozilla", "--memory", "both", "--dry-run")
         self.assertIn("  about 67 minutes; to shorten: drop the named target (-12 min), or --class I (-50 min), or "
-                      "--tier quick (-16 min)\n", out)
+                      "--tier quick (-35 min)\n", out)
         self.assertIn("1456 units, 1456 calls", out)
         quiet = self.main("--agent", "claude", "--compare", "individual:organization:nation", "--target",
                           "organization=Mozilla", "--dry-run")
@@ -748,13 +748,15 @@ class TestComparable(unittest.TestCase):
         custom = dict(new, fixtures_sha256="8b7e0d22" + "0" * 56)
         exits(self, f"these runs used different fixtures ({P.baseline_fixtures()['organization'][:8]}, 8b7e0d22); "
                     "they are not comparable", P.comparable, new, custom)
-        exits(self, "these runs ran different plans (standard@1, quick@2); they are not comparable", P.comparable,
-              new, dict(new, tier="quick", recipe="quick@2"))
+        exits(self, "these runs ran different plans (standard@1, quick@3); they are not comparable", P.comparable,
+              new, dict(new, tier="quick", recipe="quick@3"))
         exits(self, "these runs ran different plans (standard@1, smoke@1); they are not comparable", P.comparable,
               new, dict(new, tier="quick"))               # a run.json from before recipes: its quick reads as smoke@1
         P.comparable(dict(new, tier="quick"), dict(new, tier="smoke", recipe="smoke@1"))       # the same plan
-        exits(self, "these runs ran different plans (smoke@1, quick@2); they are not comparable", P.comparable,
-              dict(new, tier="quick"), dict(new, tier="quick", recipe="quick@2"))
+        exits(self, "these runs ran different plans (smoke@1, quick@3); they are not comparable", P.comparable,
+              dict(new, tier="quick"), dict(new, tier="quick", recipe="quick@3"))
+        exits(self, "these runs ran different plans (quick@2, quick@3); they are not comparable", P.comparable,
+              dict(new, tier="quick", recipe="quick@2"), dict(new, tier="quick", recipe="quick@3"))
 
     def test_hashes_are_compared_whole(self):
         # Codex's final verification, finding 7: the first 8 characters alike, the rest different.

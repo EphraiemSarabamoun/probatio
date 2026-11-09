@@ -37,12 +37,13 @@ from itertools import permutations
 from pathlib import Path
 from types import CodeType, SimpleNamespace
 
-from probatio import (CLASS_MINIMUM, J_VALID, J_WEAK, MANIFEST_TIER, MENU_LINE, MIN_SHARE, O_CONTRAST_VALID,
-                      PLAN_RECIPES, TARGET_TYPES, TIER_CLASSES, Bootstrap, RenderError, class_iii_validity, class_raw,
-                      credit, derive_cell, episode_dir, episode_facts, episode_outcome, episode_problem, errand_reason,
-                      frozen_facts, index_r, key, levels, measure_value, norm_name, plan_minutes, planner_tier, quoted,
-                      read_record, read_replies, read_launches, recipe_of, render, render_world, replicates,
-                      report_counts, report_state, run_time_line, sha256_text, show_ci, spread, unowed, whole)
+from probatio import (CLASS_MINIMUM, J_VALID, J_WEAK, MANIFEST_TIER, MENU_LINE, MIN_SHARE, NOT_RUN_IN,
+                      O_CONTRAST_VALID, PLAN_RECIPES, TARGET_TYPES, TIER_CLASSES, Bootstrap, RenderError,
+                      class_iii_validity, class_raw, credit, derive_cell, episode_dir, episode_facts, episode_outcome,
+                      episode_problem, errand_reason, frozen_facts, index_r, key, levels, measure_value, named_classes,
+                      norm_name, plan_minutes, planner_tier, quoted, read_record, read_replies, read_launches,
+                      recipe_of, render, render_world, replicates, report_counts, report_state, run_time_line,
+                      sha256_text, show_ci, spread, unowed, whole)
 from probatio import pricing as _pricing
 
 HERE = Path(__file__).resolve().parent
@@ -105,8 +106,8 @@ TIER = {
                      rf2_modes=None, rf2_cells=None, rf4_sets=2, frames=FRAMES),
 }                                                        # rf2_modes, rf2_cells: the RF2 rows asked (None: every one)
 QUICK_TASKS = {"role_free": 32, "observed": 0, "authority": 0}   # quick's tasks, spread over the full pool
-# MANIFEST_TIER (the pinned manifest's key for smoke's task counts) and TIER_CLASSES (quick plans Classes I and II)
-# come from probatio.py, the tiers' one home.
+# MANIFEST_TIER (the pinned manifest's key for smoke's task counts), TIER_CLASSES (quick plans Classes I and II) and
+# named_classes (a named target's classes: Class I only at quick) come from probatio.py, the tiers' one home.
 PAIRINGS = ((1, 1), (1, 2), (2, 1), (2, 2))              # F1 and F2.a: every crossing of the two types' names
 SET_PAIRINGS = ((1, 1), (2, 2))                          # F2.b: the set-consistent diagonals (4.1)
 ORDO_SEED = 20261108                                     # fixes the call order, as V4_SEED does v4's
@@ -632,9 +633,9 @@ def plan(bank, compare, tier="standard", conditions=("with",), roster=None, name
     """Every call of a cross-type selection, in v4's call shape so probatio's runner makes them unchanged: the items
     shuffled with ORDO_SEED, each asked once per condition, an item's conditions side by side in a seeded order.
     compare is the canonical --compare string or a list of pairs; roster gives a type's controls (its name sets);
-    named holds resolved target records, each with its type (role-free only, 4.2). only keeps the items whose ids it
-    holds: the private pilot plan's filter (8.7). classes drops whole classes (--class); Class I keeps V12 and the
-    red flags."""
+    named holds resolved target records, each with its type (role-free only, 4.2), measured in the tier's
+    named_classes (at quick Class I only: no counterfactual worlds). only keeps the items whose ids it holds: the
+    private pilot plan's filter (8.7). classes drops whole classes (--class); Class I keeps V12 and the red flags."""
     if tier not in TIER:
         raise OrdoError(f"unknown tier {tier!r}; the tiers are quick, standard and full (and smoke, the calibration's)")
     classes = tuple(k for k in classes if k in TIER_CLASSES.get(tier, classes))
@@ -650,13 +651,13 @@ def plan(bank, compare, tier="standard", conditions=("with",), roster=None, name
         for rec in bank.entities["rosters"][t]["fictional"] + sets[t]:
             if norm_name(target["full"]) == norm_name(rec["full"]) or target["key"] == rec["key"]:
                 raise OrdoError(f'"{rec["full"]}" is one of the {t} controls; a named target must be another name')
-    items = []
+    items, measured = [], named_classes(tier)
     if "I" in classes:
         items += plan_pairwise(bank, sets, pairs, tier)
         items += plan_three_way(bank, sets, tier) if triangle else []
         items += plan_checks(bank, sets, types, tier)
-        items += plan_named_class1(bank, sets, pairs, named, tier)
-    items += plan_errands(bank, sets, types, pairs, tier, classes, named)
+        items += plan_named_class1(bank, sets, pairs, named if "I" in measured else (), tier)
+    items += plan_errands(bank, sets, types, pairs, tier, classes, named if "II" in measured else ())
     ids = [i["id"] for i in items]
     if len(ids) != len(set(ids)):
         raise OrdoError("two planned items share an id; the bank holds a duplicate template")
@@ -2661,8 +2662,11 @@ def report_md(card):
             if n["target"] is None:
                 lines.append("None in this run.")
                 continue
-            for k, label in (("class_I", "Class I"), ("class_II", "Class II")):
-                s = n.get(k)
+            for k, klass in (("class_I", "I"), ("class_II", "II")):
+                s, label = n.get(k), f"Class {klass}"
+                if s is None and klass not in named_classes(card["tier"]):     # quick: a named target's Class II
+                    lines.append(f"- {n['target']} ({n['type']}), {label}: {NOT_RUN_IN.format(tier=card['tier'])} "
+                                 "(--tier standard runs a named target's errands).")
                 if s:
                     shown = (f"insufficient ({s['reason']})" if s["value"] is None and s.get("reason") else
                              "insufficient" if s["value"] is None else f"{s['value']:+.1f} points {show_ci(s['ci'])}")

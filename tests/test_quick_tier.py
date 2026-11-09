@@ -13,6 +13,7 @@ import csv
 import hashlib
 import importlib.util
 import io
+import itertools
 import json
 import os
 import re
@@ -105,15 +106,17 @@ class TestRecipes(unittest.TestCase):
 
     def test_the_recipe_of_a_run(self):
         self.assertEqual(P.recipe_of({"tier": "quick"}), "smoke@1")                 # before 2026-11-08
-        self.assertEqual(P.recipe_of({"tier": "quick", "recipe": "quick@2"}), "quick@2")
+        self.assertEqual(P.recipe_of({"tier": "quick", "recipe": "quick@3"}), "quick@3")
+        self.assertEqual(P.recipe_of({"tier": "quick", "recipe": "quick@2"}), "quick@2")     # retired, still read
         self.assertEqual(P.recipe_of({"tier": "smoke", "recipe": "smoke@1"}), "smoke@1")
         self.assertEqual([P.planner_tier(r) for r in P.PLAN_RECIPES.values()], list(P.PLAN_RECIPES))
+        self.assertEqual(P.planner_tier("quick@2"), "quick")
         for bad in ({"tier": "quick", "recipe": "quick@1"}, {"tier": "standard", "recipe": "smoke@1"},
-                    {"tier": "slim"}):
+                    {"tier": "standard", "recipe": "quick@2"}, {"tier": "slim"}):
             with self.assertRaises(SystemExit, msg=bad):
                 P.recipe_of(bad)
 
-    MALFORMED = ("quick@3", None, "", 2, ["quick@2"])        # a present recipe is never read as legacy
+    MALFORMED = ("quick@4", None, "", 2, ["quick@3"])        # a present recipe is never read as legacy
 
     def test_a_present_but_malformed_recipe_is_refused_naming_the_field(self):
         for recipe in self.MALFORMED:
@@ -157,7 +160,7 @@ class TestRecipes(unittest.TestCase):
         before = (self.tmp / "run" / "run.json").read_bytes()
         P.check_resume(self.tmp / "run", dict(legacy, tier="smoke", recipe="smoke@1"))     # resumes
         with self.assertRaises(SystemExit) as stop:
-            P.check_resume(self.tmp / "run", dict(legacy, tier="quick", recipe="quick@2"))
+            P.check_resume(self.tmp / "run", dict(legacy, tier="quick", recipe="quick@3"))
         self.assertEqual(str(stop.exception), f"{self.tmp / 'run'} holds a smoke@1 run (recorded as quick before "
                                               "2026-11-08); rerun with --tier smoke to resume it, or pass another --out")
         self.assertEqual((self.tmp / "run" / "run.json").read_bytes(), before)
@@ -169,7 +172,7 @@ class TestRecipes(unittest.TestCase):
         roster = P.resolve_target(b, "organization", "Mozilla")
         opts = SimpleNamespace(model=None, effort="medium", workdir="/tmp", features=[])
         meta = P.v4_meta(a, opts, b, roster, P.plan_v4(b, roster, "quick", a.classes, ("with",)), "x", {})
-        self.assertEqual((meta["tier"], meta["recipe"], meta["classes"]), ("quick", "quick@2", ["I", "II"]))
+        self.assertEqual((meta["tier"], meta["recipe"], meta["classes"]), ("quick", "quick@3", ["I", "II"]))
 
 
 class TestTimeModel(unittest.TestCase):
@@ -261,7 +264,7 @@ class TestScorecard(unittest.TestCase):
         self.assertIn("Class III internalised  not run in a quick run\n", text)
         self.assertIn("Run time 14m 32s over 1 launch.\n", text)
         card = json.loads((self.tmp / "run" / "scorecard.json").read_text())
-        self.assertEqual((card["tier"], card["recipe"]), ("quick", "quick@2"))
+        self.assertEqual((card["tier"], card["recipe"]), ("quick", "quick@3"))
         self.assertEqual(card["run_time"], {"elapsed_seconds": 872.25, "launches": 1, "unfinished": 0})
 
     def test_the_run_time_is_the_launches_own(self):
@@ -358,6 +361,136 @@ def load_rule_evidence():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class TestNamedTargets(unittest.TestCase):
+    """quick@3 measures a cross-type run's named target in Class I only: its counterfactual errands need standard's
+    worlds, which no affordable quick count reads honestly (QUICK.md, "Named targets"); so quick never costs more than
+    standard for the same selection, and every surface says what it left out."""
+    PUBLIC = (("individual", "Ada Lovelace"), ("organization", "Mozilla"), ("nation", "the United States"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ordo = O.load_ordo_bank()
+        import budget                                    # docs/ordo/budget.py, the plan rules' own enumeration
+        cls.budget = budget
+
+    def named(self, *types):
+        return [dict(P.entity(t, name, key=name.lower().replace(" ", "")), type=t)
+                for t, name in self.PUBLIC if t in types]
+
+    def test_quick_asks_a_named_targets_questions_and_none_of_its_errands(self):
+        named = self.named("organization")
+        quick, standard = (O.plan(self.ordo, TRIANGLE, tier, named=named) for tier in ("quick", "standard"))
+
+        def mine(calls, episode):
+            return {c["id"] for c in calls if c["meta"].get("named") and bool(c.get("episode")) == episode}
+        self.assertEqual(len(mine(quick, False)), 56)
+        self.assertEqual(mine(quick, False), mine(standard, False))       # standard's twin-matched questions
+        self.assertEqual(mine(quick, True), set())
+        self.assertEqual(len(mine(standard, True)), 48)
+        plain = O.plan(self.ordo, TRIANGLE, "quick")
+        self.assertEqual({c["id"] for c in quick} - mine(quick, False), {c["id"] for c in plain})
+
+    def selections(self):
+        """Every budget case asked at quick, and every named-target selection: each pair set, each non-empty set of
+        named types it holds, memory on and both, and the classes a quick run plans."""
+        out = {name: sel for name, sel in self.budget.cases().items() if sel["tier"] == "quick"}
+        pairs = {"one pair": [["individual", "organization"]], "two pairs": self.budget.TWO_PAIRS,
+                 "triangle": self.budget.TRIANGLE}
+        for label, ps in pairs.items():
+            types = [t for t in self.budget.TYPES if any(t in p for p in ps)]
+            for n in range(1, len(types) + 1):
+                for named in itertools.combinations(types, n):
+                    for memory in ("on", "both"):
+                        for classes in ("I,II", "I"):
+                            out[f"{label} + {named}, memory {memory}, {classes}"] = {
+                                "tier": "quick", "memory": memory, "classes": classes,
+                                "cross": {"pairs": ps, "named": list(named)}}
+        return out
+
+    def test_quick_never_costs_more_than_standard(self):
+        keys = ("units", "claude_requests", "codex_requests", "sonnet_min", "opus_min", "codex_min")
+        for name, sel in self.selections().items():
+            quick, standard = self.budget.estimate(sel), self.budget.estimate(dict(sel, tier="standard"))
+            for k in keys:
+                self.assertLessEqual(quick[k], standard[k], (name, k))
+
+    def test_the_planner_agrees_for_a_named_target_of_each_type(self):
+        named = self.named(*O.TYPES)
+        counts = {tier: O.count_plan(O.plan(self.ordo, TRIANGLE, tier, named=named)) for tier in ("quick", "standard")}
+        self.assertLess(counts["quick"]["sonnet_min"], counts["standard"]["sonnet_min"])
+        self.assertEqual((counts["quick"]["units"], round(counts["quick"]["sonnet_min"], 1)), (540, 17.4))
+        self.assertEqual((counts["standard"]["units"], round(counts["standard"]["sonnet_min"], 1)), (936, 45.0))
+
+    def command(self, *extra):
+        targets = [f"--target={t}={name}" for t, name in self.PUBLIC]
+        return ["--agent", "claude", "--compare", "individual:organization:nation", *targets, *extra]
+
+    def plan_runs(self, *extra):
+        a = P.parse_args_v4(self.command(*extra))
+        bank = real_bank()
+        spec = P.load_entities(None, bank, data={})
+        types = list(O.TYPES)
+        for t, name in P.parse_targets(a.target, types, bank):
+            P.add_target(spec, bank, t, name)
+        selection = P.canonical_compare(P.parse_compare(a.compare))
+        return a, bank, P.plan_runs(a, bank, selection, spec, self.ordo)
+
+    def test_named_targets_at_quick_with_class_ii_alone_are_refused_with_the_fix(self):
+        with self.assertRaises(SystemExit) as stop:
+            self.plan_runs("--tier", "quick", "--class", "II")
+        self.assertEqual(str(stop.exception), "at --tier quick a named target is measured in Class I only; add I to "
+                                              "--class, or use --tier standard for its errands")
+        self.plan_runs("--tier", "standard", "--class", "II")                  # standard runs its errands
+
+    def dry_run(self, *extra):
+        printed, version = io.StringIO(), subprocess.CompletedProcess([], 0, stdout="9.9.9 (fake)\n", stderr="")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(P.shutil, "which", return_value="/bin/claude"), \
+                mock.patch.object(P.subprocess, "run", return_value=version), \
+                mock.patch.object(P, "run_calls", side_effect=AssertionError("a dry run reached run_calls")), \
+                mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": d}), contextlib.redirect_stdout(printed):
+            P.main(["--workdir", d, *self.command(*extra), "--dry-run", "--out", str(Path(d) / "out")])
+        return printed.getvalue()
+
+    def test_the_preflight_says_what_quick_leaves_out(self):
+        quick = self.dry_run("--tier", "quick")
+        self.assertIn("    named targets: individual Ada Lovelace, organization Mozilla, nation the United States "
+                      "(Class I only at --tier quick; --tier standard adds their errands)\n", quick)
+        self.assertIn("    540 units, 540 calls   about 17 min", quick)
+        self.assertNotIn("to shorten", quick)
+        standard = self.dry_run("--tier", "standard")
+        self.assertIn("    named targets: individual Ada Lovelace, organization Mozilla, nation the United States\n",
+                      standard)
+        self.assertIn("    936 units, 936 calls   about 45 min", standard)
+        self.assertIn("--tier quick (-28 min)", standard)
+
+    def test_a_quick_card_says_a_named_targets_errands_were_not_run(self):
+        named = self.named("organization")
+        units = []
+        for c in O.plan(self.ordo, TRIANGLE, "quick", named=named, classes=("I",)):
+            units += O.question_unit(c, {"error": None, "outcome": None})
+        card = O.score_units(units, B=0, tier="quick")
+        md = O.report_md(card)
+        self.assertIn("- Mozilla (organization), Class II: not run in a quick run (--tier standard runs a named "
+                      "target's errands).", md)
+        self.assertIn("- Mozilla (organization), Class I: Δ insufficient", md)
+
+    def test_a_retired_quick_folder_resumes_when_its_plan_is_this_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            _, _, _, meta = S.planted_run(out, tier="quick", memory="on", classes=("I", "II"))
+            self.assertEqual(meta["recipe"], "quick@3")
+            old = dict(meta, recipe="quick@2")                    # a run of the released quick@2, no named target
+            (out / "run.json").write_text(json.dumps(old, indent=2))
+            before = (out / "run.json").read_bytes()
+            P.check_resume(out, meta)                             # the same plan, call for call: it resumes
+            self.assertEqual((out / "run.json").read_bytes(), before)
+            with self.assertRaises(SystemExit) as stop:
+                P.check_resume(out, dict(meta, plan_fingerprint="0" * 64))
+            self.assertEqual(str(stop.exception), f"{out} holds a quick@2 run whose plan is not this one (quick is "
+                                                  "quick@3 now, which measures named targets in Class I only), so "
+                                                  "this probatio cannot continue it; pass another --out")
 
 
 class TestErrandRuleGate(unittest.TestCase):

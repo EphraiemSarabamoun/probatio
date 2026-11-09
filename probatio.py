@@ -1985,11 +1985,19 @@ V4_SEED = 20261107              # fixes v4's call order, as SEED does v3's
 # baseline (docs/ordo/QUICK.md), has no items of its own: TIER_PARTS names the tier whose Class I and whose Class II it
 # asks, and TIER_CLASSES the classes it plans, so a quick plan is standard's Class I calls plus full's N0 calls exactly.
 # bank/manifest.json is pinned (FROZEN) and still names smoke's task count "quick": MANIFEST_TIER maps the plan name to
-# the manifest's key. ordo.py reads TIER_CLASSES and MANIFEST_TIER from here, so the two planners share one home.
+# the manifest's key. ordo.py reads TIER_CLASSES, TIER_NAMED_CLASSES and MANIFEST_TIER from here, so the two planners
+# share one home. A cross-type run's named target is measured in Class I and, in counterfactual worlds, Class II; at
+# quick in Class I only (quick@3): no affordable count of its errands reads honestly within quick's 15 minutes
+# (docs/ordo/QUICK.md, "Named targets"), so they are at --tier standard.
 TIER_PARTS = {"quick": {"I": "standard", "II": "full"}}
 TIER_CLASSES = {"quick": ("I", "II")}                   # the classes a tier plans; every other tier plans all three
+NAMED_CLASSES = ("I", "II")                             # the classes a named target is measured in (role-free)
+TIER_NAMED_CLASSES = {"quick": ("I",)}                  # a tier that measures it in fewer
 MANIFEST_TIER = {"smoke": "quick"}
 QUICK_NO_III = "a quick run does not run Class III; use --tier standard for it"
+QUICK_NAMED = "Class I only at --tier quick; --tier standard adds their errands"    # the preflight's named-target note
+QUICK_NAMED_NONE = ("at --tier quick a named target is measured in Class I only; add I to --class, or use --tier "
+                    "standard for its errands")
 QUICK_CARD_LINE = ("quick tier: Classes I and II only; Class III was not run (--tier standard runs it; --tier full "
                    "also asks every Class I item twice).")
 NOT_RUN_IN = "not run in a {tier} run"                  # a class row the tier does not plan, as the scorecard and page read
@@ -1999,8 +2007,13 @@ NOT_RUN_IN = "not run in a {tier} run"                  # a class row the tier d
 # and scorecard records its recipe. A run.json written before recipes existed has none, and is read through
 # LEGACY_RECIPES at each boundary that reads a saved run (rescore, check_resume, comparable, the scorecard head), so no
 # historical file is ever edited: the quick of before 2026-11-08 reads as smoke@1. quick@1 was the rule set now called
-# smoke@1; no run records it. A change to any tier's rules bumps its recipe and keeps the old one plannable.
-PLAN_RECIPES = {"smoke": "smoke@1", "quick": "quick@2", "standard": "standard@1", "full": "full@1"}
+# smoke@1; no run records it. A change to any tier's rules bumps its recipe and keeps the old one readable:
+# RETIRED_RECIPES maps a recipe new runs no longer record to its tier word. quick@2 differs from quick@3 only in a
+# cross-type run's named targets (quick@2 also ran their errands), so a quick@2 plan without one is quick@3's call for
+# call: it rebuilds under quick and resumes (same_plan); a quick@2 run with named targets is scored as recorded but
+# cannot be resumed by this probatio.
+PLAN_RECIPES = {"smoke": "smoke@1", "quick": "quick@3", "standard": "standard@1", "full": "full@1"}
+RETIRED_RECIPES = {"quick@2": "quick"}
 LEGACY_RECIPES = {"quick": "smoke@1", "standard": "standard@1", "full": "full@1"}
 RECIPES_FROM = "2026-11-08"                             # the date recipes start; a legacy quick run predates it
 CLASS1_KEYS = ("template_id", "type", "component", "plan", "role", "answer_format", "text", "choices", "slots")
@@ -2385,14 +2398,17 @@ def recipe_of(meta):
     """A saved run's recipe: run.json's "recipe" field, which must then be a recipe this code plans, else (the field
     absent: a run made before recipes) the legacy reading of its tier word (LEGACY_RECIPES: a quick run from before
     2026-11-08 is smoke@1). A present but unknown, null, empty or non-string recipe is refused, naming the field, and so
-    is a recipe at odds with the tier word: neither is ever read as legacy."""
+    is a recipe at odds with the tier word: neither is ever read as legacy. A retired recipe (RETIRED_RECIPES: quick@2)
+    reads as itself."""
     if "recipe" in meta:
         recipe = meta["recipe"]
-        if not isinstance(recipe, str) or recipe not in PLAN_RECIPES.values():
+        known = tuple(PLAN_RECIPES.values()) + tuple(RETIRED_RECIPES)
+        if not isinstance(recipe, str) or recipe not in known:
             raise SystemExit(f"run.json's recipe field holds {quoted(repr(recipe))}, not a plan recipe this probatio "
-                             f"plans ({', '.join(sorted(PLAN_RECIPES.values()))}); use the probatio that made it")
+                             f"reads ({', '.join(sorted(known))}); use the probatio that made it")
         word = meta.get("tier")
-        if word is not None and recipe not in (PLAN_RECIPES.get(word), LEGACY_RECIPES.get(word)):
+        if word is not None and recipe not in (PLAN_RECIPES.get(word), LEGACY_RECIPES.get(word)) \
+                and RETIRED_RECIPES.get(recipe) != word:
             raise SystemExit(f"run.json records tier {quoted(str(word))} with plan recipe {quoted(recipe)}, which "
                              "disagree; the folder's run.json was changed, so its plan cannot be rebuilt")
         return recipe
@@ -2403,9 +2419,11 @@ def recipe_of(meta):
 
 
 def planner_tier(recipe):
-    """The planner tier that makes a recipe's items: the name before the @ (smoke@1 is planned as smoke)."""
+    """The planner tier that makes a recipe's items: the name before the @ (smoke@1 is planned as smoke). A retired
+    recipe's is its tier's planner, which makes the retired plan wherever the two recipes agree (quick@2's without
+    named targets); same_plan tells a resume whether they agree for a given run."""
     tier = recipe.split("@")[0]
-    if PLAN_RECIPES.get(tier) != recipe:
+    if PLAN_RECIPES.get(tier) != recipe and RETIRED_RECIPES.get(recipe) != tier:
         raise SystemExit(f"plan recipe {quoted(recipe)} is not one this probatio plans")
     return tier
 
@@ -2428,6 +2446,14 @@ def resume_view(meta):
     view = {k: v for k, v in meta.items() if k not in ("tier", "recipe", "date")}
     view["recipe"] = recipe_of(meta)
     return view
+
+
+def same_plan(old, meta):
+    """Whether a folder's run.json (old) records a retired recipe whose plan is this run's call for call: the same
+    planner tier and the same plan_fingerprint (a quick@2 run without named targets resumes under quick@3)."""
+    was = recipe_of(old)
+    return (was in RETIRED_RECIPES and planner_tier(was) == planner_tier(recipe_of(meta))
+            and old.get("plan_fingerprint") is not None and old.get("plan_fingerprint") == meta.get("plan_fingerprint"))
 
 
 def plan_fingerprint(calls):
@@ -4260,12 +4286,18 @@ def check_resume(out, meta):
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
         v4 = is_v4_meta(meta) and is_v4_meta(old)    # v3's run.json has its own tiers and no recipe
-        if v4 and recipe_of(old) != recipe_of(meta):
+        if v4 and recipe_of(old) != recipe_of(meta) and not same_plan(old, meta):
             was = recipe_of(old)
+            if was in RETIRED_RECIPES:
+                raise SystemExit(f"{out} holds a {was} run whose plan is not this one ({planner_tier(was)} is "
+                                 f"{PLAN_RECIPES[planner_tier(was)]} now, which measures named targets in Class I "
+                                 "only), so this probatio cannot continue it; pass another --out")
             note = f" (recorded as {old['tier']} before {RECIPES_FROM})" if old.get("tier") != planner_tier(was) else ""
             raise SystemExit(f"{out} holds a {was} run{note}; rerun with --tier {planner_tier(was)} to resume it, "
                              "or pass another --out")
         mine, theirs = (resume_view(meta), resume_view(old)) if v4 else (meta, old)
+        if v4 and same_plan(old, meta):              # the retired recipe's plan is this one: resume under its record
+            mine["recipe"] = theirs["recipe"]
         differ = [k for k in mine if k != "date" and theirs.get(k) != mine[k]]
         if differ:
             raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
@@ -4306,6 +4338,12 @@ def resolve_classes(tier, classes):
     if "III" in classes and "III" not in planned:
         raise SystemExit(QUICK_NO_III)
     return classes
+
+
+def named_classes(tier):
+    """The classes a cross-type run's named target is measured in at a tier (TIER_NAMED_CLASSES: Class I only at
+    quick), which ordo.plan and docs/ordo/budget.py's rules follow."""
+    return TIER_NAMED_CLASSES.get(tier, NAMED_CLASSES)
 
 
 def parse_args_v4(argv):
@@ -5024,6 +5062,8 @@ def plan_runs(a, bank, selection, spec, ordo_bank=None):
                for t in (cross["types"] if cross else [])}
     check_target_keys([[(t, roster["T"]) for t2, roster in resolved if t2 == t] for t in selection["single"]]
                       + [[(t, rec) for t, r in rosters.items() for rec in r["named"]]])
+    if any(r["named"] for r in rosters.values()) and not set(a.classes) & set(named_classes(a.tier)):
+        raise SystemExit(QUICK_NAMED_NONE)              # the named targets would be measured in nothing
     runs, asker = [], {}                                # asker: type -> the run that asks V12 about its controls
     for t, roster in resolved:
         name = (f"v4-{a.agent}-{t}-{roster['T']['key']}-{a.tier}-memory-{a.memory}"
@@ -5250,7 +5290,8 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
                   + "; ".join(f"{t} {', '.join(r['full'] for r in rosters[t]['controls'][:2])}" for t in sel["types"]))
             named = [f"{t} {r['full']}" for t in sel["types"] for r in rosters[t]["named"]]
             if named:
-                print("    named targets: " + ", ".join(named))
+                short = "II" in a.classes and "II" not in named_classes(a.tier)     # asked, but not at this tier
+                print("    named targets: " + ", ".join(named) + (f" ({QUICK_NAMED})" if short else ""))
             print(f"    {units} units, {charged} calls   {duration(minutes * 60)} ({label})")
             run_labels = [CROSS_LABEL] + ([] if sel["triangle"] else [UNREGISTERED_LABEL]) + \
                 [fixtures_label(spec, sel["types"])] + [CONTROL_LABEL.format(quoted(r["full"]))

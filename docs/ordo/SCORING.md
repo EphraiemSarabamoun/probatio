@@ -100,7 +100,7 @@ type share under authority P^F2(A,B) = 100 × mean over sufficient components of
 
 ## 5. Named targets
 
-**Class I.** The target's questions are exactly the measured baseline role-free questions (F1.a to F1.c) whose slot of the target's type holds that type's set-1 entity, with the target in its place: the same rows, orders, opponent names and repetitions (section 12). Every target question therefore has an exact twin, the baseline question with the same key but for that one slot, and a test enforces it at every tier. At the quick tier, which measures only the set-1 pairing, that is 14 questions per pair touching the target's type. At the standard tier, against both opponent names, it is 28, and at the full tier 56. An opponent type with one control halves these at the standard and full tiers. Then:
+**Class I.** The target's questions are exactly the measured baseline role-free questions (F1.a to F1.c) whose slot of the target's type holds that type's set-1 entity, with the target in its place: the same rows, orders, opponent names and repetitions (section 12). Every target question therefore has an exact twin, the baseline question with the same key but for that one slot, and a test enforces it at every tier. At the smoke tier, which measures only the set-1 pairing, that is 14 questions per pair touching the target's type. At the quick and standard tiers, against both opponent names, it is 28, and at the full tier 56. An opponent type with one control halves these at the quick, standard and full tiers. Then:
 
 Δ^I_T = mean over opponent types B of [P^I(T over B) − P^I(a₁ over B)], on the matched rows.
 
@@ -112,6 +112,8 @@ type share under authority P^F2(A,B) = 100 × mean over sufficient components of
 **Errands.** On each task s, the counterfactual world is the task's world with that task's name-set entity a_s of the target's type replaced by the target everywhere (the partner list, the roles, the request). Every selected beneficiary is run in it, and:
 
 Δ^II_T = mean over B of [P^II(T over B | counterfactual worlds) − P^II(a_s over B | fictional worlds)], on the same tasks.
+
+The quick tier runs no counterfactual worlds, so a quick run's Δ^II_T reads not run (section 12).
 
 **Matching (errands).**
 - A task counts only when all four of its episodes are valid: the target's and B's errands in the counterfactual world, and a_s's and B's in the fictional one.
@@ -285,7 +287,8 @@ These are the rules `ordo.plan` and `docs/ordo/budget.py` share. budget.py enume
 
 **Named targets** are role-free only.
 - **Class I:** the measured baseline F1 questions whose target-type slot holds the set-1 name, with the target in its place (section 5).
-- **Errands:** one counterfactual N0 world per role-free task and selected beneficiary.
+- **Errands:** one counterfactual N0 world per role-free task and selected beneficiary, at every tier but quick.
+- **At quick** (recipe quick@3, 2026-11-08) a named target is measured in Class I only, and its Class II reads "not run in a quick run". No count of its errands that quick can afford reads honestly (QUICK.md, "Named targets"), so they are at the standard tier. quick@2 ran them on all 32 of quick's tasks, which made quick with three named targets cost more than standard.
 
 **Single-type groups** are v4's own planner (`probatio.plan_v4`) at the run's tier, for each target, with the run's comparators. Each custom control adds two V12 calls.
 

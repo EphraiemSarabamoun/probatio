@@ -187,6 +187,13 @@ case "$PHASE" in
      done
      guarded python3 -B probatio.py --agent claude --compare individual:organization:nation \
        --target organization=Mozilla --dry-run --out "$SCRATCH/dry-named"
+     guarded python3 -B probatio.py --agent claude --compare individual:organization:nation --tier quick \
+       --target organization=Mozilla --dry-run --out "$SCRATCH/dry-quick-named"
+     for tier in quick standard; do          # a named target of each type: quick must cost less than standard
+       guarded python3 -B probatio.py --agent claude --compare individual:organization:nation --tier "$tier" \
+         --target individual="Ada Lovelace" --target organization=Mozilla --target nation=France --dry-run \
+         --out "$SCRATCH/dry-$tier-named-each"
+     done
      guarded python3 -B probatio.py --agent claude --compare individual:organization --dry-run --out "$SCRATCH/dry-pair"
      guarded python3 -B probatio.py --agent codex --compare individual:organization:nation --dry-run \
        --out "$SCRATCH/dry-codex"

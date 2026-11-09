@@ -61,8 +61,10 @@ The calls are planned and rendered before anything runs. Each item's conditions 
 - **The tiers** are smoke, quick, standard and full (V4_TIERS). smoke is the plan called quick until 2026-11-08, item for item, kept for the calibration's Stages A and C and the frozen pilot's Stage 1 (PREREG Amendment 5). The pinned manifest still names its task count `quick` (MANIFEST_TIER).
   - quick is the 15-minute estimate (`docs/ordo/QUICK.md`), made of others' parts: `TIER_PARTS` gives the tier whose Class I and whose Class II it asks (standard's and full's), and `TIER_CLASSES` the classes it plans (I and II).
   - `resolve_classes` turns `--class all` into the tier's classes and refuses a III at quick.
-- **Plan recipes** (`PLAN_RECIPES`, `LEGACY_RECIPES`). Every run.json and scorecard records its recipe (`quick@2`, `smoke@1` and so on).
+  - `named_classes` gives the classes a cross-type run's named target is measured in (`TIER_NAMED_CLASSES`): Class I only at quick, whose named-target errands are at standard. `plan_runs` refuses a quick run whose `--class` leaves a named target nothing (`QUICK_NAMED_NONE`), and the preflight's named-target line says what quick leaves out (`QUICK_NAMED`).
+- **Plan recipes** (`PLAN_RECIPES`, `RETIRED_RECIPES`, `LEGACY_RECIPES`). Every run.json and scorecard records its recipe (`quick@3`, `smoke@1` and so on).
   - `recipe_of` reads a run.json from before recipes through the legacy map, so a quick of then is `smoke@1`. `planner_tier` names the tier that plans a recipe.
+  - A retired recipe (`quick@2`, which also ran a named target's errands) still reads and scores. `same_plan` lets `check_resume` continue its folder when today's plan is the same call for call (any quick@2 run without a named target), and otherwise refuses with the fix.
   - `rescore`, `check_resume` (through `resume_view`), `comparable` and the scorecard heads read the recipe, never the bare tier word, and no historical file is edited.
 - `plan_v4` picks the cells from `--class` (CLASS_CELLS: II asks N0, III asks U and O), shuffles with V4_SEED and adds the conditions of MEMORY_MODES. `plan_fingerprint` hashes every call's condition, id and hashes.
 
@@ -201,6 +203,7 @@ The v4 additions keep planning and scientific decisions separate from subject ex
 | tests/test_quick_tier.py | the quick and smoke tiers, plan recipes and legacy reads, the preflight's lines and profile labels, the time model against its evidence, the run time, ordo's quick card and the errand-interval hook, the routing |
 | calibration/tests/test_smoke_rename.py | the registered plans equal their pre-rename selves apart from the word: grid specs, Stage A and C plan fingerprints, the pilot's counts, ids, registration word and run ids (fixtures/smoke_rename_before.json) |
 | docs/ordo/QUICK.md, quick_sim.py, quick_sim.json | the quick tier and its allocation simulation, rerun under Amendment 6 |
+| docs/ordo/named_sim.py, named_sim.json | what a named target costs and how well it reads at quick-sized plans: the evidence for quick@3's Class I-only rule |
 | docs/ordo/errand_rule.json, rule_evidence.py | Amendment 6's evidence (Stage 0b's csv and the allocation rerun, by sha256, with how each was run, and the scorers' fingerprint) and its writer, which refuses what the gate would refuse |
 | docs/ordo/timing.py, timing.json | the measured time model's evidence |
 | tests/fixtures/make_bank_small.py | writes bank_small/; a test checks the folder is current |
