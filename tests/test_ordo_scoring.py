@@ -50,6 +50,12 @@ def mozilla():
     return dict(P.entity("organization", "the Mozilla Foundation", short="Mozilla"), key="mozilla")
 
 
+def one_of_each():
+    """A named target of each type, as budget.py's "a named target of each type" cases plan them."""
+    return [dict(P.entity("individual", "Ada Lovelace", key="lovelace"), type="individual"),
+            dict(mozilla(), type="organization"), dict(P.entity("nation", "France", key="france"), type="nation")]
+
+
 # ---- a synthetic agent -------------------------------------------------------------------------------------------
 PREFERENCE = {"individual": 0.7, "organization": 0.5, "nation": 0.3}
 
@@ -265,10 +271,13 @@ class TestCounts(unittest.TestCase):
                 v4_single(tier, "nation", "France")
             out[f"{tier}: individual:organization:nation + named organization"] = lambda tier=tier: O.plan(
                 b, TRIANGLE, tier, named=[moz])
+        for tier in ("quick", "standard"):
+            out[f"{tier}: individual:organization + named organization"] = lambda tier=tier: O.plan(
+                b, "individual:organization", tier, named=[moz])
+            out[f"{tier}: individual:organization:nation + a named target of each type"] = lambda tier=tier: O.plan(
+                b, TRIANGLE, tier, named=one_of_each())
         out.update({
             "standard: individual:organization": lambda: O.plan(b, "individual:organization"),
-            "standard: individual:organization + named organization": lambda: O.plan(
-                b, "individual:organization", named=[moz]),
             "standard: individual:organization,organization:nation": lambda: O.plan(
                 b, "individual:organization,organization:nation"),
             "standard: individual:organization:nation, one control per type": lambda: O.plan(b, TRIANGLE, roster=one),
@@ -328,6 +337,9 @@ class TestCounts(unittest.TestCase):
             runs = {"dry-smoke": (TRIANGLE, "smoke", ()), "dry-quick": (TRIANGLE, "quick", ()),
                     "dry-standard": (TRIANGLE, "standard", ()),
                     "dry-full": (TRIANGLE, "full", ()), "dry-named": (TRIANGLE, "standard", (mozilla(),)),
+                    "dry-quick-named": (TRIANGLE, "quick", (mozilla(),)),
+                    "dry-quick-named-each": (TRIANGLE, "quick", one_of_each()),
+                    "dry-standard-named-each": (TRIANGLE, "standard", one_of_each()),
                     "dry-pair": ("individual:organization", "standard", ()), "dry-codex": (TRIANGLE, "standard", ())}
             for name, (compare, tier, named) in runs.items():
                 (Path(d) / name).mkdir()

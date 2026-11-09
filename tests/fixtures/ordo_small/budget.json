@@ -293,21 +293,21 @@
   },
   "quick: individual:organization:nation + named organization": {
    "questions": 332,
-   "episodes": 192,
-   "units": 524,
+   "episodes": 96,
+   "units": 428,
    "by_family": {
     "survey": 184,
     "obey": 0,
     "devotio": 88,
     "salus": 60
    },
-   "claude_requests": 524,
-   "codex_requests": 716,
-   "retry_ceiling_claude": 1048,
-   "retry_ceiling_codex": 1432,
-   "sonnet_min": 25.417,
-   "opus_min": 47.537,
-   "codex_min": 56.517,
+   "claude_requests": 428,
+   "codex_requests": 524,
+   "retry_ceiling_claude": 856,
+   "retry_ceiling_codex": 1048,
+   "sonnet_min": 15.525,
+   "opus_min": 29.537,
+   "codex_min": 32.517,
    "warn": false
   },
   "standard: individual:organization:nation": {
@@ -481,6 +481,44 @@
    "codex_min": 32.299,
    "warn": false
   },
+  "quick: individual:organization + named organization": {
+   "questions": 150,
+   "episodes": 64,
+   "units": 214,
+   "by_family": {
+    "survey": 68,
+    "obey": 0,
+    "devotio": 42,
+    "salus": 40
+   },
+   "claude_requests": 214,
+   "codex_requests": 278,
+   "retry_ceiling_claude": 428,
+   "retry_ceiling_codex": 556,
+   "sonnet_min": 9.179,
+   "opus_min": 17.351,
+   "codex_min": 19.978,
+   "warn": false
+  },
+  "quick: individual:organization:nation + a named target of each type": {
+   "questions": 444,
+   "episodes": 96,
+   "units": 540,
+   "by_family": {
+    "survey": 264,
+    "obey": 0,
+    "devotio": 120,
+    "salus": 60
+   },
+   "claude_requests": 540,
+   "codex_requests": 636,
+   "retry_ceiling_claude": 1080,
+   "retry_ceiling_codex": 1272,
+   "sonnet_min": 17.366,
+   "opus_min": 33.25,
+   "codex_min": 35.23,
+   "warn": false
+  },
   "standard: individual:organization + named organization": {
    "questions": 198,
    "episodes": 144,
@@ -499,6 +537,25 @@
    "opus_min": 33.804,
    "codex_min": 40.977,
    "warn": false
+  },
+  "standard: individual:organization:nation + a named target of each type": {
+   "questions": 600,
+   "episodes": 336,
+   "units": 936,
+   "by_family": {
+    "survey": 372,
+    "obey": 48,
+    "devotio": 120,
+    "salus": 60
+   },
+   "claude_requests": 936,
+   "codex_requests": 1272,
+   "retry_ceiling_claude": 1872,
+   "retry_ceiling_codex": 2544,
+   "sonnet_min": 45.002,
+   "opus_min": 82.985,
+   "codex_min": 98.495,
+   "warn": true
   },
   "standard: individual:organization,organization:nation": {
    "questions": 304,
@@ -578,21 +635,21 @@
   },
   "quick: individual:organization:nation, one control for organization, named organization": {
    "questions": 270,
-   "episodes": 192,
-   "units": 462,
+   "episodes": 96,
+   "units": 366,
    "by_family": {
     "survey": 142,
     "obey": 0,
     "devotio": 72,
     "salus": 56
    },
-   "claude_requests": 462,
-   "codex_requests": 654,
-   "retry_ceiling_claude": 924,
-   "retry_ceiling_codex": 1308,
-   "sonnet_min": 24.387,
-   "opus_min": 45.454,
-   "codex_min": 54.992,
+   "claude_requests": 366,
+   "codex_requests": 462,
+   "retry_ceiling_claude": 732,
+   "retry_ceiling_codex": 924,
+   "sonnet_min": 14.495,
+   "opus_min": 27.454,
+   "codex_min": 30.992,
    "warn": false
   },
   "standard: individual:organization:nation, memory both": {
@@ -642,7 +699,7 @@
   "total": 66.539,
   "drop_named": 11.733,
   "class_I_only_saves": 50.294,
-  "tier_quick_saves": 15.705
+  "tier_quick_saves": 35.489
  },
  "pilot": {
   "smoke_units": 206,

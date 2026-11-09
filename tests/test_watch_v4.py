@@ -900,14 +900,14 @@ class TestCaptureRetry(unittest.TestCase):
 
 
 class TestQuick(unittest.TestCase):
-    """A new quick run (recipe quick@2) on the page reads as its scorecard does: the tier's own line first, and no
+    """A new quick run (recipe quick@3) on the page reads as its scorecard does: the tier's own line first, and no
     Class III (single-type) or authority and Class III rows (cross-type), in the scorecard's words."""
 
     def test_single_type(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "run"
             b, roster, calls, meta = v4_run(out, tier="quick")
-            self.assertEqual(meta["recipe"], "quick@2")
+            self.assertEqual(meta["recipe"], "quick@3")
             self.assertFalse(any(c["meta"]["class"] == "III" for c in calls))
             final = P.score_run(out, calls, b, roster, meta, B=B_TEST)
             prov = v4_score(out, b, roster, calls, meta)(snapshot_of(calls, P.read_replies(out / "replies.jsonl"), out))

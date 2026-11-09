@@ -43,15 +43,19 @@ ROSTER_CASES = {     # the budget cases that need an entities file, as the file 
 def command_lines():
     """Every budget.json case (docs/ordo/budget.py cases()) as the probatio arguments a user would type."""
     named, france = ["--target", "organization=Mozilla"], ["--target", "nation=France"]
+    each = ["--target", "individual=Ada Lovelace"] + named + ["--target", "nation=the United States"]
     out = {}
     for tier in ("smoke", "quick", "standard", "full"):
         out[f"{tier}: {TRI}"] = ["--compare", TRI, "--tier", tier]
         out[f"{tier}: organization (v4 single-type, one target)"] = ["--compare", "organization", "--tier", tier] + named
         out[f"{tier}: nation,{TRI}"] = ["--compare", f"nation,{TRI}", "--tier", tier] + france
         out[f"{tier}: {TRI} + named organization"] = ["--compare", TRI, "--tier", tier] + named
+    for tier in ("quick", "standard"):
+        out[f"{tier}: individual:organization + named organization"] = ["--compare", "individual:organization",
+                                                                        "--tier", tier] + named
+        out[f"{tier}: {TRI} + a named target of each type"] = ["--compare", TRI, "--tier", tier] + each
     out.update({
         "standard: individual:organization": ["--compare", "individual:organization"],
-        "standard: individual:organization + named organization": ["--compare", "individual:organization"] + named,
         "standard: individual:organization,organization:nation": ["--compare",
                                                                   "individual:organization,organization:nation"],
         "standard: organization, 3 comparators and 1 custom control": ["--compare", "organization"] + named,

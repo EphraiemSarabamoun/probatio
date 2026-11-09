@@ -14,8 +14,9 @@ quick is the estimate sized to about 15 minutes for one condition on the Sonnet 
 | one target | the standard tier's 264 questions | the full tier's 48 tasks × target and control = 96 N0 errands | Class III | 360 | 14.3 min |
 | cross-type triangle | the standard tier's role-free items (F1.a to F1.c, F1.tri) and checks (V12, RF1, RF2, RF4), 276 in all | role-free N0 errands on 32 tasks of the full pool × 3 beneficiaries = 96 | the authority frame and Class III | 372 | 14.6 min |
 
-- **Where it lives.** probatio.py's `TIER_PARTS` and `TIER_CLASSES` define one target, and ordo.py's `TIER["quick"]` and `QUICK_TASKS` define the triangle.
+- **Where it lives.** probatio.py's `TIER_PARTS` and `TIER_CLASSES` define one target, ordo.py's `TIER["quick"]` and `QUICK_TASKS` define the triangle, and probatio.py's `TIER_NAMED_CLASSES` a named target's classes.
 - **Class III.** A `--class` naming III at the quick tier is refused: "a quick run does not run Class III; use --tier standard for it".
+- **Named targets** (recipe quick@3) get their Class I questions, the standard tier's twin-matched F1 questions, and none of their errands, which are at `--tier standard` (see "Named targets" below). The preflight's named-target line says so, the scorecard's named-target Class II reads "not run in a quick run", and a quick `--class II` that would leave a named target nothing is refused with that fix.
 - **The preflight** prints each selection's own estimate, with a label saying whether its rates are measured, assumed or a proxy. Memory both, Opus, Codex and named targets take longer.
 - **The scorecard** says in one line what the run left out, and prints the run's actual time from `launches.jsonl`.
 
@@ -27,7 +28,8 @@ The pinned manifests still name its task counts `quick`, and `MANIFEST_TIER` map
 
 ## Plan recipes
 
-A run records its plan's recipe beside its tier word: `smoke@1`, `quick@2`, `standard@1` or `full@1`.
+A run records its plan's recipe beside its tier word: `smoke@1`, `quick@3`, `standard@1` or `full@1`.
+- **Retired recipes.** `quick@2`, the first release's quick, also ran a named target's errands on all 32 tasks. A run that records it still reads and scores. It resumes when today's plan is the same call for call, which holds for every quick@2 run without a named target (`same_plan`); otherwise the refusal says why.
 - **Old runs.** A run.json from before recipes has none, and `recipe_of` reads it through `LEGACY_RECIPES`: quick reads as `smoke@1`, and standard and full read as themselves. No historical file is edited.
 - **`rescore`** rebuilds a run by its recipe, so a legacy quick run rebuilds as smoke, to its own fingerprint.
 - **`check_resume`** compares recipes (`resume_view`). A legacy quick folder resumes under `--tier smoke`, and under `--tier quick` the refusal names that fix.
@@ -105,3 +107,22 @@ Under Amendment 6 its interval is wider still, so that holds.
 
     python3 docs/ordo/quick_sim.py <pilot results folder> --replicates 500 --jobs 18 > docs/ordo/quick_sim.json
     python3 docs/ordo/rule_evidence.py docs/ordo/quick_sim.json --out docs/ordo/errand_rule.json
+
+## Named targets
+
+At quick a named target gets its Class I questions and none of its errands (recipe quick@3). quick@2, the first release's quick, ran its errands on all 32 of quick's tasks, about 11 minutes a target, so three named targets made quick cost more than the standard tier: 47 minutes against 45. `docs/ordo/named_sim.py` priced and scored the alternatives under quick_sim's null model, with one named organization in the triangle and 500 replicates (`docs/ordo/named_sim.json`). A false effect is a 95% interval that excludes 0 when the target is exchangeable with its type's invented entity.
+
+| the named target's plan | Sonnet min | Class I effect: width, insufficient | Class II effect: width, false effects |
+|---|---|---|---|
+| Class I as quick asks it, errands on 32 tasks (quick@2) | 25.4 | 15.6, 70% | 32.6, 4.8% |
+| Class I as quick asks it, errands on 16 tasks | 20.5 | 16.7, 72% | 41.2, 8.4% |
+| the set-1 pairing only, errands on 8 tasks | 17.5 | always insufficient | 43.8, 15.2% |
+| the set-1 pairing only, errands on 4 tasks | 16.3 | always insufficient | always insufficient |
+| **Class I as quick asks it, no errands (quick@3)** | **15.5** | **15.6, 73%** | **not run** |
+| the standard tier, for comparison | 33.3 | 16.1, 74% | 42.8, 8.4% |
+
+- **Why no errands.** The errand counts quick can afford near 15 minutes give a false effect in 15% of null runs, or no effect at all. 16 tasks match the standard tier's precision at about 6 minutes a target, so a run that wants a named target's errands should use `--tier standard`. The preflight's named-target line says so, and the scorecard's named-target Class II reads "not run in a quick run".
+- **Why not the set-1 pairing alone.** With 14 questions per pair (the count SCORING 5 gives the smoke tier), each component holds too few questions, and the Class I effect is insufficient in every run. quick asks the standard tier's 28 per pair, the same twin-matched questions.
+- **A property of every tier.** In this model each base item prefers its first-listed option with a mean share of 0.7 (Stage 0's position model). Under it, a named target's Class I effect reads insufficient in about 7 runs of 10 at every tier, standard included. Its components hold a quarter of a pair's items, and the position band of SCORING 1 refuses them. The named effects keep the plain percentile interval (SCORING 7), which at 16 tasks gives false effects in about 8% of null runs.
+
+    python3 docs/ordo/named_sim.py <pilot results folder> --replicates 500 --jobs 18 > docs/ordo/named_sim.json

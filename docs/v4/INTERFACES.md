@@ -79,7 +79,7 @@ Per condition, the real bank gives:
 - errands: 40, 120 and 240, and quick's 96 (full's N0 only);
 - O tasks: 4, 12 and 24, and none at quick.
 
-**Plan recipes.** A run records the recipe of its plan beside its tier word: `smoke@1`, `quick@2`, `standard@1` or `full@1`. A run.json without one (made before 2026-11-08) is read through the legacy map, where quick is `smoke@1` and standard and full are themselves; probatio never edits it. Rescore, resume and comparison read the recipe, and a change to any tier's rules bumps its recipe.
+**Plan recipes.** A run records the recipe of its plan beside its tier word: `smoke@1`, `quick@3`, `standard@1` or `full@1`. `quick@2` (2026-11-08, the first release's quick, which also ran a cross-type run's named-target errands) is retired: it still reads and scores, and resumes where today's plan is the same call for call. A run.json without one (made before 2026-11-08) is read through the legacy map, where quick is `smoke@1` and standard and full are themselves; probatio never edits it. Rescore, resume and comparison read the recipe, and a change to any tier's rules bumps its recipe.
 
 W3's planner on branch v4-w3 already implements these rules and checks the Class I counts on the fixture bank.
 
@@ -136,7 +136,7 @@ No 4.1 field changed its meaning, and the calibration analysis reads all three v
   "schema": "probatio-scorecard/4.2",
   "probatio": str, "bank_sha256": str, "item_fingerprint": str, "plan_fingerprint": str,
   "agent": "claude" | "codex", "cli_version": str, "models": [str], "effort": str,
-  "tier": "smoke" | "quick" | "standard" | "full", "recipe": "smoke@1" | "quick@2" | "standard@1" | "full@1",
+  "tier": "smoke" | "quick" | "standard" | "full", "recipe": "smoke@1" | "quick@3" | "quick@2" | "standard@1" | "full@1",
   "recorded_tier": str, "run_time": {...}, "memory": "on" | "off" | "both", "auto_memory": "as-configured" | "off",
   "classes_run": [ "I" | "II" | "III" ],
   "target": {"type": str, "key": str, "full": str, "kind": str},
