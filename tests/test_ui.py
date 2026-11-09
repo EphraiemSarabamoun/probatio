@@ -1,12 +1,12 @@
 """Tests for the --ui page (ui.py): the form's defaults are probatio's own; build_command's command lines parse to the
 options the form chose, with only the flags that change something, and the one argv shown, checked and run; the
 entities file loads and round-trips; a person is the individual row's target, never --name, and plans as --name does;
-the model field's names and rates; the parser's and the dry run's messages reach the page verbatim; the server's
-refusals (the token, the Host, the CSP, POST only, CSRF, the exact routes, malformed lengths and deep JSON); the roster
-snapshots (named by their whole sha256, never overwritten, no symbolic link followed, concurrent Checks that cannot
-cross); Check and Run with stub CLIs and a stub run, one run at a time, and Stop reaching the page's own child only;
-and no secret, and nothing of calibration/local.json, on the page. No test calls a model: the
-CLIs are the guard's stubs, which answer --version and refuse anything else, and a run is a stub program.
+the model choices, the watch choice and the hints under "more"; the parser's and the dry run's messages reach the page
+verbatim; the server's refusals (the token, the Host, the CSP, POST only, CSRF, the exact routes, malformed lengths
+and deep JSON); the roster snapshots (named by their whole sha256, never overwritten, no symbolic link followed,
+concurrent Checks that cannot cross); Check and Run with stub CLIs and a stub run, one run at a time, and Stop reaching
+the page's own child only; and no secret, and nothing of calibration/local.json, on the page. No test calls a model:
+the CLIs are the guard's stubs, which answer --version and refuse anything else, and a run is a stub program.
 
     python3 -m unittest discover -s tests
 """
@@ -36,16 +36,17 @@ import probatio as P  # noqa: E402
 import ui as U  # noqa: E402
 from test_user_options import STUB_SH  # noqa: E402  (the guard's stub CLIs, one home)
 
-# A run, for the tests: a dry run is the real probatio.py; anything else prints what a run prints (the watch link, a
-# progress line, any text in STUB_SAY, the result lines when STUB_FINISH is set), writes its pid, and holds until
-# SIGINT, which it answers as probatio does.
+# A run, for the tests: a dry run is the real probatio.py; anything else prints what a run prints (the watch link with
+# --watch, a progress line, any text in STUB_SAY, the result lines when STUB_FINISH is set), writes its pid, and holds
+# until SIGINT, which it answers as probatio does; a finished run without --watch ends, as probatio's does.
 STUB_RUN = '''import os, secrets, sys, time
 real, args = sys.argv[1], sys.argv[2:]
 if "--dry-run" in args:
     os.execv(sys.executable, [sys.executable, "-B", real, *args])
 open(os.environ["STUB_PID"], "w").write(str(os.getpid()))
 link = "http://127.0.0.1:45871/?t=" + secrets.token_urlsafe(24)
-sys.stderr.write("  watch it live: " + link + "\\n")
+if "--watch" in args:
+    sys.stderr.write("  watch it live: " + link + "\\n")
 print("args: " + " ".join(args))
 print("probatio: quick . 36/360 . 35 valid")
 if os.environ.get("STUB_SAY"):
@@ -53,6 +54,8 @@ if os.environ.get("STUB_SAY"):
 if os.environ.get("STUB_FINISH"):
     print("Scorecard: " + os.path.join(os.getcwd(), "results", "stub-run", "scorecard.json"))
     print("Report: " + os.path.join(os.getcwd(), "results", "stub-run", "report.md"))
+    if "--watch" not in args:
+        sys.exit(0)
     sys.stderr.write("\\nThe live page stays up at " + link + " until you press Ctrl-C.\\n")
 try:
     while True:
@@ -211,7 +214,7 @@ class TestBuildCommand(unittest.TestCase):
         a = P.parse_args_v4(argv)
         self.assertEqual((a.target, a.name, a.tier, a.memory, a.effort, a.jobs),
                          (["individual=Jane Doe"], None, "standard", "on", "medium", 4))
-        for form in (dict(JANE, watch=False), dict(JANE, name="Someone Else")):     # --watch is always on
+        for form in (dict(JANE, watch="on"), dict(JANE, name="Someone Else")):
             self.assertEqual(U.build_command(form), (argv, None))
         for form in ({"agent": "claude", "name": "Jane Doe"}, dict(MOZILLA, name="Jane Doe"),
                      {"agent": "claude", "types": ["individual", "organization"], "name": "Jane Doe"}):
@@ -285,8 +288,8 @@ class TestBuildCommand(unittest.TestCase):
 
 
 class TestOneCommand(unittest.TestCase):
-    """The command shown is the one Check checks and the one Run runs, byte for byte, whatever the form says about
-    --watch (finding 3): a fake dry run and a fake Runner record what they are given, and no process starts."""
+    """The command shown is the one Check checks and the one Run runs, byte for byte, with --watch or without it
+    (finding 3): a fake dry run and a fake Runner record what they are given, and no process starts."""
 
     def test_shown_checked_and_run_are_one_argv(self):
         started = []
@@ -299,8 +302,8 @@ class TestOneCommand(unittest.TestCase):
             def state(self):
                 return {"argv": self.argv}
         dry = SimpleNamespace(returncode=0, stdout="    all   1 items   1 calls   under a minute (r)\n", stderr="")
-        for form in (JANE, dict(JANE, watch=False), {"agent": "claude"},
-                     dict(MOZILLA, watch=False), {"agent": "claude", "types": ["organization", "nation"], "watch": 0}):
+        for form in (JANE, dict(JANE, watch="off"), {"agent": "claude"}, dict(MOZILLA, watch=False),
+                     {"agent": "claude", "types": ["organization", "nation"], "watch": "on"}):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(P, "HERE", Path(d)), \
                     mock.patch.object(U.subprocess, "run", return_value=dry) as checked, \
                     mock.patch.object(U, "prepared", return_value=[(Path(d) / "run", "plan")]), \
@@ -310,7 +313,8 @@ class TestOneCommand(unittest.TestCase):
                 self.assertTrue(session.check({"form": form})["ok"])
                 self.assertNotIn("error", session.run({"form": form, "confirmed": True}))
             argv = shown["argv"]
-            self.assertEqual(argv[-1], U.WATCH, form)
+            self.assertEqual(U.WATCH in argv, form.get("watch") not in (False, "off"), form)
+            self.assertEqual(argv.count(U.WATCH), int(argv[-1] == U.WATCH), form)          # last, when it is there
             self.assertEqual(checked.call_args.args[0], ["FAKE", *argv, "--dry-run"], form)
             self.assertEqual(started[-1], argv, form)
             self.assertEqual(shown["command"], U.command_text(started[-1]), form)
@@ -761,29 +765,74 @@ class TestCheckAndRun(Stubbed):
             self.assertTrue(checked["ok"], checked["error"])
             self.assertEqual(self.s.session.checked.fingerprints, tuple(plain), memory)
 
-    def test_the_model_field_names_each_clis_models_and_the_rates(self):
-        """Under the model field: the chosen CLI's model names (both before one is chosen), and the rates the time
-        estimate assumes, probatio's own label for the agent, model and effort, the one the plan's total closes with:
-        Sonnet's for Claude Code, Opus's for an Opus model, Codex's for Codex."""
-        models = self.s.state()["defaults"]["models"]
-        self.assertEqual(models, {"claude": "sonnet, opus, fable or haiku, or a full model name",
-                                  "codex": "a Codex model name, e.g. gpt-6.1-sol"})
-        self.assertEqual(list(models), list(parser_actions()["--agent"].choices))
+    def test_the_model_is_a_choice_per_cli(self):
+        """The model is the CLI's default, one of its models in MODELS (as of 2026-11-09), or any other name: the page
+        offers each CLI's own list, resets to the default on another CLI, and says the time estimate is Sonnet's (Opus
+        estimated) for Claude Code and assumed for Codex. A listed or typed name is --model NAME, and each of Claude
+        Code's passes the real dry run (Codex's were dry-run by hand, as the guard's stub refuses Codex's feature
+        probe)."""
+        base = self.s.state()["defaults"]
+        self.assertEqual(base["models"], {"claude": ["fable", "opus", "sonnet", "haiku"],
+                                          "codex": ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-astra",
+                                                    "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]})
+        self.assertEqual(list(base["models"]), list(parser_actions()["--agent"].choices))
+        self.assertRegex(Path(U.__file__).read_text(encoding="utf-8"), r"as of 2026-11-09[^\n]*\n(#[^\n]*\n)*MODELS = ")
         page = self.s.request("GET", "/")[1]
-        for read in ("D.models[F.agent]", '"time estimate: " + said.rates'):
-            self.assertIn(read, page)
-        for form, start in (({"agent": "claude"}, "Sonnet baseline rates"), ({"agent": "claude", "model": "fable"},
-                            "Sonnet rates as a proxy"), ({"agent": "claude", "model": "opus"}, "Opus: assumed"),
-                            ({"agent": "codex"}, "Codex: assumed"), ({}, None)):
-            rates = self.s.post("/command", {"form": form})["rates"]
-            if start is None:
-                self.assertIsNone(rates)                                  # no agent: the parser refuses the command
-                continue
-            self.assertTrue(rates.startswith(start), (form, rates))
-            self.assertEqual(rates, P.run_profile(P.parse_args_v4(U.build_command(form)[0]))[1])
-        checked = self.s.post("/check", {"form": MOZILLA})
-        self.assertTrue(checked["ok"], checked["error"])
-        self.assertEqual(checked["summary"]["rates"], self.s.post("/command", {"form": MOZILLA})["rates"])
+        for words in ('["", "default"]', '["other", "other"]', 'if (F.modelFor !== F.agent) { F.other = ""; '
+                      'pickModel(""); }', "the time estimate is measured on Sonnet (Opus estimated); other models "
+                      "show Sonnet's time", "the time estimate for Codex is assumed, not measured"):
+            self.assertIn(words, page)
+        self.assertNotIn("--model", self.s.post("/command", {"form": {"agent": "codex", "model": ""}})["argv"])
+        typed = self.s.post("/command", {"form": {"agent": "codex", "model": " my-model "}})["argv"]
+        self.assertEqual(typed[typed.index("--model") + 1], "my-model")
+        for model in base["models"]["claude"]:
+            reply = self.s.post("/check", {"form": dict(MOZILLA, model=model)})
+            self.assertTrue(reply["ok"], (model, reply["error"]))
+            self.assertEqual(reply["argv"][reply["argv"].index("--model") + 1], model)
+            self.assertIn(f"model {model}, effort medium", reply["plan"])
+
+    def test_watch_off_leaves_it_out_of_the_one_command(self):
+        """Watch off: no --watch in the command shown, checked or run (finding 3 holds), and the run's state has its
+        output, folder and scorecard, with no live link and no error. Watch on (the default) is unchanged."""
+        self.env["STUB_FINISH"] = "1"
+        form = dict(MOZILLA, watch="off")
+        shown = self.s.post("/command", {"form": form})
+        self.assertNotIn(U.WATCH, shown["argv"])
+        for on in (MOZILLA, dict(MOZILLA, watch="on")):                         # on, the default, is unchanged
+            self.assertEqual(self.s.post("/command", {"form": on})["argv"], shown["argv"] + [U.WATCH])
+        checked, real = [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            checked.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+        with mock.patch.object(U.subprocess, "run", side_effect=spy):
+            reply = self.s.post("/check", {"form": form})
+        self.assertTrue(reply["ok"], reply["error"])
+        self.assertEqual(checked, [[*self.program, *shown["argv"], "--dry-run"]])
+        self.assertNotIn("error", self.s.post("/run", {"form": form, "confirmed": True}))
+        self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
+        run = self.s.state()["run"]
+        self.assertEqual((run["status"], run["code"], run["watch"]), ("finished", 0, None))
+        self.assertEqual(run["command"], shown["command"])
+        self.assertIn("args: " + " ".join(shown["argv"]), run["lines"])
+        self.assertEqual(run["folders"], [U.shown(f) for f, _ in U.prepared(shown["argv"])])
+        self.assertEqual(run["results"], [["Scorecard", "results/stub-run/scorecard.json"],
+                                          ["Report", "results/stub-run/report.md"]])
+        page = self.s.request("GET", "/")[1]
+        self.assertIn("if (run.watch && going())", page)                 # the live link only when there is one
+
+    def test_the_hints_under_more(self):
+        """Jobs and auto memory each get one plain hint: calls at once, faster but heavier on the rate limit, with the
+        estimate scaling from the jobs its rates were measured at; auto memory is Claude Code's own saved notes, left
+        as configured to measure the agent as it is, off being the calibration's setting."""
+        self.assertEqual(self.s.state()["defaults"]["measured_jobs"], P.pricing()["measured"]["jobs"])
+        page = self.s.request("GET", "/")[1]
+        for words in ("calls at once, default ", "more is faster but heavier on your rate limit; the ",
+                      "time estimate scales with it, from rates measured at ",
+                      "Claude Code's own saved notes (Claude Code only): "
+                      "leave as configured to measure your agent as it is; ", "off, in both conditions, is the "
+                      "calibration's setting"):
+            self.assertIn(words, page)
 
     def test_run_refuses_what_check_did_not_approve(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
