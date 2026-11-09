@@ -535,6 +535,14 @@ class TestSnapshots(unittest.TestCase):
             U.write_snapshot(self.TEXT)
         self.assertEqual(results.read_text(), "a file")
 
+    def test_an_os_error_is_a_refusal_and_leaves_no_temporary(self):
+        def full(fd, data):
+            raise OSError(28, os.strerror(28))                             # ENOSPC, as a full disk raises it
+        with mock.patch.object(U.os, "write", full), self.assertRaises(U.SnapshotRefused) as caught:
+            U.write_snapshot(self.TEXT)
+        self.assertIn("could not be written", str(caught.exception))
+        self.assertEqual(list(self.path.parent.iterdir()), [])            # no snapshot, no temporary
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "no named pipes on this system")
     def test_a_pipe_under_the_name_is_refused_without_waiting(self):
         self.path.parent.mkdir()

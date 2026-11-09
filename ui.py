@@ -336,9 +336,12 @@ def read_snapshot(folder, name):
 
 def snapshot_bytes(text):
     """The bytes the snapshot for this entities text holds now (read_snapshot), or SnapshotRefused."""
+    name = Path(entities_path(text)).name
     folder = results_folder()
     try:
-        return read_snapshot(folder, Path(entities_path(text)).name)
+        return read_snapshot(folder, name)
+    except OSError as e:
+        raise SnapshotRefused(f"results/{name} cannot be read ({os.strerror(e.errno or 0)})") from e
     finally:
         os.close(folder)
 
@@ -355,21 +358,23 @@ def write_snapshot(text):
         temp = f".{name}.{secrets.token_hex(8)}.tmp"
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
         try:
-            view = memoryview(data)
-            while view:
-                view = view[os.write(fd, view):]
-            os.fchmod(fd, SNAPSHOT_MODE)
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fchmod(fd, SNAPSHOT_MODE)
+            finally:
+                os.close(fd)
+            try:
+                os.link(temp, name, src_dir_fd=folder, dst_dir_fd=folder)
+            except FileExistsError:
+                pass                                    # made before: it must hold exactly these bytes, below
         finally:
-            os.close(fd)
-        try:
-            os.link(temp, name, src_dir_fd=folder, dst_dir_fd=folder)
-        except FileExistsError:
-            pass                                        # made before: it must hold exactly these bytes, below
-        except OSError as e:
-            raise SnapshotRefused(f"results/{name} could not be created ({os.strerror(e.errno or 0)})") from e
-        finally:
-            os.unlink(temp, dir_fd=folder)
+            os.unlink(temp, dir_fd=folder)              # the temporary goes, whatever happened after it was made
         held = read_snapshot(folder, name)
+    except OSError as e:                                # a full disk, a folder it may not write: the page says so
+        raise SnapshotRefused(f"results/{name} could not be written ({os.strerror(e.errno or 0)}); check again "
+                              "once results/ can take it") from e
     finally:
         os.close(folder)
     if held != data:
