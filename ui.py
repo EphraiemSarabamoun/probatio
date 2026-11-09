@@ -16,9 +16,10 @@ it sits the answer: the exact command, its plan and its run.
                     verbatim) and the calibration words for its roster (load_entities, fixtures_label)
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
                     with no model call beyond the CLI's version probe
-    Runner          one run at a time: the checked argv (--watch is always in it) in a subprocess, its watch link,
-                    the last lines of its output, its results folders and scorecards, and Stop (SIGINT to that child
-                    alone, as Ctrl-C in a terminal: the calls already running finish, and the same command resumes)
+    Runner          one run at a time: the checked argv (with --watch unless it is chosen off) in a subprocess,
+                    its watch link if any, the last lines of its output, its results folders and scorecards, and Stop
+                    (SIGINT to that child alone, as Ctrl-C in a terminal: the calls already running finish, and the
+                    same command resumes)
 
 probatio.py imports this module only for --ui (import_ui), and this module imports probatio and live, as live.py
 imports probatio. Standard library only, Python 3.9 or later.
@@ -51,7 +52,14 @@ LISTS = ("comparators", "controls")   # the roster lists the form edits; targets
 ENTITIES = "ui-entities-{}.json"      # under results/, named by the file's whole sha256: one name, one content
 SNAPSHOT_MODE = 0o444                 # a roster snapshot is read-only once written
 AUTO_MEMORY_OFF = "off"               # --auto-memory's other choice (its default is the parser's)
-WATCH = "--watch"                     # always on: the page reads the run's live link, and Run runs what Check checked
+# The models the page offers per CLI, as of 2026-11-09: the aliases Claude Code accepts, and Codex's model names (Codex
+# has no aliases). Each passed a real --dry-run for its CLI that day. The page's "other" takes any name, so a newer
+# model needs no change here; the CLI's own default is the page's first choice.
+MODELS = {"claude": ("fable", "opus", "sonnet", "haiku"),
+          "codex": ("gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-5.6-sol",
+                    "gpt-5.6-terra", "gpt-5.6-luna")}
+WATCH = "--watch"                     # the run's live view; the page reads its link from the run's output
+WATCH_CHOICES = ("on", "off")         # the page's watch choice, its default first: on (the parser's own is off)
 TAIL = 40                             # the newest lines of a run's output on the page
 CHECK_SECONDS = 120                   # a dry run that takes longer is reported, not waited for
 STOP_SECONDS = 10                     # after a second Ctrl-C, how long the page waits for its run to end
@@ -91,7 +99,8 @@ def defaults():
         "types": list(P.TARGET_TYPES),
         "rosters": {t: {part: rosters[t][part] for part in LISTS + ("targets",)} for t in P.TARGET_TYPES},
         "counts": {part: list(P.LIST_COUNTS[part]) for part in LISTS},
-        "agents": [[k, P.AGENT_NAMES[k]] for k in P.AGENT_NAMES],
+        "agents": [[k, P.AGENT_NAMES[k]] for k in P.AGENT_NAMES], "models": {k: list(v) for k, v in MODELS.items()},
+        "watch": list(WATCH_CHOICES), "measured_jobs": P.pricing()["measured"]["jobs"],
         "tiers": list(P.USER_TIERS), "setup": [t for t in P.V4_TIERS if t not in P.USER_TIERS],
         "planned": {t: list(P.resolve_classes(t, "all")) for t in P.V4_TIERS},
         "classes": list(P.V4_CLASSES), "memory": list(P.MEMORY_MODES), "efforts": list(P.EFFORTS),
@@ -102,10 +111,10 @@ def defaults():
 
 
 # ---- the form as a command line (pure) ---------------------------------------------------------------------------------
-# The page sends its form as JSON: {"types": [...], "name": text, "targets": {type: text}, "rosters": {type:
-# {"comparators": text, "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort",
-# "model", "jobs"}, every list of names one name per line. A field left out is its default; --watch is always on, so a
-# "watch" field is ignored.
+# The page sends its form as JSON: {"types": [...], "targets": {type: text}, "rosters": {type: {"comparators": text,
+# "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort", "model", "jobs"}, every
+# list of names one name per line, and "watch": "on" or "off". A field left out is its default (watch's is on); a
+# person is a target like any other, so a "name" field is ignored.
 def text_of(value):
     """A form field as text, stripped; anything that is not text reads as empty."""
     return value.strip() if isinstance(value, str) else ""
@@ -161,14 +170,20 @@ def entities_path(text):
 
 def build_command(form, base=None):
     """The form as probatio's argv, with only the flags that change something (an option at its parser default is
-    left out), and the entities file its roster edits need, as text, or None. base is defaults(). The comparison is
-    --compare (none for the default type alone; probatio's canonical form for two or three types); typed names become
-    --target TYPE=NAME, and with none an individual run scores --name, as probatio does; roster edits become
-    --entities results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own
-    default, which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as
-    --class, so a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which
-    probatio compares with standard's I,II), and an empty one so the parser says why. --watch is always last: the page
-    reads the run's live link from it, and the command shown is the one Check checks and Run runs, byte for byte.
+    left out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run is
+    written as README teaches it, so it takes v4's own path and shares its folders with a terminal's runs (run.json
+    alike, so either resumes the other): --target-type TYPE for an organization or a nation (none for the default
+    individual) and each target as --target NAME. Two or three types compared are --compare, probatio's canonical
+    form, with each target as --target TYPE=NAME, which is the only place the type is needed. A person (you or anyone)
+    is a target like any other, typed in the individual row, so the page never writes --name: --target NAME plans
+    the same run, item for item. With no target, a single-type run stops with probatio's own message. Several
+    targets of one type, or roster edits, take probatio's options path whatever the form, and --target-type keeps
+    their comparison. Roster edits become --entities results/ui-entities-<sha256>.json. Classes are left out only
+    when all three are chosen, the form's own default, which is the parser's "all" (each tier then asks its own
+    classes); any other choice is passed on as --class, so a subset stays explicit at every tier, even one equal to
+    the tier's classes (I,II at quick, which probatio compares with standard's I,II), and an empty one so the parser
+    says why. --watch comes last unless the form's watch is off (the page then shows the run's output without a live
+    link); either way the command shown is the one Check checks and Run runs, byte for byte.
     Pure: it reads nothing and writes nothing (Check writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
@@ -177,15 +192,15 @@ def build_command(form, base=None):
     agent = text_of(form.get("agent"))
     if agent:
         argv += ["--agent", agent]
-    name = text_of(form.get("name"))
-    if name:
-        argv += ["--name", name]
-    if types != [default["type"]]:
-        argv += ["--compare", types[0] if len(types) == 1 else P.canonical_compare([tuple(types)])["compare"]]
+    single = len(types) == 1
+    if not single:
+        argv += ["--compare", P.canonical_compare([tuple(types)])["compare"]]
+    elif types != [default["type"]]:
+        argv += ["--target-type", types[0]]
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
     for t in types:
         for n in names_of(targets.get(t)):
-            argv += ["--target", f"{t}={n}"]
+            argv += ["--target", n if single else f"{t}={n}"]
     entities = entities_text(form, types, base)
     if entities:
         argv += ["--entities", entities_path(entities)]
@@ -207,7 +222,8 @@ def build_command(form, base=None):
     jobs = text_of(str(form["jobs"])) if form.get("jobs") is not None else ""
     if jobs and jobs != str(default["jobs"]):
         argv += ["--jobs", jobs]
-    argv.append(WATCH)
+    if form.get("watch") not in (False, "off"):
+        argv.append(WATCH)
     return argv, entities
 
 
@@ -392,7 +408,7 @@ def prepared(argv):
     folder, the run's working directory."""
     absolute = [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
     a = P.parse_args_v4(absolute)
-    runs = P.prepare_runs(a, False)[4]               # the page never writes --target-type
+    runs = P.prepare_runs(a, "--target-type" in argv)[4]     # as main_v4 tells it; the page writes it as one word
     return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
 
 
@@ -535,8 +551,8 @@ class Session:
         return dict(reply, ok=True, plan=proc.stdout, summary=plan_summary(proc.stdout), error=None)
 
     def run(self, request):
-        """Start the form's command exactly as shown and checked (--watch included), once it is confirmed, only when it
-        is the command the last Check passed, and while no run of the page's is going."""
+        """Start the form's command exactly as shown and checked (--watch included unless chosen off), once it is
+        confirmed, only when it is the command the last Check passed, and while no run of the page's is going."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
         argv, entities = build_command(request.get("form"))
@@ -627,7 +643,8 @@ def main(argv, stream=None):
 # its run once there is one, its plan) on the right and sticky; under 860 px they stack. The script builds every node
 # with textContent, never innerHTML, reads the token from location.search (it is never embedded), and sends every
 # action as a POST with the token in the X-Probatio-Token header. The defaults arrive with the first /state; nothing on
-# the page is a default of its own, and --watch is not a choice: it is always on.
+# the page is a default of its own (watch's, on, arrives with them). A model is the CLI's default, one of MODELS for the
+# chosen CLI, or any other name; choosing another CLI resets it to the default.
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>probatio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
@@ -663,6 +680,7 @@ button.link { border:0; padding:0; background:none; color:var(--muted); text-dec
 input, textarea { font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line);
   border-radius:8px; padding:5px 9px; width:100%; }
 input[type=number] { width:90px; } input[type=checkbox] { width:auto; margin:0 6px 0 0; }
+input.other { margin-top:6px; }
 textarea { font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; resize:vertical; }
 input:focus, textarea:focus, button:focus-visible, summary:focus-visible { outline:2px solid var(--ink2);
   outline-offset:1px; }
@@ -758,8 +776,9 @@ function defaultRoster(t) {
 function fresh() {
   const d = D.default, rosters = {}, targets = {};
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
-  return {types: [d.type], name: "", targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
-          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs)};
+  return {types: [d.type], targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
+          memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", jobs: String(d.jobs),
+          pick: "", other: "", modelFor: d.agent, watch: D.watch[0]};
 }
 // ---- the form
 function choices(key, values, opts) {
@@ -806,14 +825,12 @@ function measure() {
   add(s, row("type", choices("types", D.types.map(t => [t, t]), {multi: true, after: build}),
     "default " + D.default.type + " · " + (cross ? "two or three are compared with each other: " + D.labels.cross :
       "one is scored against an invented control of its type; pick two or three to compare them")));
-  add(s, row("your name", field(F, "name", "e.g. Jane Doe"), cross ? "--name alone does not put you in a comparison: " +
-    "to include yourself, type your own name in the individual row, with individual chosen" :
-    "--name: the individual a run scores by default"));
-  for (const t of F.types) {
-    const place = cross ? (t === "individual" ? "your own name, to include yourself" : "none (optional)") :
-      t === "individual" ? "you, by your name" : "the " + t + " to score";
-    add(s, row(t, field(F.targets, t, place, true),
-      (cross ? "named targets, optional; " : "the target; ") + "one per line, each --target " + t + "=NAME"));
+  for (const t of F.types) {                         // a person, you or anyone, is the individual row's, in every run
+    const person = t === "individual";
+    const place = person ? "your own name, or anyone's" : cross ? "none (optional)" : "the " + t + " to score";
+    add(s, row(t, field(F.targets, t, place, true), (cross ? "named targets, optional; " : "the target; ") +
+      (person ? "type your own name to score yourself; " : "") + "one per line, each --target " +
+      (cross ? t + "=NAME" : "NAME")));
   }
 }
 function against() {
@@ -851,8 +868,10 @@ function against() {
 function how() {
   const s = $("how"), d = D.default, planned = D.planned[F.tier] || D.classes;
   s.replaceChildren(el("h2", null, "How to run"));
-  add(s, row("agent", choices("agent", D.agents), d.agent ? "default " + agentName(d.agent) :
-    "no default: choose one; it runs on your own login"));
+  add(s, row("agent", choices("agent", D.agents, {after: () => {
+    if (F.modelFor !== F.agent) { F.other = ""; pickModel(""); }    // another CLI: back to its default model
+    how();
+  }}), d.agent ? "default " + agentName(d.agent) : "no default: choose one; it runs on your own login"));
   const setup = add(el("details", "setup"), el("summary", null, "setup check"),
     choices("tier", D.setup.map(t => [t, t + ": the calibration's setup plan"]), {after: how}));
   setup.open = D.setup.includes(F.tier);
@@ -864,16 +883,41 @@ function how() {
   add(s, row("memory", choices("memory", D.memory.map(m => [m, m])),
     "default " + d.memory + " · both asks each item with and without the memory files"));
   add(s, row("effort", choices("effort", D.efforts.map(e => [e, e])), "default " + d.effort));
-  add(s, row("model", field(F, "model", "the CLI's default"), "default: the CLI's own model"));
-  add(s, row("watch", el("div", null, "always on: you follow the run live in your browser (--watch)"),
-    "the command shows it, so Run starts exactly the command Check checked"));
+  const note = el("div", "def");
+  for (const line of F.agent ? MODEL_NOTES[F.agent] || [] : []) note.appendChild(el("div", null, line));
+  add(s, add(row("model", modelChoice()), F.agent ? note : null));
+  add(s, row("watch", choices("watch", D.watch.map(w => [w, w])), "default " + D.watch[0] + " · on: follow the " +
+    "run live in your browser (--watch); off: this page still shows the run's newest lines, folder and scorecard"));
   const jobs = field(F, "jobs", String(d.jobs)); jobs.type = "number"; jobs.min = "1";
   const more = add(el("details", "more"), el("summary", null, "more: jobs, auto memory"),
-    row("jobs", jobs, "default " + d.jobs + " calls at once"),
-    row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m])),
-      "default " + d.auto_memory + " · off disables auto memory in both conditions"));
+    row("jobs", jobs, "calls at once, default " + d.jobs + " · more is faster but heavier on your rate limit; the " +
+      "time estimate scales with it, from rates measured at " + D.measured_jobs),
+    row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m])), "default " + d.auto_memory +
+      " · Claude Code's own saved notes (Claude Code only): leave as configured to measure your agent as it is; " +
+      "off, in both conditions, is the calibration's setting"));
   more.open = String(F.jobs) !== String(d.jobs) || F.auto_memory !== d.auto_memory;
   s.appendChild(more);
+}
+const MODEL_NOTES = {
+  claude: ["default: the CLI's own model · other: any model name Claude Code takes",
+           "the time estimate is measured on Sonnet (Opus estimated); other models show Sonnet's time"],
+  codex: ["default: the model in your config.toml · other: any Codex model name",
+          "the time estimate for Codex is assumed, not measured"]};
+function pickModel(pick) {            // the model: "" (the CLI's default), one of D.models[agent], or "other" (typed)
+  F.pick = pick; F.modelFor = F.agent;
+  F.model = pick === "other" ? F.other : pick;
+}
+function modelChoice() {
+  if (!F.agent) return el("div", "muted", "the CLI's default; choose an agent for its models");
+  const box = add(el("div"), choices("pick", [["", "default"], ...D.models[F.agent].map(m => [m, m]),
+    ["other", "other"]], {after: () => { pickModel(F.pick); how(); if (F.pick === "other") $("othermodel").focus(); }
+  }));
+  if (F.pick === "other") {
+    const other = field(F, "other", "a model name", false, () => pickModel("other"));
+    other.id = "othermodel"; other.className = "other";
+    box.appendChild(other);
+  }
+  return box;
 }
 function build() { marks = []; measure(); against(); how(); }
 // ---- the answer
