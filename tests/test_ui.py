@@ -840,9 +840,10 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(list(base["models"]), list(parser_actions()["--agent"].choices))
         self.assertRegex(Path(U.__file__).read_text(encoding="utf-8"), r"as of 2026-11-09[^\n]*\n(#[^\n]*\n)*MODELS = ")
         page = self.s.request("GET", "/")[1]
-        for words in ('["", "default"]', '["other", "other"]', 'if (F.modelFor !== F.agent) { F.other = ""; '
-                      'pickModel(""); }', "the time estimate is measured on Sonnet (Opus estimated); other models "
-                      "show Sonnet's time", "the time estimate for Codex is assumed, not measured"):
+        for words in ('["", DEFAULT_MODEL[F.agent] || "default"]', '[OTHER, "other…"]',
+                      'F.model = ""; otherModel = false; how();', "the time estimate is measured on Sonnet (Opus "
+                      "estimated); other models show Sonnet's time", "the time estimate for Codex is assumed, not "
+                      "measured"):
             self.assertIn(words, page)
         self.assertNotIn("--model", self.s.post("/command", {"form": {"agent": "codex", "model": ""}})["argv"])
         typed = self.s.post("/command", {"form": {"agent": "codex", "model": " my-model "}})["argv"]
@@ -889,12 +890,26 @@ class TestCheckAndRun(Stubbed):
         as configured to measure the agent as it is, off being the calibration's setting."""
         self.assertEqual(self.s.state()["defaults"]["measured_jobs"], P.pricing()["measured"]["jobs"])
         page = self.s.request("GET", "/")[1]
-        for words in ("calls at once, default ", "more is faster but heavier on your rate limit; the ",
+        for words in ("Calls at once; ", "more is faster but heavier on your rate limit; the ",
                       "time estimate scales with it, from rates measured at ",
                       "Claude Code's own saved notes (Claude Code only): "
                       "leave as configured to measure your agent as it is; ", "off, in both conditions, is the "
                       "calibration's setting"):
             self.assertIn(words, page)
+
+    def test_the_page_keeps_its_ids_and_the_watch_page_its_palette(self):
+        """Every id the tests and scripts read is on the page; the --ui page's tokens are only its own (the watch page
+        reads none of them); and an untouched page with no agent chosen asks for one calmly, keeping probatio's own
+        message, in red, for after a change."""
+        for i in ("pill", "form", "measure", "against", "how", "cmd", "where", "copy", "labels", "error", "files",
+                  "check", "run", "why", "confirm", "runsec", "runbox", "plan", "foot", "custom", "modelnote"):
+            self.assertTrue(f'id="{i}"' in U.PAGE or f'.id = "{i}"' in U.PAGE, i)
+        for token in ("--field", "--track", "--accent"):
+            self.assertIn(token + ":", L.PAGE_BASE)
+            self.assertNotIn(f"var({token}", L.VIEW_V4)
+        for words in ("calm = !touched && F && !F.agent", "Choose an agent to begin: ", "touched = true;",
+                      'el("b", null, "probatio: "), document.createTextNode(said.error)'):
+            self.assertIn(words, U.PAGE)
 
     def test_run_refuses_what_check_did_not_approve(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})

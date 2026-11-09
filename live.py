@@ -1092,12 +1092,18 @@ class Watch:
 # ink tokens; the status colours appear only with their words. Colour tokens live on :root with a dark mode, the
 # cards stack under 700 px, and the script builds every node with textContent (never innerHTML), so nothing the
 # agent wrote can become markup. The token is never embedded: the script reads it from location.search.
-# PAGE_BASE, the palette (light and dark) and the base type, is shared with the --ui page (ui.py).
+# PAGE_BASE, the palette (light and dark) and the base type, is shared with the --ui page (ui.py). The field, track
+# and accent tokens are the --ui page's: input fills, segment tracks and its one accent (Run, a selected choice);
+# the watch page uses none of them.
 PAGE_BASE = """:root { --surface:#fcfcfb; --band:#f4f3ef; --ink:#0b0b0b; --ink2:#52514e; --muted:#6f6e69; --grid:#e1e0d9;
-  --axis:#c3c2b7; --line:#e1e0d9; --good:#1f7a45; --bad:#b4372d; --pending:#8a6d1a; --hl:#f3efe4; }
+  --axis:#c3c2b7; --line:#e1e0d9; --good:#1f7a45; --bad:#b4372d; --pending:#8a6d1a; --hl:#f3efe4;
+  --field:#dedcd6; --track:#f3f2ee; --accent:#2f5bc4; --accent-ink:#ffffff; --accent-soft:#e7edfa;
+  --accent-text:#24489e; }
 @media (prefers-color-scheme: dark) {
   :root { --surface:#1a1a19; --band:#222220; --ink:#f0efec; --ink2:#c3c2b7; --muted:#9a9993; --grid:#2c2c2a;
-    --axis:#4a4a46; --line:#33332f; --good:#5cc68b; --bad:#ef7d72; --pending:#d9b45a; --hl:#2a2925; } }
+    --axis:#4a4a46; --line:#33332f; --good:#5cc68b; --bad:#ef7d72; --pending:#d9b45a; --hl:#2a2925;
+    --field:#32322f; --track:#262624; --accent:#8eaaf5; --accent-ink:#0d1526; --accent-soft:#25304a;
+    --accent-text:#b8cbfa; } }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--surface); color:var(--ink);
   font:14px/1.45 system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; }
