@@ -444,6 +444,21 @@ class TestNamedTargets(unittest.TestCase):
                                               "--class, or use --tier standard for its errands")
         self.plan_runs("--tier", "standard", "--class", "II")                  # standard runs its errands
 
+    def test_the_hint_offers_only_what_saves_time(self):
+        for minutes in (-2.0, 0.0, 0.04):
+            savings = []
+            P.offer(savings, "--tier quick", minutes)
+            self.assertEqual(savings, [], minutes)
+        savings = []
+        P.offer(savings, "--tier quick", 27.6)
+        self.assertEqual(savings, ["--tier quick (-28 min)"])
+        a, bank, runs = self.plan_runs("--tier", "standard")
+        total = sum(P.run_counts(a, r)[2] for r in runs)
+        hint = P.time_hint(a, bank, self.ordo, runs, total)
+        self.assertEqual(hint, "about 45 minutes; to shorten: drop the named targets (-18 min), or --class I "
+                               "(-35 min), or --tier quick (-28 min)")
+        self.assertNotIn("(--", hint)
+
     def dry_run(self, *extra):
         printed, version = io.StringIO(), subprocess.CompletedProcess([], 0, stdout="9.9.9 (fake)\n", stderr="")
         with tempfile.TemporaryDirectory() as d, mock.patch.object(P.shutil, "which", return_value="/bin/claude"), \
@@ -452,6 +467,14 @@ class TestNamedTargets(unittest.TestCase):
                 mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": d}), contextlib.redirect_stdout(printed):
             P.main(["--workdir", d, *self.command(*extra), "--dry-run", "--out", str(Path(d) / "out")])
         return printed.getvalue()
+
+    def test_the_preflight_names_every_named_target(self):
+        for tier in ("quick", "standard"):
+            out = self.dry_run("--tier", tier)
+            self.assertIn('    nation "the United States": The United States · the delegation of the United States · '
+                          "the national AI research team of the United States · the United States'\n", out)
+            for t, name in self.PUBLIC:
+                self.assertIn(f'    {t} "{name}": ', out)
 
     def test_the_preflight_says_what_quick_leaves_out(self):
         quick = self.dry_run("--tier", "quick")
@@ -464,6 +487,7 @@ class TestNamedTargets(unittest.TestCase):
                       standard)
         self.assertIn("    936 units, 936 calls   about 45 min", standard)
         self.assertIn("--tier quick (-28 min)", standard)
+        self.assertNotIn("(--", standard)
 
     def test_a_quick_card_says_a_named_targets_errands_were_not_run(self):
         named = self.named("organization")

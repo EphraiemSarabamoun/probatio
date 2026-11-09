@@ -5188,8 +5188,9 @@ def minutes_text(x):
 def time_hint(a, bank, ordo_bank, runs, total):
     """The preflight's line for a selection that would take more than the budget's warning minutes (ordo.pricing;
     DESIGN 8.6, manager decision 1): the time, and the largest savings in a fixed order (drop the named targets,
-    --class I, --tier quick), each the difference to the same runs re-planned that way. It warns and never stops the
-    run. None at or under the budget."""
+    --class I, --tier quick), each the difference to the same runs re-planned that way and offered only when it saves
+    time (offer); --tier quick is not offered where it would refuse the named targets (QUICK_NAMED_NONE). It warns and
+    never stops the run. None at or under the budget."""
     if total <= pricing()["warning_minutes"]:
         return None
     def without(**change):
@@ -5197,17 +5198,28 @@ def time_hint(a, bank, ordo_bank, runs, total):
     named = sum(len(r["named"]) for run in runs if run["kind"] == "cross" for r in run["rosters"].values())
     savings = []
     if named:
-        savings.append(f"drop the named target{'s' if named > 1 else ''} (-{minutes_text(without(named=False))} min)")
+        offer(savings, f"drop the named target{'s' if named > 1 else ''}", without(named=False))
     if "I" in a.classes and len(a.classes) > 1:
-        savings.append(f"--class I (-{minutes_text(without(classes=('I',)))} min)")
-    if a.tier not in ("quick", "smoke"):
-        savings.append(f"--tier quick (-{minutes_text(without(tier='quick'))} min)")
+        offer(savings, "--class I", without(classes=("I",)))
+    refused = named and not set(a.classes) & set(named_classes("quick"))       # quick would refuse the targets
+    if a.tier not in ("quick", "smoke") and not refused:
+        offer(savings, "--tier quick", without(tier="quick"))
     return f"about {minutes_text(total)} minutes; to shorten: " + (", or ".join(savings) or "compare fewer types")
 
 
-def user_records(spec, types):
-    """The records the user gave that are not the bank's (targets, comparators and controls), for the preview."""
-    return [(t, rec) for t in types for part in ENTITY_LISTS for rec in spec[t][part] if rec.get("kind") == "user"]
+def offer(savings, option, minutes):
+    """Add one option to the hint's savings when it saves time: a saving the hint would print as 0 or less is never
+    offered, so a hint never recommends a slower option, and the minus sign is the hint's own (never a double sign)."""
+    if minutes > 0 and minutes_text(minutes) != minutes_text(0):
+        savings.append(f"{option} (-{minutes_text(minutes)} min)")
+
+
+def user_records(spec, types, named_types=()):
+    """The records the user gave, for the preview: every one that is not the bank's (targets, comparators and
+    controls), and every target of a type in named_types (a cross-type run's named targets), a roster entity such as
+    the United States included, since the run writes each into its items in the forms shown."""
+    return [(t, rec) for t in types for part in ENTITY_LISTS for rec in spec[t][part]
+            if rec.get("kind") == "user" or (part == "targets" and t in named_types)]
 
 
 def custom_controls(spec, bank, types):
@@ -5250,7 +5262,8 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
     print(f"  compare {selection['compare']} · " + " · ".join(labels))
     for line in controls:
         print(f"  {line}")
-    given = user_records(spec, types)
+    given = user_records(spec, types, {t for r in runs if r["kind"] == "cross" for t, ros in r["rosters"].items()
+                                       if ros["named"]})
     if given:
         print("  the names you gave, as the items write them (check them):")
         for t, rec in given:
