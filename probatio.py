@@ -4434,8 +4434,9 @@ def classes_at(a, tier):
 
 def preflight_v4(a, opts, bank, roster, calls):
     """Print what a v4 run will do and return its facts for run.json: the target, the control and comparators, the
-    counts and time per class, three sentences with the target in them, the memory files, the bank's hash and the
-    plan's fingerprint. Memory files are recorded by sha256, as in v3."""
+    counts and time per class, the 45-minute hint and the standard-is-shorter line (time_hint and standard_shorter,
+    as preflight_runs prints them), three sentences with the target in them, the memory files, the bank's hash and
+    the plan's fingerprint. Memory files are recorded by sha256, as in v3."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
     found = memory_files(a.agent, opts.workdir, a.auto_memory) if a.memory != "off" else []
     files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in found}
@@ -4447,10 +4448,10 @@ def preflight_v4(a, opts, bank, roster, calls):
         print(f"  note: {note}")
     print(f"  {a.tier} tier, memory {a.memory}, at --jobs {a.jobs}:{tier_sentence(a.tier, a.memory)}")
     print("".join(f"    {line}\n" for line in estimate_v4(a, calls)), end="")
-    shorter = standard_shorter(a, bank, None, [{"kind": "single", "roster": roster, "calls": calls}],
-                               run_counts(a, {"calls": calls})[2])
-    if shorter:
-        print(f"  {shorter}")
+    runs, total = [{"kind": "single", "roster": roster, "calls": calls}], run_counts(a, {"calls": calls})[2]
+    for line in (time_hint(a, bank, None, runs, total), standard_shorter(a, bank, None, runs, total)):
+        if line:
+            print(f"  {line}")
     print("  the target in a sentence (check its grammar):" + "".join(f"\n    {s}" for s in sample_sentences(roster)))
     if a.memory == "off":
         print("  memory files for the with-memory run: none (memory is off in this run)")
@@ -5185,16 +5186,16 @@ def needs_ordo_bank(a, bank, selection, spec):
     return bool(selection["pairs"]) or ("I" in a.classes and bool(custom_controls(spec, bank, selection["single"])))
 
 
-def replan(a, bank, ordo_bank, run, tier=None, classes=None, named=True):
-    """The run's plan again with another tier, other classes or without its named targets: the 45-minute hint's
-    alternatives."""
-    tier, classes = tier or a.tier, classes or a.classes
+def replan(a, bank, ordo_bank, run, tier=None, classes=None, named=True, memory=None):
+    """The run's plan again with another tier, other classes, another memory setting or without its named targets:
+    the 45-minute hint's alternatives."""
+    tier, classes, conditions = tier or a.tier, classes or a.classes, MEMORY_MODES[memory or a.memory]
     if run["kind"] == "single":
-        calls = plan_v4(bank, run["roster"], tier, classes, MEMORY_MODES[a.memory], a.arm)
+        calls = plan_v4(bank, run["roster"], tier, classes, conditions, a.arm)
         check = [c for c in run["calls"] if c["meta"]["class"] == "check"] if "I" in classes else []
         return calls + check
     rosters = run["rosters"] if named else {t: dict(r, named=[]) for t, r in run["rosters"].items()}
-    return ordo_plan(ordo_bank, run["selection"], rosters, tier, classes, MEMORY_MODES[a.memory])
+    return ordo_plan(ordo_bank, run["selection"], rosters, tier, classes, conditions)
 
 
 def tier_minutes(a, bank, ordo_bank, runs, tier):
@@ -5253,8 +5254,9 @@ def time_hint(a, bank, ordo_bank, runs, total):
     DESIGN 8.6, manager decision 1): the time, and the largest savings in a fixed order (drop the named targets,
     --class I, --tier quick), each the difference to the same runs re-planned that way and offered only when it saves
     time (offer). --tier quick is offered only where quick would run the command (tier_minutes) and costs no more than
-    standard; where standard is shorter, a full run is offered --tier standard instead. It warns and never stops the
-    run. None at or under the budget."""
+    standard; where standard is shorter, a full run is offered --tier standard instead. When none of them saves time,
+    fallback_savings says what still does. It warns and never stops the run. None at or under the budget. v4's own
+    path (preflight_v4) and the options path (preflight_runs) print it alike."""
     if total <= pricing()["warning_minutes"]:
         return None
     def without(**change):
@@ -5272,7 +5274,26 @@ def time_hint(a, bank, ordo_bank, runs, total):
             offer(savings, "--tier quick", total - quick)
         elif a.tier == "full" and standard is not None:       # quick costs more than standard here
             offer(savings, "--tier standard", total - standard)
-    return f"about {minutes_text(total)} minutes; to shorten: " + (", or ".join(savings) or "compare fewer types")
+    savings = savings or fallback_savings(a, bank, ordo_bank, runs, total)
+    return f"about {minutes_text(total)} minutes" + ("; to shorten: " + ", or ".join(savings) if savings else "")
+
+
+def fallback_savings(a, bank, ordo_bank, runs, total):
+    """time_hint's options when none of its fixed ones saves time: comparing fewer types where types are compared;
+    else what a single-type selection can still change, each offered only when it saves time (offer): --memory on for
+    memory both, the time model's --jobs for fewer, and fewer targets for several runs. Empty when nothing applies,
+    and the hint then names the time alone."""
+    if any(run["kind"] == "cross" for run in runs):
+        return ["compare fewer types"]
+    savings, jobs = [], pricing()["jobs"]
+    if a.memory == "both":
+        on = sum(run_counts(a, r, replan(a, bank, ordo_bank, r, memory="on"))[2] for r in runs)
+        offer(savings, "--memory on", total - on)
+    if a.jobs < jobs:
+        offer(savings, f"--jobs {jobs}", total - total * a.jobs / jobs)       # the estimate divides by --jobs
+    if len(runs) > 1:
+        savings.append("fewer targets")
+    return savings
 
 
 def offer(savings, option, minutes):

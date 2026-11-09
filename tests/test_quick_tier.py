@@ -610,6 +610,47 @@ class TestQuickAgainstStandard(unittest.TestCase):
         for tier in ("standard", "full"):
             self.assertNotIn(line.strip(), self.dry_run(*one[:-1], tier, "--class", "II"), tier)
 
+    def hint_lines(self, *args):
+        return [line for line in self.dry_run(*args).splitlines() if line.startswith("  about ") and "minutes" in line]
+
+    def test_v4s_own_preflight_prints_the_same_hint(self):
+        """One target at the full tier with memory both: README's command (v4's own path) prints the 45-minute hint,
+        word for word the options path's for the same run, from the one helper (time_hint); a run under the budget
+        prints none on either path."""
+        one = ["--target", "Mozilla", "--tier", "full", "--memory", "both"]
+        own = self.hint_lines("--target-type", "organization", *one)
+        self.assertEqual(own, ["  about 69 minutes; to shorten: --class I (-51 min), or --tier quick (-40 min)"])
+        self.assertEqual(own, self.hint_lines("--compare", "organization", *one))
+        self.assertEqual(own[0].strip(), self.hint("--compare", "organization", *one))
+        self.assertEqual(self.hint_lines("--target-type", "organization", "--target", "Mozilla"), [])   # 17 minutes
+
+    def test_the_hint_offers_only_what_the_run_can_change(self):
+        """With no fixed saving (no named target, no --class I to drop to, no shorter tier), a single-type run is
+        offered what it can still change, never "compare fewer types": --memory on for memory both, the time model's
+        --jobs for fewer, fewer targets for several. A comparison of types keeps its words; quick is never offered
+        where standard is shorter, and standard's own line still prints."""
+        one = ["--target-type", "organization", "--target", "Mozilla"]
+        self.assertEqual(self.hint_lines(*one, "--tier", "quick", "--class", "II", "--memory", "both", "--jobs", "1"),
+                         ["  about 79 minutes; to shorten: --memory on (-40 min), or --jobs 4 (-59 min)"])
+        out = self.dry_run(*one, "--tier", "quick", "--class", "II", "--memory", "both", "--jobs", "1")
+        self.assertIn("  for this selection --tier standard is shorter: about 40 min\n", out)
+        self.assertEqual(self.hint_lines(*one, "--tier", "full", "--class", "II", "--memory", "both", "--jobs", "1"),
+                         ["  about 79 minutes; to shorten: --tier standard (-40 min)"])
+        two = self.hint_lines(*one, "--target", "Wikimedia", "--tier", "quick", "--class", "II", "--memory", "both",
+                              "--jobs", "1")
+        self.assertEqual(two, ["  about 158 minutes; to shorten: --memory on (-79 min), or --jobs 4 (-119 min), or "
+                               "fewer targets"])
+        cross = self.hint("--compare", "individual:organization:nation", "--tier", "quick", "--class", "II",
+                          "--memory", "both", "--jobs", "1")
+        self.assertEqual(cross, "about 79 minutes; to shorten: compare fewer types")
+        for args in ([*one, "--tier", "full", "--memory", "both"], [*one, "--tier", "quick", "--class", "II",
+                                                                    "--memory", "both", "--jobs", "1"]):
+            for line in self.hint_lines(*args):
+                self.assertNotIn("named target", line)
+                self.assertNotIn("fewer types", line)
+                self.assertNotIn("(--", line)
+                self.assertNotIn("(-0", line)
+
     def hint(self, *args):
         a = P.parse_args_v4(["--agent", "claude", "--model", "claude-sonnet-5-5", *args])
         bank, ordo_bank, _, _, runs = P.prepare_runs(a, False)
