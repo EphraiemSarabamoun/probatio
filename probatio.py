@@ -4285,7 +4285,9 @@ def check_resume(out, meta):
     Everything in meta but the date must match: the CLI version, model, effort and Codex features as well as the
     run's identity, and every memory file's sha256. The plan is compared by recipe (resume_view), so a folder
     recorded before recipes resumes under the tier its recipe names, with the fix named otherwise. run.json is never
-    rewritten."""
+    rewritten. Returns the meta the run goes on under, which scoring, the page and the card read: meta itself, or for
+    a retired recipe whose plan is this one (same_plan) meta with the recipe run.json records, so the card and run.json
+    name one recipe."""
     path = out / "run.json"
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
@@ -4302,12 +4304,14 @@ def check_resume(out, meta):
         mine, theirs = (resume_view(meta), resume_view(old)) if v4 else (meta, old)
         if v4 and same_plan(old, meta):              # the retired recipe's plan is this one: resume under its record
             mine["recipe"] = theirs["recipe"]
+            meta = dict(meta, recipe=old["recipe"])
         differ = [k for k in mine if k != "date" and theirs.get(k) != mine[k]]
         if differ:
             raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
                              "--out to start a new run, or undo the change to resume this one.")
     else:
         path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return meta
 
 
 def demo_setup(a):
@@ -5435,7 +5439,7 @@ def execute_run(a, opts, bank, ordo_bank, run, meta, out, watch=None, label=None
     out.mkdir(parents=True, exist_ok=True)
     run_lock = claim(out)
     try:
-        check_resume(out, meta)
+        meta = check_resume(out, meta)              # a resumed retired recipe goes on under its recorded recipe
         if a.agent == "codex":
             opts.homes = codex_homes(out)
         else:
@@ -5571,7 +5575,7 @@ def main_v4(argv):
     watch = import_live().Watch(names=[tab_label(single)]) if a.watch else None
     run_lock = claim(out)
     try:
-        check_resume(out, meta)
+        meta = check_resume(out, meta)              # a resumed retired recipe goes on under its recorded recipe
         if a.agent == "codex":
             opts.homes = codex_homes(out)
         else:

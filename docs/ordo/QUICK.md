@@ -30,7 +30,7 @@ The pinned manifests still name its task counts `quick`, and `MANIFEST_TIER` map
 ## Plan recipes
 
 A run records its plan's recipe beside its tier word: `smoke@1`, `quick@3`, `standard@1` or `full@1`.
-- **Retired recipes.** `quick@2`, the first release's quick, also ran a named target's errands on all 32 tasks. A run that records it still reads and scores. It resumes when today's plan is the same call for call, which holds for every quick@2 run without a named target (`same_plan`); otherwise the refusal says why.
+- **Retired recipes.** `quick@2`, the first release's quick, also ran a named target's errands on all 32 tasks. A run that records it still reads and scores. It resumes when today's plan is the same call for call, which holds for every quick@2 run without a named target (`same_plan`); otherwise the refusal says why. A resumed one goes on under its recorded recipe, so its scorecard, its page and its run.json all read quick@2.
 - **Old runs.** A run.json from before recipes has none, and `recipe_of` reads it through `LEGACY_RECIPES`: quick reads as `smoke@1`, and standard and full read as themselves. No historical file is edited.
 - **`rescore`** rebuilds a run by its recipe, so a legacy quick run rebuilds as smoke, to its own fingerprint.
 - **`check_resume`** compares recipes (`resume_view`). A legacy quick folder resumes under `--tier smoke`, and under `--tier quick` the refusal names that fix.

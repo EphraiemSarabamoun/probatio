@@ -629,6 +629,57 @@ class TestQuickAgainstStandard(unittest.TestCase):
         self.assertNotIn("--tier standard", default)
 
 
+class TestRetiredResume(unittest.TestCase):
+    """An accepted resume of a retired recipe (quick@2 into quick@3) goes on under the recipe run.json records: the
+    scoring, the page and the card name it, so run.json and the card agree (Codex's v4.1 check, finding 5). Driven
+    through execute_run itself, with only the agent's calls and the live line stubbed."""
+
+    def execute(self, out, run, meta, ordo_bank=None):
+        seen = {}
+
+        def view(watch, a, run, meta, out, bank, line):
+            seen["page"] = meta["recipe"]
+        with mock.patch.object(P, "run_calls", return_value=None), mock.patch.object(P, "live_line", return_value=None), \
+                mock.patch.object(P, "watch_view", side_effect=view), contextlib.redirect_stdout(io.StringIO()):
+            P.execute_run(SimpleNamespace(agent="claude", jobs=4), SimpleNamespace(), S.bank(), ordo_bank, run, meta,
+                          out, watch=SimpleNamespace(finish=lambda view, card: None))
+        return seen
+
+    def test_a_single_type_card_names_the_recorded_recipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            b, roster, calls, meta = S.planted_run(out, tier="quick", memory="on", classes=("I", "II"))
+            (out / "run.json").write_text(json.dumps(dict(meta, recipe="quick@2"), indent=2))
+            seen = self.execute(out, {"kind": "single", "calls": calls, "roster": roster}, meta)
+            card = json.loads((out / "scorecard.json").read_text())
+            recorded = json.loads((out / "run.json").read_text())["recipe"]
+            self.assertEqual((recorded, card["recipe"], seen["page"]), ("quick@2",) * 3)
+            self.assertEqual(card["tier"], "quick")
+
+    def test_a_cross_type_card_names_the_recorded_recipe(self):
+        ordo_bank = O.load_ordo_bank()
+        calls = O.plan(ordo_bank, TRIANGLE, "quick")
+        meta = {"probatio": "4.0-dev", "agent": "claude", "tier": "quick", "recipe": "quick@3",
+                "plan_fingerprint": P.plan_fingerprint(calls)}
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            out.mkdir()
+            (out / "run.json").write_text(json.dumps(dict(meta, recipe="quick@2")))
+            seen = self.execute(out, {"kind": "cross", "calls": calls}, meta, ordo_bank)
+            card = json.loads((out / "ordo" / "scorecard.json").read_text())
+            self.assertEqual((json.loads((out / "run.json").read_text())["recipe"], card["recipe"], seen["page"]),
+                             ("quick@2",) * 3)
+
+    def test_a_new_run_records_and_scores_the_current_recipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            b, roster, calls, meta = S.planted_run(out, tier="quick", memory="on", classes=("I", "II"))
+            (out / "run.json").unlink()                           # a fresh folder: check_resume writes run.json
+            self.execute(out, {"kind": "single", "calls": calls, "roster": roster}, meta)
+            self.assertEqual(json.loads((out / "run.json").read_text())["recipe"], "quick@3")
+            self.assertEqual(json.loads((out / "scorecard.json").read_text())["recipe"], "quick@3")
+
+
 class TestErrandRuleGate(unittest.TestCase):
     """The completion gate of PREREG Amendment 6 (ordo.errand_rule_status; Codex's re-check R2 and its final check
     F1 to F3): adopted only with complete, current evidence whose artifacts the gate reads itself; every gap, wrong
