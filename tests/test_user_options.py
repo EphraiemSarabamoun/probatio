@@ -8,6 +8,7 @@ every CLI call is faked or refused, and the planted inference test runs only ins
     python3 -m unittest discover -s tests
 """
 import contextlib
+import functools
 import io
 import json
 import os
@@ -637,6 +638,171 @@ class TestRunIdentity(Isolated):
                          ["v4-claude-individual-same-smoke-memory-on", "v4-claude-nation-same-smoke-memory-on"])
 
 
+# ---- one resume identity for one plan (the v4.1 checks' resume findings 1, 2 and 6) --------------------------------
+class Reached(Exception):
+    """run_calls was reached: the command's check_resume accepted its folder, and no call was made."""
+
+
+NAMES = {"individual": ("Jane Doe", "John Smith"), "organization": ("Mozilla", "Wikimedia Foundation"),
+         "nation": ("France", "Germany")}                               # per type: a target and another for its row
+SAME_PLAN_CONTROLS = ["Thirlbeck Systems", "Kelthorne Labs"]            # custom fixtures, the baseline's control first
+
+
+def one_target_forms(t, name):
+    """Every way to write one target on v4's own path."""
+    forms = [["--target-type", t, "--target", name]]
+    if t == "individual":
+        forms += [["--name", name], ["--target", name], ["--target-type", t, "--name", name]]
+    return forms
+
+
+def options_forms(t, name, other):
+    """The options path's ways to write the same run: --compare T, TYPE=NAME, both, and a row of two targets holding
+    it, as the page writes a row."""
+    typed = [] if t == "individual" else ["--target-type", t]
+    return {"--compare T": ["--compare", t, "--target", name], "T=NAME": [*typed, "--target", f"{t}={name}"],
+            "--compare T, T=NAME": ["--compare", t, "--target", f"{t}={name}"],
+            "a row of two": [*typed, "--target", name, "--target", other]}
+
+
+class TestResumeIdentity(Isolated):
+    """A single-type run is one run whichever path planned it: a folder made by a one-target form of v4's own path
+    resumes from every options form of the same run (--compare T, TYPE=NAME, a row of two targets holding it), and the
+    reverse; editing a row's other targets resumes every unchanged target's folder; and a custom roster's folder and
+    the baseline's refuse each other both ways, even when the plan is the same. Each command is made for real into
+    results/ under a scratch HERE (the default folders the page and the terminal share) up to its first call:
+    execute_run is cut to its first step, check_resume on the run's folder, and v4's own path stops at run_calls, so
+    nothing is called."""
+
+    def setUp(self):
+        super().setUp()
+        self.verdicts, real = [], P.check_resume
+
+        def recorded(out, meta):
+            kept = (out / "run.json").exists()
+            try:
+                meta = real(out, meta)
+            except SystemExit as e:
+                self.verdicts.append((out.name, str(e)))
+                raise
+            self.verdicts.append((out.name, "resumed" if kept else "started"))
+            return meta
+
+        def first_step(a, opts, bank, ordo_bank, run, meta, out, *rest):
+            out.mkdir(parents=True, exist_ok=True)
+            P.check_resume(out, meta)
+        for patch in (mock.patch.object(P, "HERE", self.tmp), mock.patch.object(P, "check_resume", recorded),
+                      mock.patch.object(P, "execute_run", first_step),
+                      mock.patch.object(P, "run_calls", side_effect=Reached),
+                      mock.patch.object(P, "load_bank", functools.lru_cache(None)(P.load_bank))):   # one bank, read once
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def command(self, *words):
+        """Make one command up to its first call: each folder it reached in run order, with its verdict (started,
+        resumed, or check_resume's refusal, which ends the command as it does a real one)."""
+        start = len(self.verdicts)
+        try:
+            self.main("--agent", "claude", "--tier", "quick", *words)
+        except Reached:
+            pass
+        except SystemExit as e:
+            if not self.verdicts[start:] or self.verdicts[-1][1] != str(e):
+                raise
+        return self.verdicts[start:]
+
+    def fresh(self):
+        shutil.rmtree(self.tmp / "results", ignore_errors=True)
+
+    def record(self, folder):
+        return json.loads((self.tmp / "results" / folder / "run.json").read_text())
+
+    def test_each_one_target_form_and_each_options_form_resume_each_other(self):
+        # Class I alone keeps 96 commands quick; the classes are recorded alike on both paths (the other tests here
+        # run every class).
+        for t, (name, other) in NAMES.items():
+            for own in one_target_forms(t, name):
+                for label, form in options_forms(t, name, other).items():
+                    for first, then in ((own, form), (form, own)):
+                        with self.subTest(first=first, then=then):
+                            self.fresh()
+                            made = self.command(*first, "--class", "I")
+                            again = self.command(*then, "--class", "I")
+                            self.assertEqual(made[0][1], "started")
+                            self.assertEqual(again[0], (made[0][0], "resumed"))      # the target's own folder
+                            self.assertEqual([v for _, v in made + again].count("resumed"), 1)
+
+    def test_editing_a_row_resumes_every_unchanged_targets_folder(self):
+        # Reordered, grown and shrunk (to two, then to one, which is v4's own path), on the folders the row made.
+        for t, row, edits in (
+                ("organization", ["Mozilla", "Wikimedia Foundation"],
+                 (["Wikimedia Foundation", "Mozilla"], ["Mozilla", "Wikimedia Foundation", "Python Software Foundation"],
+                  ["Python Software Foundation", "Mozilla"], ["Mozilla"])),
+                ("nation", ["France", "Germany", "Japan"], (["France", "Germany"], ["Germany", "France"], ["France"])),
+                ("individual", ["Jane Doe", "John Smith"], (["John Smith", "Jane Doe", "Ada Lovelace"], ["Jane Doe"]))):
+            with self.subTest(t=t):
+                self.fresh()
+                typed = [] if t == "individual" else ["--target-type", t]
+                made = self.command(*typed, *[w for n in row for w in ("--target", n)])
+                self.assertEqual([v for _, v in made], ["started"] * len(row))
+                known = {folder for folder, _ in made}
+                for edit in edits:
+                    again = self.command(*typed, *[w for n in edit for w in ("--target", n)])
+                    self.assertEqual(len(again), len(edit), edit)
+                    self.assertEqual([v for _, v in again], ["resumed" if f in known else "started" for f, _ in again],
+                                     edit)
+                    known |= {folder for folder, _ in again}
+                for folder in known:                        # each records its own target alone
+                    meta = self.record(folder)
+                    self.assertEqual([rec["full"] for rec in meta["roster"]["targets"]], [meta["target"]["full"]])
+
+    def test_a_custom_roster_and_the_baseline_refuse_each_other_both_ways(self):
+        # The custom controls keep the baseline's first, so the plan is the baseline's, call for call: only the
+        # fixtures tell the runs apart, and before this the baseline's command went on in the custom roster's folder.
+        path = self.tmp / "mine.json"
+        path.write_text(json.dumps({"organization": {"controls": SAME_PLAN_CONTROLS}}))
+        custom = ["--target-type", "organization", "--target", "Mozilla", "--entities", str(path)]
+        for baseline in (["--target-type", "organization", "--target", "Mozilla"],
+                         ["--compare", "organization", "--target", "Mozilla"],
+                         ["--target-type", "organization", "--target", "Mozilla", "--target", "Wikimedia Foundation"]):
+            for first, then in ((custom, baseline), (baseline, custom)):
+                with self.subTest(first=first, then=then):
+                    self.fresh()
+                    folder = self.command(*first)[0][0]
+                    self.assertEqual(self.command(*then), [(folder, (
+                        f"{(self.tmp / 'results' / folder).resolve()} holds a run with other settings (fixtures_sha256 "
+                        "changed). Pass another --out to start a new run, or undo the change to resume this one."))])
+        self.fresh()
+        folder = self.command(*custom)[0][0]
+        self.assertEqual(self.command(*custom), [(folder, "resumed")])            # the same custom roster resumes
+        self.assertEqual(self.record(folder)["fixtures"], "custom")
+
+    def test_a_roster_equal_to_the_baseline_is_the_baseline(self):
+        # The defaults written out, in another case: the baseline's fixtures, so v4's own path resumes it both ways.
+        path = self.tmp / "same.json"
+        path.write_text(json.dumps({"organization": {"controls": [r["full"].lower() for r in P.baseline_spec(BANK)[
+            "organization"]["controls"]]}}))
+        written = ["--target-type", "organization", "--target", "Mozilla", "--entities", str(path)]
+        plain = ["--target-type", "organization", "--target", "Mozilla"]
+        for first, then in ((written, plain), (plain, written)):
+            with self.subTest(first=first):
+                self.fresh()
+                folder = self.command(*first)[0][0]
+                self.assertEqual(self.command(*then), [(folder, "resumed")])
+
+    def test_the_identity_is_v4s_record_from_either_path(self):
+        # The options path's record, less its echo of the command, is v4's own record and its fixtures: one identity.
+        self.command("--compare", "organization", "--target", "Mozilla", "--target", "Wikimedia Foundation")
+        options = self.record("v4-claude-organization-mozilla-quick-memory-on")
+        self.fresh()
+        self.command("--target-type", "organization", "--target", "Mozilla")
+        own = self.record("v4-claude-organization-mozilla-quick-memory-on")
+        self.assertEqual(set(options) - set(own), {"compare", "fixtures", "fixtures_sha256", "labels", "roster"})
+        self.assertEqual(P.resume_identity(dict(options, date="x")), P.resume_identity(own))
+        self.assertEqual(P.resume_identity(own)["fixtures_sha256"], P.baseline_fixtures()["organization"])
+        self.assertEqual(set(P.resume_identity(own)), set(own) - {"date", "tier"} | {"fixtures_sha256"})
+
+
 # ---- custom controls' recognition in scoring (Codex's final verification, findings 4 and 5) ------------------------
 class TestRecognition(Isolated):
     """Two organization targets with custom controls, made through the actual execute_run and score_run, with only the
@@ -839,6 +1005,144 @@ class TestRequirementOne(unittest.TestCase):
         self.assertGreater(len(old_items.splitlines()), 300)
         _, via_compare = self.dry(REPO, "out-compare", "--compare", "organization", "--target", "Mozilla")
         self.assertEqual(via_compare, old_items)
+        self.assertFalse((self.tmp / "forbidden-calls.log").exists())
+
+
+# ---- folders made before one resume identity (33cf26f, the public release, and 5fe1fe5) ---------------------------
+OLD_COMMITS = ("33cf26f", "5fe1fe5")
+DRIVER = '''"""Make one command of the probatio in TREE into ROOT/results up to its first call, logging each folder's verdict
+(started, resumed, or check_resume's refusal) to LOG: execute_run is cut to its first step, check_resume, and
+run_calls stops the run, so nothing is called. python3 driver.py TREE ROOT LOG ARGS..."""
+import json, sys
+from pathlib import Path
+tree, root, log, argv = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4:]
+sys.path.insert(0, tree)
+import probatio as P
+real = P.check_resume
+
+
+class Reached(Exception):
+    pass
+
+
+def recorded(out, meta):
+    kept = (out / "run.json").exists()
+    try:
+        meta = real(out, meta)
+        verdict = "resumed" if kept else "started"
+        return meta
+    except SystemExit as e:
+        verdict = str(e)
+        raise
+    finally:
+        with log.open("a") as f:
+            f.write(json.dumps([out.name, verdict]) + "\\n")
+
+
+def first_step(a, opts, bank, ordo_bank, run, meta, out, *rest):
+    out.mkdir(parents=True, exist_ok=True)
+    P.check_resume(out, meta)
+
+
+def stop(*args, **kwargs):
+    raise Reached
+
+
+P.HERE, P.check_resume, P.execute_run, P.run_calls = root, recorded, first_step, stop
+try:
+    P.main(argv)
+except Reached:
+    pass
+'''
+
+
+def old_commits_available():
+    return shutil.which("git") is not None and all(subprocess.run(
+        ["git", "-C", str(REPO), "cat-file", "-e", f"{c}^{{commit}}"], capture_output=True).returncode == 0
+        for c in OLD_COMMITS)
+
+
+@unittest.skipUnless(old_commits_available(), f"needs git and commits {', '.join(OLD_COMMITS)}")
+class TestOldFolders(unittest.TestCase):
+    """Folders made by 33cf26f's and 5fe1fe5's own code (git archive copies, each command up to its first call, in a
+    fresh process under the design's guard) resume under this probatio whenever the plan and the real settings
+    match: a folder from v4's own path, from the options path, from a row of two targets. A custom roster's folder is
+    still continued by the same custom command, and is now refused by the baseline's command, which went on in it
+    before under the baseline's record (the v4.1 resume check's finding 6)."""
+    ORG = ["--target-type", "organization", "--target", "Mozilla"]
+    ROW = ["--target-type", "organization", "--target", "Mozilla", "--target", "Wikimedia Foundation"]
+    CASES = (  # (the old command, the new command, the new command's verdicts)
+        (ORG, ORG, ["resumed"]), (ORG, ["--compare", "organization", "--target", "organization=Mozilla"], ["resumed"]),
+        (ORG, ROW, ["resumed", "started"]),
+        (["--compare", "organization", "--target", "Mozilla"], ORG, ["resumed"]),
+        (ROW, ORG, ["resumed"]),
+        (ROW, ["--target-type", "organization", "--target", "Wikimedia Foundation", "--target", "Mozilla"],
+         ["resumed", "resumed"]),
+        (["--name", "Jane Doe"], ["--target", "Jane Doe", "--target", "John Smith"], ["resumed", "started"]),
+        (["--target", "Jane Doe", "--target", "John Smith"], ["--name", "Jane Doe"], ["resumed"]),
+        (["--target-type", "nation", "--target", "France", "--target", "Germany"],
+         ["--target-type", "nation", "--target", "Germany"], ["resumed"]))
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.trees = {"new": REPO}
+        for commit in OLD_COMMITS:
+            self.trees[commit] = self.tmp / commit
+            self.trees[commit].mkdir()
+            archive = subprocess.run(["git", "-C", str(REPO), "archive", commit], capture_output=True,
+                                     check=True).stdout
+            subprocess.run(["tar", "-x", "-C", str(self.trees[commit])], input=archive, check=True)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        for name, text in STUB_SH.items():
+            (self.bin / name).write_text(text)
+            (self.bin / name).chmod(0o755)
+        for d in ("home", "config", "work"):
+            (self.tmp / d).mkdir()
+        (self.tmp / "driver.py").write_text(DRIVER)
+        self.env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_TOKEN", "_TOKEN_BACKUP"))}
+        self.env.update(PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", GUARD_DIR=str(self.tmp),
+                        HOME=str(self.tmp / "home"), CLAUDE_CONFIG_DIR=str(self.tmp / "config"))
+
+    def command(self, tree, root, *words):
+        """One command of that tree's probatio into root/results, up to its first call: its folders' verdicts."""
+        log = root / f"log-{len(list(root.glob('log-*')))}.jsonl"
+        proc = subprocess.run([sys.executable, "-B", str(self.tmp / "driver.py"), str(self.trees[tree]), str(root),
+                               str(log), "--agent", "claude", "--tier", "quick", "--workdir", str(self.tmp / "work"),
+                               *words], capture_output=True, text=True, env=self.env, stdin=subprocess.DEVNULL,
+                              timeout=300)
+        verdicts = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        self.assertTrue(proc.returncode == 0 or verdicts and verdicts[-1][1] in proc.stderr, proc.stderr)
+        return verdicts
+
+    def test_old_folders_resume_when_the_plan_and_the_settings_match(self):
+        for commit in OLD_COMMITS:
+            for i, (old, new, verdicts) in enumerate(self.CASES):
+                with self.subTest(commit=commit, old=old, new=new):
+                    root = self.tmp / f"{commit}-{i}"
+                    root.mkdir()
+                    made = self.command(commit, root, *old)
+                    self.assertEqual({v for _, v in made}, {"started"})
+                    again = self.command("new", root, *new)
+                    self.assertEqual([v for _, v in again], verdicts)
+                    self.assertEqual([f in {f for f, _ in made} for f, _ in again], [v == "resumed" for v in verdicts])
+        self.assertFalse((self.tmp / "forbidden-calls.log").exists())
+
+    def test_an_old_custom_folder_resumes_its_own_command_and_refuses_the_baselines(self):
+        path = self.tmp / "mine.json"
+        path.write_text(json.dumps({"organization": {"controls": SAME_PLAN_CONTROLS}}))
+        custom = [*self.ORG, "--entities", str(path)]
+        for commit in OLD_COMMITS:
+            with self.subTest(commit=commit):
+                root = self.tmp / f"{commit}-custom"
+                root.mkdir()
+                (folder, verdict), = self.command(commit, root, *custom)
+                self.assertEqual(self.command(commit, root, *self.ORG), [[folder, "resumed"]])   # its one-sided resume
+                self.assertEqual(self.command("new", root, *custom), [[folder, "resumed"]])
+                self.assertEqual(self.command("new", root, *self.ORG), [[folder, (
+                    f"{(root / 'results' / folder).resolve()} holds a run with other settings (fixtures_sha256 "
+                    "changed). Pass another --out to start a new run, or undo the change to resume this one.")]])
         self.assertFalse((self.tmp / "forbidden-calls.log").exists())
 
 

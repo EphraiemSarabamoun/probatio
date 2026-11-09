@@ -2452,6 +2452,27 @@ def resume_view(meta):
     return view
 
 
+OPTIONS_ECHO = ("compare", "fixtures", "labels", "roster")     # what the options path adds to a single-type record
+
+
+def resume_identity(meta):
+    """What check_resume compares of a run.json record: one identity for one plan, whichever path wrote it. A v3
+    record is itself, but for the date. A v4 record reads by recipe (resume_view). A cross-type run is its whole
+    record. A single-type run is v4_meta's record from either path, with its fixtures (fixtures_sha256, its type's
+    baseline when the record has none, as v4's own path writes none) and which run asks V12 about its custom controls
+    (recognition). The options path's echo is left out: compare names the whole command's comparison, and its
+    fixtures, labels and roster follow from the fixtures and the target, so they never tell two plans apart. run.json
+    keeps the roster for a rescore."""
+    if not is_v4_meta(meta):
+        return {k: v for k, v in meta.items() if k != "date"}
+    view = resume_view(meta)
+    if "target_type" not in meta:
+        return view
+    identity = {k: v for k, v in view.items() if k not in OPTIONS_ECHO}
+    identity["fixtures_sha256"] = recorded_fixtures(meta)
+    return identity
+
+
 def same_plan(old, meta):
     """Whether a folder's run.json (old) records a retired recipe whose plan is this run's call for call: the same
     planner tier and the same plan_fingerprint (a quick@2 run without named targets resumes under quick@3)."""
@@ -4282,8 +4303,10 @@ def claim(out):
 
 def check_resume(out, meta):
     """Refuse to resume into a folder made with other settings, which would mix two runs; else record this one.
-    Everything in meta but the date must match: the CLI version, model, effort and Codex features as well as the
-    run's identity, and every memory file's sha256. The plan is compared by recipe (resume_view), so a folder
+    The two records' resume identities (resume_identity) must match key for key, a key either one holds included:
+    the CLI version, model, effort and Codex features as well as the run's identity, and every memory file's sha256.
+    So a single-type run resumes across v4's own path and the options path, both ways, and a custom roster's folder
+    is refused by the baseline's command, and the reverse. The plan is compared by recipe (resume_view), so a folder
     recorded before recipes resumes under the tier its recipe names, with the fix named otherwise. run.json is never
     rewritten. Returns the meta the run goes on under, which scoring, the page and the card read: meta itself, or for
     a retired recipe whose plan is this one (same_plan) meta with the recipe run.json records, so the card and run.json
@@ -4301,11 +4324,11 @@ def check_resume(out, meta):
             note = f" (recorded as {old['tier']} before {RECIPES_FROM})" if old.get("tier") != planner_tier(was) else ""
             raise SystemExit(f"{out} holds a {was} run{note}; rerun with --tier {planner_tier(was)} to resume it, "
                              "or pass another --out")
-        mine, theirs = (resume_view(meta), resume_view(old)) if v4 else (meta, old)
+        mine, theirs = resume_identity(meta), resume_identity(old)
         if v4 and same_plan(old, meta):              # the retired recipe's plan is this one: resume under its record
             mine["recipe"] = theirs["recipe"]
             meta = dict(meta, recipe=old["recipe"])
-        differ = [k for k in mine if k != "date" and theirs.get(k) != mine[k]]
+        differ = [k for k in dict.fromkeys([*mine, *theirs]) if mine.get(k) != theirs.get(k)]
         if differ:
             raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
                              "--out to start a new run, or undo the change to resume this one.")
@@ -4835,6 +4858,12 @@ def baseline_fixtures():
     return import_ordo().baseline_fixtures()
 
 
+def recorded_fixtures(meta):
+    """The fixtures_sha256 a run.json record stands for: its own, or its type's baseline for a single-type run that
+    records none (made on v4's own path, without the options of DESIGN 11)."""
+    return meta.get("fixtures_sha256") or baseline_fixtures()[meta["target_type"]]
+
+
 def custom_types(spec, types):
     """The types whose fixtures differ from the registered baseline (baseline_fixtures)."""
     baseline = baseline_fixtures()
@@ -4918,7 +4947,7 @@ def comparable(a, b):
     check_digests(a, "first")
     check_digests(b, "second")
     def setup(meta):
-        return {"fixtures": meta.get("fixtures_sha256") or baseline_fixtures()[meta["target_type"]],
+        return {"fixtures": recorded_fixtures(meta),
                 "comparison": meta.get("compare") or meta.get("target_type"),
                 "bank": "/".join(x for x in (meta.get("bank_sha256"), meta.get("ordo_bank_sha256")) if x),
                 "plan": recipe_of(meta)}
@@ -4936,8 +4965,9 @@ def comparable(a, b):
 
 
 def import_ordo():
-    """ordo.py, the cross-type module beside probatio.py (DESIGN 9, manager decision 10), imported only for a run with
-    a cross-type group, so a single-type run needs nothing beyond v4."""
+    """ordo.py, the cross-type module beside probatio.py (DESIGN 9, manager decision 10), imported for a run with a
+    cross-type group, and for a single-type run only for what has its one home there: the baseline fixtures hashes
+    (the options path's labels, a resume's comparison) and custom controls' recognition questions."""
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
     try:
@@ -5090,7 +5120,9 @@ def plan_runs(a, bank, selection, spec, ordo_bank=None):
     8.4's "France against an invented nation, then individuals against nations"; budget.json's nation,triangle case
     has no named target). Every target is resolved before
     anything runs, so its guards (resolve_target's) are fatal before any call. --target-short and --target-possessive
-    apply to a single --target of a single-type run, as in v4."""
+    apply to a single --target of a single-type run, as in v4. A single-type run carries its own target's record
+    (target_records; none for an individual scored by --name), the only target its run.json records, so editing the
+    other targets of a row never changes its folder's record."""
     conditions = MEMORY_MODES[a.memory]
     types = [t for t in TARGET_TYPES if t in selection["single"] or t in selection["types"]]
     try:
@@ -5102,7 +5134,7 @@ def plan_runs(a, bank, selection, spec, ordo_bank=None):
     if (short or poss) and not (len(a.target or []) == 1 and len(types) == 1 and selection["single"]):
         raise SystemExit("--target-short and --target-possessive apply to one --target in a single-type run; give "
                          "other forms in the entities file")
-    resolved = []                                       # (type, roster) of every single-type run, in run order
+    resolved = []                               # (type, typed name, roster) of every single-type run, in run order
     for t in selection["single"]:
         names = [rec["full"] for rec in spec[t]["targets"]] or ([name] if t == "individual" and name else [])
         if not names and len(types) == 1:
@@ -5111,19 +5143,19 @@ def plan_runs(a, bank, selection, spec, ordo_bank=None):
         if not names:
             raise SystemExit(f"the {t} run needs a target; add --target {t}=NAME, or list one under {t} targets in "
                              "the entities file")
-        resolved += [(t, resolve_target(bank, t, target, short, poss, roster=spec[t])) for target in names]
+        resolved += [(t, target, resolve_target(bank, t, target, short, poss, roster=spec[t])) for target in names]
     cross = cross_selection(selection) if selection["pairs"] else None
     if cross and a.arm != "neutral":
         raise SystemExit("--arm applies to single-type runs; a cross-type run has no public arms")
     rosters = {t: {"controls": spec[t]["controls"],                     # a type's targets are its own group's when
                    "named": [] if t in selection["single"] else spec[t]["targets"]}       # it has one (DESIGN 8.4)
                for t in (cross["types"] if cross else [])}
-    check_target_keys([[(t, roster["T"]) for t2, roster in resolved if t2 == t] for t in selection["single"]]
+    check_target_keys([[(t, roster["T"]) for t2, _, roster in resolved if t2 == t] for t in selection["single"]]
                       + [[(t, rec) for t, r in rosters.items() for rec in r["named"]]])
     if any(r["named"] for r in rosters.values()) and not set(a.classes) & set(named_classes(a.tier)):
         raise SystemExit(QUICK_NAMED_NONE)              # the named targets would be measured in nothing
     runs, asker = [], {}                                # asker: type -> the run that asks V12 about its controls
-    for t, roster in resolved:
+    for t, target, roster in resolved:
         name = (f"v4-{a.agent}-{t}-{roster['T']['key']}-{a.tier}-memory-{a.memory}"
                 + (f"-{a.arm}" if a.arm != "neutral" else "") + run_suffix(a))
         customs = [dict(rec, type=t) for rec in custom_controls(spec, bank, [t])] if "I" in a.classes else []
@@ -5132,7 +5164,8 @@ def plan_runs(a, bank, selection, spec, ordo_bank=None):
         check = recognition_calls(ordo_bank, customs, conditions) if recognition and recognition["asked"] else []
         runs.append({"kind": "single", "type": t, "roster": roster, "recognition": recognition,
                      "calls": plan_v4(bank, roster, a.tier, a.classes, conditions, a.arm) + check,
-                     "recognise": bool(check), "name": name})
+                     "recognise": bool(check), "name": name,
+                     "target_records": [rec for rec in spec[t]["targets"] if rec["full"] == target]})
     if cross:
         calls = ordo_plan(ordo_bank, cross, rosters, a.tier, a.classes, conditions)
         runs.append({"kind": "cross", "selection": cross, "rosters": rosters, "calls": calls,
@@ -5395,7 +5428,8 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
             meta = v4_meta(a, opts, bank, roster, run["calls"], cli, files)
             meta.update(compare=selection["compare"], fixtures_sha256=fixtures_sha256(spec, [t]),
                         fixtures="custom" if custom_types(spec, [t]) else "baseline",
-                        roster={part: spec[t][part] for part in ("comparators", "controls", "reserves", "targets")},
+                        roster=dict({part: spec[t][part] for part in ("comparators", "controls", "reserves")},
+                                    targets=run["target_records"]),         # its own target: the others' are theirs
                         labels=([fixtures_label(spec, [t])] + [CONTROL_LABEL.format(quoted(r["full"]))
                                                                for r in custom_controls(spec, bank, [t])])
                         if custom_types(spec, [t]) else [])
