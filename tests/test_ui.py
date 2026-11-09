@@ -1023,6 +1023,37 @@ class TestCheckAndRun(Stubbed):
         for same in (first, row("Mozilla")):
             self.assertTrue(self.s.post("/check", {"form": same})["ok"], self.s.post("/check", {"form": same}))
 
+    def test_run_names_a_folder_that_took_a_run_after_check(self):
+        """Check passes with no folder there; a run with other settings then takes the folder (a terminal's, say);
+        Run is refused as Check would refuse it, naming the folder, with probatio's own words after the Check's
+        preflight, and no process starts. Once the folder is moved, the same approval runs."""
+        form = dict(MOZILLA, effort="high")
+        checked = self.s.post("/check", {"form": form})
+        self.assertTrue(checked["ok"], checked["error"])
+        [folder] = self.earlier_run(["--agent", "claude", "--target-type", "organization", "--target", "Mozilla",
+                                     "--tier", "quick"])                       # effort medium, the default
+        reply = self.s.post("/run", {"form": form, "confirmed": True})
+        self.assertEqual(reply["error"], U.BLOCKED.format(folder=U.shown(folder),
+                                                          changed=" with other settings (effort changed)"))
+        self.assertTrue(reply["plan"].startswith(checked["plan"]))
+        self.assertTrue(reply["plan"].endswith(f"{folder} holds a run with other settings (effort changed). Pass "
+                                               "another --out to start a new run, or undo the change to resume this "
+                                               "one.\n"))
+        time.sleep(0.5)
+        self.assertFalse((self.tmp / "pid").exists())                           # no process started
+        self.assertIsNone(self.s.state()["run"])
+        page = self.s.request("GET", "/")[1]
+        self.assertIn("r.plan === undefined ? {} : {plan: r.plan}", page)       # the page shows that preflight
+        folder.rename(folder.with_name(folder.name + "-moved"))
+        started = []
+
+        def recorder(*args):
+            started.append(args)
+            return SimpleNamespace(code=0, state=dict, stop=lambda: False)
+        with mock.patch.object(U, "Runner", recorder):
+            self.assertNotIn("error", self.s.post("/run", {"form": form, "confirmed": True}))
+        self.assertEqual(len(started), 1)
+
     def test_a_run_record_check_cannot_read_blocks_the_run(self):
         """A run.json the run could not read blocks the run too, named, and is left as it was."""
         [folder] = self.earlier_run(["--agent", "claude", "--target-type", "organization", "--target", "Mozilla",

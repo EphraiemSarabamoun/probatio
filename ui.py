@@ -828,8 +828,8 @@ class Runner:
 
 
 # What the last passing Check approved, and the only thing Run may start: the exact argv, the exact bytes of its roster
-# snapshot (None without one) and each run's plan fingerprint.
-Approval = namedtuple("Approval", "argv entities fingerprints")
+# snapshot (None without one) and each run's plan fingerprint; and its preflight, which a refused Run shows again.
+Approval = namedtuple("Approval", "argv entities fingerprints preflight")
 
 
 class Session:
@@ -909,12 +909,14 @@ class Session:
             if refusals:                    # the run would stop at once on a folder an earlier run holds
                 return dict(reply, ok=False, plan=told(proc.stdout, *(said for _, said in refusals)), summary=None,
                             error=blocked_words(refusals))
-            self.checked = Approval(tuple(argv), snapshot, tuple(fingerprint for _, fingerprint in plans))
+            self.checked = Approval(tuple(argv), snapshot, tuple(fingerprint for _, fingerprint in plans), proc.stdout)
         return dict(reply, ok=True, plan=proc.stdout, summary=plan_summary(proc.stdout), error=None)
 
     def run(self, request):
         """Start the form's command exactly as shown and checked (--watch included unless chosen off), once it is
-        confirmed, only when it is the command the last Check passed, and while no run of the page's is going."""
+        confirmed, only when it is the command the last Check passed, while no run of the page's is going, and only
+        when no results folder has taken a run since that it would refuse to continue: resume_refusals again, just
+        before the run starts, refused as Check refuses it, with probatio's own words after the Check's preflight."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
         try:
@@ -939,6 +941,13 @@ class Session:
                 return {"error": exit_message(e.code)}
             if tuple(fingerprint for _, fingerprint in plans) != approved.fingerprints:
                 return {"error": "the plan is no longer the one Check approved; check again"}
+            try:
+                refusals = resume_refusals(argv, plans, self.child_env())
+            except ResumeUnread as e:
+                return {"error": str(e)}
+            if refusals:                    # a folder that took a run since Check: the run would stop on it at once
+                return {"error": blocked_words(refusals),
+                        "plan": told(approved.preflight, *(said for _, said in refusals))}
             with self.lock:
                 try:
                     self.runner = Runner(self.program, list(approved.argv), [folder for folder, _ in plans],
@@ -1510,7 +1519,8 @@ async function start() {
   confirming = false; render();
   try {
     const r = await post("/run", {form: F, confirmed: true});
-    if (r.error) { plan = Object.assign({}, plan, {ok: false, error: r.error}); }
+    if (r.error)                          // a refused Run may bring the preflight, probatio's own words after it
+      plan = Object.assign({}, plan, {ok: false, error: r.error}, r.plan === undefined ? {} : {plan: r.plan});
     else run = r.run;
   } catch (err) { plan = {ok: false, error: "the page could not reach its server (" + err.message + ")"}; }
   render(); renderRun();
