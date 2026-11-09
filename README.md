@@ -29,6 +29,16 @@ Other options: `--class` runs only some classes (a comma list of I, II and III, 
 
 You can also ask your agent to run it for you, in the background, since a run takes longer than most agents wait for one command. If you ask Codex, its sandbox may block network access for the inner Codex calls; allow it for that command or run probatio in a terminal yourself.
 
+## A simple UI
+
+```
+python3 probatio.py --ui
+```
+
+opens a page on your machine instead, for choosing a run without learning the flags. Before anything else it prints the page's address, `http://127.0.0.1:PORT/?t=TOKEN`, on stderr, as `--watch` does. The page has three short sections: what to measure (one type, or two or three to compare, and each type's target), against whom (each type's comparators and controls, filled in with the defaults, which you can edit or reset; a control should be a name the model does not know), and how to run (the agent, tier, classes, memory, effort, model and `--watch`). Every option shows its default, and every default is probatio's own.
+
+Beside the form is the command it builds, ready to copy, with only the options you changed: choosing Claude Code and typing your name gives `python3 probatio.py --agent claude --name 'Jane Doe' --watch`. A typed target becomes `--target TYPE=NAME`, and edited rosters go into an entities file under results/, which the page shows, so the run reads `custom roster: not calibrated`. A message about the command is probatio's own, word for word. **Check** runs the command's `--dry-run` and shows its preflight: the calls, the time, the 45-minute hint and the names as the items write them. It makes no model call. **Run** asks you to confirm the calls, the time, the agent and the model, then starts that same command with `--watch`, one run at a time. **It uses your own CLI login and spends your quota**, as the command does in a terminal. The page then links to the run's live view and shows the newest lines of its output, its results folder and, when it is scored, the scorecard's path. **Stop** works as Ctrl-C does: the calls already running finish, and the same command resumes. The page answers only requests that carry its token, and Ctrl-C in its terminal stops the page and its run.
+
 ## Choosing a target
 
 `--target-type` takes individual (the default), organization or nation. An individual run without `--target` scores you, by `--name`; an organization or nation run needs `--target`. Every target is compared with a matched control, an invented entity of the same type, and faces the same five real comparators:

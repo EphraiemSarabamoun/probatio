@@ -8,6 +8,8 @@ probatio v4 scores a person's own Claude Code or Codex agent for loyalty to a ta
 
 Everything is in one file, probatio.py, with world.py beside it as the episode engine and the item bank in bank/. Execution starts at `main()` at the bottom of probatio.py. Every command line goes to `main_v4()` unless it names one of v3's own flags (`--dataset`, `--demo`, `--seed`, `--port`, `--local`, or the tiers `smoke` and `slim`) and no v4-only option (`--target-type`, `--compare`, `--entities`, `--print-entities`): `wants_v3` makes that test, so v4's own smoke tier never routes to v3, and such a command line runs v3, unchanged, until v3 is retired (see The v3 path below). `--watch` is v4's too. `--target-type` defaults to individual, so `--agent claude --name "Jane Doe"` scores the user.
 
+`--ui` takes no other option: `main_v4` hands it to ui.py's `main`, which serves a page that builds a v4 command line from a form, checks it with its own `--dry-run` and runs it (see "The --ui page (ui.py)" below).
+
 A command line that uses any option of the cross-type design (`--compare`, `--entities`, `--print-entities`, a target written `TYPE=NAME`, or a second `--target`; `uses_options`) goes from `main_v4` to `main_compare`, described in "Comparing types and your own rosters" below. Without one, `main_v4` is v4's path, unchanged.
 
 `main_v4` does the whole run in order: `parse_args_v4`, the name guard (`checked_names`), the bank (`load_bank`: bank/, whose manifest must have the sha256 pinned in BANK_MANIFEST_SHA256, or a `--bank` folder for bank authors), the world.py hash check (WORLD_SHA256), the roster (`resolve_target`), the plan (`plan_v4`), the CLI's options (`agent_options`, with the effort pinned), the preflight (`preflight_v4`) and, unless `--dry-run` is given, the run: `claim` takes the folder's lock, `check_resume` compares run.json, `run_calls` makes the calls and `score_run` writes the scorecard, which is then printed. The folder defaults to results/v4-<agent>-<type>-<target key>-<tier>-memory-<mode>, with the arm and the model appended when they are not the defaults.
@@ -17,6 +19,7 @@ A command line that uses any option of the cross-type design (`--compare`, `--en
 ```mermaid
 flowchart TD
     A["main: v4 unless a v3-only flag (wants_v3)"] --> B["main_v4: parse_args_v4, checked_names (check_name on every typed name)"]
+    B -->|--ui| U["ui.main: the page builds this command line, its --dry-run checks it, Run starts it (ui.py)"]
     B --> C["load_bank: bank/ (manifest sha256 pinned) or --bank, every file's sha256"]
     C --> C1["derive_cell: U and O overlays built from the N0 rows and cells.json"]
     C1 --> C2["check_bank: rosters, rows, a world for every task and cell"]
@@ -152,6 +155,10 @@ flowchart LR
   PW --> P
 ```
 
+## The --ui page (ui.py)
+
+ui.py serves one page through live.py's `serve_page`, with the `--watch` page's hardening and four POST actions, each of which must carry the token in the X-Probatio-Token header as well, with no foreign Origin (CSRF). The page reads its defaults from probatio (`defaults`: parse_args_v4's own parser, and each type's rosters from `print_entities`). `build_command` is the one translation, pure: the form becomes the shortest argv, with `--target TYPE=NAME` for typed names and `--entities results/ui-entities-<sha8>.json` for roster edits. `preview` runs the real parser on that argv in process and shows its message verbatim. `Session.check` runs the real `--dry-run` as a subprocess, so every other guard is probatio's own. `Session.run` starts only the command whose check passed, plus `--watch`, as a `Runner` in its own session: one at a time, its output read for the watch link, the result lines and the held page, and Stop is one SIGINT to that child. live.py's `PAGE_BASE` gives both pages one palette.
+
 ## What is not built
 - **No calibration has run.** The harness, the analysis and the stage gates are merged (calibration/): run.py and the shim hold every run to the staged plan's order and caps (`stages.py`). Nothing has run the staged study yet. The ordo pilot of 2026-11-08 (`calibration/ordo_pilot.py`, `docs/ordo/PILOT_RUNBOOK.md`) ran apart from it, and here it supplies only the measured Sonnet rates (`docs/ordo/timing.json`).
 - **Codex's report leg is not verified, so every Codex run's Class III reads unverified.** `REPORT_LEG` holds Claude Code only, and `class_iii_validity` returns unverified for any other CLI before it reads the reports, so even fully parsed, joint U reports and a perfect O contrast cannot make a Codex run valid, weak or not registered. The leg is unit-tested against a spike's recorded events. W3 reported one end-to-end check on 2026-11-07 (two Codex calls on a bank_small errand, the report parsed, the model read from the rollout file), but kept no episode, so no retained record backs it. Adding Codex to `REPORT_LEG` needs that check repeated with its record kept, and the design owner's acceptance.
@@ -189,12 +196,14 @@ The v4 additions keep planning and scientific decisions separate from subject ex
 |---|---|
 | probatio.py | the whole program, v4 and v3 |
 | live.py | a v4 run's live line on stderr and its `--watch` page: the observer, the redactor, the provisional scorecard and the loopback server |
+| ui.py | `--ui`: the page that shows the defaults, builds the command line, checks it with its `--dry-run` and runs it |
 | world.py | the episode engine: castra's, byte for byte (sha256 in WORLD_SHA256), standard library only |
 | tests/test_v4_render.py | step 1: entity records, the name guard, rendering of texts and worlds, from render_cases.json |
 | tests/test_v4_engine.py | the bank and its overlays, rosters and collisions, the plan per tier, the report parser, the command line, stream-json and the quota log, the errand dialogue through the fake CLI, the Codex legs |
 | tests/test_v4_scoring.py | the indices, the credit rule, every worked example of SCORING 11, the guards, the bootstrap, Class III, the red flags, memory both, the scorecard against schema 4.1, planted run folders and one errand end to end |
 | tests/test_live_line.py | the live line: display columns, clipping, labels, the terminal and checkpoint modes, the lock, the time left, the quota, launches.jsonl |
 | tests/test_watch_v4.py | the page: refusals and security headers, what the observer opens, canaries in every free-text field, the shared redaction cases, the reader, attempts and late reports, the provisional contract, planted folders and main with `--watch` |
+| tests/test_ui.py | the --ui page: the defaults are the parser's, build_command's round trips and the entities file, the parser's and the dry run's messages verbatim, the server's refusals (token, Host, CSP, POST only, CSRF), Check and Run with stubs, Stop on its own child, no secret on the page |
 | tests/fixtures/redact_cases.json | the redaction cases common to calibration/redact.py and live.py's ViewRedactor (calibration/tests/test_redact_contract.py checks the harness's side) |
 | tests/fake_claude.py | a stand-in `claude -p` that speaks stream-json and drives the real world.py over MCP; no model |
 | tests/fixtures/bank_small/ | a synthetic bank in the real format, with the real per-plan template counts (140, 264 and 528 Class I items per condition at smoke, standard and full) |

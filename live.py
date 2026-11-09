@@ -859,16 +859,26 @@ def content_policy(page):
 SECURITY_HEADERS = (("Cache-Control", "no-store"), ("Referrer-Policy", "no-referrer"),
                     ("X-Content-Type-Options", "nosniff"), ("X-Frame-Options", "DENY"),
                     ("Cross-Origin-Resource-Policy", "same-origin"))
+TOKEN_HEADER = "X-Probatio-Token"   # a POST carries the token here too: another origin cannot set it without CORS
+MAX_BODY = 65536                    # bytes a POST may carry
 
 
-def serve_page(page, state, redactor=None, port=0):
+def serve_page(page, state, redactor=None, port=0, actions=None):
     """Serve one page and its state on 127.0.0.1 from a background thread for the life of the process; returns the
     server, with .url (holding the token) and .token. Every request must carry the token (?t=, compared with
     hmac.compare_digest) and a Host of 127.0.0.1:PORT or localhost:PORT (a DNS-rebinding page has neither), else 403;
     GET serves "/" (the page) and "/state" (state() as JSON, redacted again whole as a last pass) and nothing else
     (404); any other method is 405. Every response carries the security headers and the page's CSP, which allows its
     inline script and style by hash alone. No file is served and nothing is logged. .redactor (which knows the token)
-    is there for a state that must redact a field before cutting it (v3's view_state)."""
+    is there for a state that must redact a field before cutting it (v3's view_state).
+
+    actions, only for a page that changes something (ui.py's), maps each further path to a function of the request's
+    JSON object that returns a JSON reply, redacted as /state is. Those paths take POST alone (GET is 405 there, and
+    POST anywhere else 404 or 405), and a POST must also carry the token in the TOKEN_HEADER header and no Origin but
+    the page's own, else 403 (a cross-site page can send neither header nor body to it: a custom header needs a CORS
+    preflight, and OPTIONS is 405), with a JSON object of at most MAX_BODY bytes as application/json (else 411 or 413
+    before the body is read, 415 or 400 after). Without actions, POST is 405 like every other method but GET, as
+    before."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, urlsplit
     token = secrets.token_urlsafe(24)
@@ -876,6 +886,8 @@ def serve_page(page, state, redactor=None, port=0):
     if token not in redactor.values:
         redactor = ViewRedactor(extra=(token, *redactor.values))
     policy, body_page = content_policy(page), page.encode("utf-8")
+    actions = dict(actions or {})
+    methods = "GET, POST" if actions else "GET"
 
     class Page(BaseHTTPRequestHandler):
         server_version, sys_version = "probatio", ""
@@ -903,22 +915,70 @@ def serve_page(page, state, redactor=None, port=0):
             elif path == "/state":
                 body = json.dumps(redact_all(state(), redactor), ensure_ascii=True).encode("utf-8")
                 kind = "application/json"
+            elif path in actions:
+                self.refuse("POST")
+                return
             else:
                 self.send_error(404)
                 return
+            self.send(body, kind)
+
+        def send(self, body, kind):
             self.send_response(200)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
-        def refuse(self):
+        def same_site(self):
+            """The POST's own proofs: the token in TOKEN_HEADER, and no Origin but this page's."""
+            port_ = self.server.server_address[1]
+            given = self.headers.get(TOKEN_HEADER) or ""
+            return (self.headers.get("Origin") in (None, f"http://127.0.0.1:{port_}", f"http://localhost:{port_}")
+                    and hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8")))
+
+        def do_POST(self):
+            if not actions:
+                self.refuse()
+                return
+            length = self.headers.get("Content-Length") or ""
+            if not length.isdigit():
+                self.send_error(411)
+                return
+            if int(length) > MAX_BODY:
+                self.send_error(413)
+                return
+            data = self.rfile.read(int(length))    # read before any verdict: a refusal never leaves it unread
+            if not (self.allowed() and self.same_site()):
+                self.send_error(403)
+                return
+            path = urlsplit(self.path).path
+            if path in ("/", "/state"):
+                self.refuse("GET")
+                return
+            if path not in actions:
+                self.send_error(404)
+                return
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                self.send_error(415)
+                return
+            try:
+                request = json.loads(data.decode("utf-8"))
+            except ValueError:                  # UnicodeDecodeError is a ValueError
+                request = None
+            if not isinstance(request, dict):
+                self.send_error(400)
+                return
+            reply = actions[path](request)
+            self.send(json.dumps(redact_all(reply, redactor), ensure_ascii=True).encode("utf-8"), "application/json")
+
+        def refuse(self, allow=None):
             self.send_response(405)
-            self.send_header("Allow", "GET")
+            self.send_header("Allow", allow or methods)
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_HEAD = do_TRACE = do_CONNECT = refuse
+        do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_HEAD = do_TRACE = do_CONNECT = refuse
 
         def log_message(self, *args):
             pass
@@ -1026,12 +1086,8 @@ class Watch:
 # ink tokens; the status colours appear only with their words. Colour tokens live on :root with a dark mode, the
 # cards stack under 700 px, and the script builds every node with textContent (never innerHTML), so nothing the
 # agent wrote can become markup. The token is never embedded: the script reads it from location.search.
-VIEW_V4 = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>probatio live</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
-<link rel="icon" href="data:,">
-<style>
-:root { --surface:#fcfcfb; --band:#f4f3ef; --ink:#0b0b0b; --ink2:#52514e; --muted:#6f6e69; --grid:#e1e0d9;
+# PAGE_BASE, the palette (light and dark) and the base type, is shared with the --ui page (ui.py).
+PAGE_BASE = """:root { --surface:#fcfcfb; --band:#f4f3ef; --ink:#0b0b0b; --ink2:#52514e; --muted:#6f6e69; --grid:#e1e0d9;
   --axis:#c3c2b7; --line:#e1e0d9; --good:#1f7a45; --bad:#b4372d; --pending:#8a6d1a; --hl:#f3efe4; }
 @media (prefers-color-scheme: dark) {
   :root { --surface:#1a1a19; --band:#222220; --ink:#f0efec; --ink2:#c3c2b7; --muted:#9a9993; --grid:#2c2c2a;
@@ -1039,7 +1095,13 @@ VIEW_V4 = """<!doctype html>
 * { box-sizing:border-box; }
 body { margin:0; background:var(--surface); color:var(--ink);
   font:14px/1.45 system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; }
-main { max-width:1080px; margin:0 auto; padding:20px 16px 40px; }
+"""
+VIEW_V4 = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>probatio live</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<style>
+""" + PAGE_BASE + """main { max-width:1080px; margin:0 auto; padding:20px 16px 40px; }
 header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
 h1 { font-size:20px; margin:0; font-weight:650; }
 h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink2); margin:26px 0 10px;
