@@ -1,8 +1,10 @@
 """Tests for the --ui page (ui.py): the form's defaults are probatio's own; build_command's command lines parse to the
-options the form chose, with only the flags that change something; the entities file loads and round-trips; the
-parser's and the dry run's messages reach the page verbatim; the server's refusals (the token, the Host, the CSP, POST
-only, CSRF, the exact routes); Check and Run with stub CLIs and a stub run, one run at a time, and Stop reaching the
-page's own child only; and no secret, and nothing of calibration/local.json, on the page. No test calls a model: the
+options the form chose, with only the flags that change something, and the one argv shown, checked and run; the
+entities file loads and round-trips; the parser's and the dry run's messages reach the page verbatim; the server's
+refusals (the token, the Host, the CSP, POST only, CSRF, the exact routes, malformed lengths and deep JSON); the roster
+snapshots (named by their whole sha256, never overwritten, no symbolic link followed, concurrent Checks that cannot
+cross); Check and Run with stub CLIs and a stub run, one run at a time, and Stop reaching the page's own child only;
+and no secret, and nothing of calibration/local.json, on the page. No test calls a model: the
 CLIs are the guard's stubs, which answer --version and refuse anything else, and a run is a stub program.
 
     python3 -m unittest discover -s tests
@@ -16,12 +18,14 @@ import os
 import re
 import secrets
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
@@ -204,7 +208,8 @@ class TestBuildCommand(unittest.TestCase):
         a = P.parse_args_v4(argv)
         self.assertFalse(P.uses_options(a))               # v4's own path (requirement 1's)
         self.assertEqual((a.target, a.tier, a.memory, a.effort, a.jobs), (None, "standard", "on", "medium", 4))
-        self.assertEqual(U.build_command(dict(JANE, watch=False))[0], ["--agent", "claude", "--name", "Jane Doe"])
+        for form in (dict(JANE, watch=False), {"agent": "claude", "name": "Jane Doe"}):    # --watch is always on
+            self.assertEqual(U.build_command(form), (argv, None))
 
     def test_a_default_spelled_out_adds_no_flag(self):
         base = U.defaults()
@@ -226,7 +231,7 @@ class TestBuildCommand(unittest.TestCase):
               "model": "gpt-x", "jobs": 2, "auto_memory": "off", "classes": ["I"], "tier": "full"},
              dict(agent="codex", compare="individual:organization:nation", target=["nation=France"],
                   memory="both", effort="high", model="gpt-x", jobs=2, auto_memory="off", classes=("I",),
-                  tier="full", watch=False)),
+                  tier="full", watch=True)),
             ({"agent": "claude", "types": ["nation", "individual"]}, dict(compare="individual:nation", target=None)),
             ({"agent": "claude", "classes": ["II", "III"]}, dict(classes=("II", "III"), tier="standard")),
             ({"agent": "claude", "tier": "smoke"}, dict(tier="smoke")),
@@ -237,13 +242,14 @@ class TestBuildCommand(unittest.TestCase):
             for key, value in want.items():
                 self.assertEqual(getattr(a, key), value, (form, argv, key))
             self.assertEqual(shlex.split(U.command_text(argv)), ["python3", "probatio.py", *argv])
+            self.assertEqual(argv[-1], U.WATCH)
 
     def test_an_edited_roster_is_an_entities_file_that_round_trips(self):
         form = dict(MOZILLA, rosters={"organization": {"comparators": "Anthropic\nOpenAI\nMozilla Foundation",
                                                        "controls": "Thirlbeck Systems\nVarrow Analytics"}})
         argv, text = U.build_command(form)
         path = argv[argv.index("--entities") + 1]
-        self.assertEqual(path, f"results/ui-entities-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}.json")
+        self.assertEqual(path, f"results/ui-entities-{hashlib.sha256(text.encode('utf-8')).hexdigest()}.json")
         with tempfile.TemporaryDirectory() as d:
             file = Path(d) / "roster.json"
             file.write_text(text, encoding="utf-8")
@@ -269,6 +275,38 @@ class TestBuildCommand(unittest.TestCase):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Varrow Analytics"}})
         self.assertEqual(U.build_command(form), U.build_command(json.loads(json.dumps(form))))
         self.assertEqual(sorted((REPO / "results").iterdir()), before)
+
+
+class TestOneCommand(unittest.TestCase):
+    """The command shown is the one Check checks and the one Run runs, byte for byte, whatever the form says about
+    --watch (finding 3): a fake dry run and a fake Runner record what they are given, and no process starts."""
+
+    def test_shown_checked_and_run_are_one_argv(self):
+        started = []
+
+        class Recorder:
+            def __init__(self, program, argv, folders, env):
+                self.argv, self.code = list(argv), 0
+                started.append(self.argv)
+
+            def state(self):
+                return {"argv": self.argv}
+        dry = SimpleNamespace(returncode=0, stdout="    all   1 items   1 calls   under a minute (r)\n", stderr="")
+        for form in (JANE, dict(JANE, watch=False), {"agent": "claude", "name": "Jane Doe"},
+                     dict(MOZILLA, watch=False), {"agent": "claude", "types": ["organization", "nation"], "watch": 0}):
+            with tempfile.TemporaryDirectory() as d, mock.patch.object(P, "HERE", Path(d)), \
+                    mock.patch.object(U.subprocess, "run", return_value=dry) as checked, \
+                    mock.patch.object(U, "prepared", return_value=[(Path(d) / "run", "plan")]), \
+                    mock.patch.object(U, "Runner", Recorder):
+                shown = U.preview(form)
+                session = U.Session(program=["FAKE"])
+                self.assertTrue(session.check({"form": form})["ok"])
+                self.assertNotIn("error", session.run({"form": form, "confirmed": True}))
+            argv = shown["argv"]
+            self.assertEqual(argv[-1], U.WATCH, form)
+            self.assertEqual(checked.call_args.args[0], ["FAKE", *argv, "--dry-run"], form)
+            self.assertEqual(started[-1], argv, form)
+            self.assertEqual(shown["command"], U.command_text(started[-1]), form)
 
 
 # ---- probatio's messages, verbatim -----------------------------------------------------------------------------------------
@@ -378,6 +416,44 @@ class TestServer(unittest.TestCase):
         page = self.s.request("GET", "/")[1]
         self.assertNotIn(self.s.token, page)                           # the script reads it from the address
 
+    def test_malformed_lengths_and_deep_json_are_refused_cleanly(self):
+        """Finding 4: a Content-Length that is not ASCII decimal is 411 (str.isdigit takes "²"), one too large 413,
+        and JSON nested too deep to parse 400, each with the security headers, no traceback and no action run."""
+        called, err = [], io.StringIO()
+        server = L.serve_page(U.PAGE, lambda: {}, actions={"/run": lambda request: called.append(request) or {}})
+        port, token = server.server_address[1], server.token
+
+        def post(length, body=b""):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            conn.putrequest("POST", f"/run?t={token}", skip_host=True)
+            conn.putheader("Host", f"127.0.0.1:{port}")
+            conn.putheader(L.TOKEN_HEADER, token)
+            conn.putheader("Content-Type", "application/json")
+            if length is not None:
+                conn.putheader("Content-Length", length)
+            conn.endheaders(body or None)
+            res = conn.getresponse()
+            res.read()
+            conn.close()
+            return res
+        deep = b'{"x":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}"
+        try:
+            with mock.patch("sys.stderr", err):
+                for length, body, want in ((b"\xb2", b"", 411), (b"\xb9\xb2", b"", 411), ("1_0", b"", 411),
+                                           ("+2", b"", 411), ("-1", b"", 411), ("0x2", b"", 411), (None, b"", 411),
+                                           ("9" * 40, b"", 413), (str(len(deep)), deep, 400)):
+                    res = post(length, body)
+                    self.assertEqual(res.status, want, length)
+                    self.assertEqual(res.getheader("Content-Security-Policy"), L.content_policy(U.PAGE), length)
+                    self.assertEqual(res.getheader("Referrer-Policy"), "no-referrer")
+                    self.assertEqual(res.getheader("X-Content-Type-Options"), "nosniff")
+                self.assertEqual(post("2", b"{}").status, 200)              # a well-formed request still works
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(called, [{}])                                      # the well-formed one alone
+        self.assertNotIn("Traceback", err.getvalue())
+
     def test_the_watch_page_still_refuses_post(self):
         server = L.serve_page(L.VIEW_V4, lambda: {})
         try:
@@ -393,6 +469,79 @@ class TestServer(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+# ---- roster snapshots ------------------------------------------------------------------------------------------------------
+class TestSnapshots(unittest.TestCase):
+    """Roster snapshots (findings 0 and 2): named by the whole sha256 of their bytes, created once as read-only regular
+    files, never overwritten, and never written or read through a symbolic link, in results/ or as results/."""
+    TEXT = '{\n  "organization": {\n    "controls": [\n      "Varrow Analytics"\n    ]\n  }\n}\n'
+
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.scratch = Path(scratch.name)
+        self.here = self.scratch / "probatio"
+        self.here.mkdir()
+        here = mock.patch.object(P, "HERE", self.here)
+        here.start()
+        self.addCleanup(here.stop)
+        self.path = self.here / U.entities_path(self.TEXT)
+
+    def test_a_snapshot_is_content_bound_read_only_and_reused(self):
+        data = self.TEXT.encode("utf-8")
+        self.assertEqual(U.write_snapshot(self.TEXT), data)
+        self.assertEqual(self.path.name, f"ui-entities-{hashlib.sha256(data).hexdigest()}.json")
+        made = self.path.lstat()
+        self.assertTrue(stat.S_ISREG(made.st_mode))
+        self.assertEqual(stat.S_IMODE(made.st_mode), U.SNAPSHOT_MODE)
+        self.assertEqual(self.path.read_bytes(), data)
+        self.assertEqual(U.write_snapshot(self.TEXT), data)               # the same content: the same file, reused
+        self.assertEqual(self.path.lstat().st_ino, made.st_ino)
+        self.assertEqual([f.name for f in self.path.parent.iterdir()], [self.path.name])    # no temporary left
+        self.assertEqual(U.snapshot_bytes(self.TEXT), data)
+
+    def test_other_content_under_the_name_is_refused_never_overwritten(self):
+        self.path.parent.mkdir()
+        self.path.write_text("something else\n")
+        with self.assertRaises(U.SnapshotRefused) as caught:
+            U.write_snapshot(self.TEXT)
+        self.assertIn("exists with other content", str(caught.exception))
+        self.assertEqual(self.path.read_text(), "something else\n")
+
+    def test_a_symbolic_link_under_results_is_refused_and_its_target_untouched(self):
+        victim = self.scratch / "victim.txt"
+        victim.write_text("original")
+        self.path.parent.mkdir()
+        self.path.symlink_to(victim)
+        for attempt in (U.write_snapshot, U.snapshot_bytes):
+            with self.assertRaises(U.SnapshotRefused) as caught:
+                attempt(self.TEXT)
+            self.assertIn("is a symbolic link", str(caught.exception))
+        self.assertEqual(victim.read_text(), "original")
+        self.assertTrue(self.path.is_symlink())
+
+    def test_results_as_a_link_or_a_file_is_refused(self):
+        elsewhere, results = self.scratch / "elsewhere", self.here / "results"
+        elsewhere.mkdir()
+        results.symlink_to(elsewhere)
+        with self.assertRaises(U.SnapshotRefused) as caught:
+            U.write_snapshot(self.TEXT)
+        self.assertIn("results/ is not a plain folder (a symbolic link)", str(caught.exception))
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        results.unlink()
+        results.write_text("a file")
+        with self.assertRaises(U.SnapshotRefused):
+            U.write_snapshot(self.TEXT)
+        self.assertEqual(results.read_text(), "a file")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "no named pipes on this system")
+    def test_a_pipe_under_the_name_is_refused_without_waiting(self):
+        self.path.parent.mkdir()
+        os.mkfifo(self.path)
+        with self.assertRaises(U.SnapshotRefused) as caught:
+            U.write_snapshot(self.TEXT)
+        self.assertIn("not a regular file", str(caught.exception))
 
 
 # ---- Check and Run, with stubs ---------------------------------------------------------------------------------------------
@@ -441,6 +590,8 @@ class TestCheckAndRun(Stubbed):
         self.assertTrue(reply["ok"], reply["error"])
         self.assertEqual(sorted((REPO / "results").iterdir()), before)
         self.assertEqual(file.read_text(encoding="utf-8"), reply["entities"]["text"])
+        self.assertEqual(stat.S_IMODE(file.lstat().st_mode), U.SNAPSHOT_MODE)       # a read-only regular file
+        self.assertTrue(stat.S_ISREG(file.lstat().st_mode))
         self.assertIn('custom control "Varrow Analytics": not calibrated', reply["plan"])
 
     def test_run_needs_a_confirmed_and_checked_command(self):
@@ -450,6 +601,66 @@ class TestCheckAndRun(Stubbed):
         changed = dict(MOZILLA, tier="standard")
         self.assertIn("check this command first", self.s.post("/run", {"form": changed, "confirmed": True})["error"])
         self.assertIsNone(self.s.state()["run"])
+
+    def test_concurrent_checks_never_cross(self):
+        """Codex's interleaving (finding 0): Check B runs inside Check A's real dry run. Each reports its own roster's
+        plan, Run A executes exactly the plan Check A approved, and only the last Check decides what may run."""
+        def form(controls):
+            return {"agent": "claude", "types": list(P.TARGET_TYPES), "tier": "quick",
+                    "rosters": {"organization": {"controls": "\n".join(controls)}}}
+        fa, fb = form(["Cedar Lab", "Willow Lab"]), form(["Cedar Lab"])
+        executed = []
+
+        class Recorder:
+            def __init__(self, program, argv, folders, env):
+                self.code = 0
+                absolute = [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
+                executed.append(sum(len(r["calls"]) for r in P.prepare_runs(P.parse_args_v4(absolute), False)[4]))
+
+            def state(self):
+                return {}
+        session, real, seen = U.Session(program=self.program, env=self.env), U.subprocess.run, {}
+
+        def interleave(*args, **kwargs):
+            if "b" not in seen:
+                seen["b"] = None                                 # once: Check B's own dry run is not interleaved
+                seen["b"] = session.check({"form": fb})
+            return real(*args, **kwargs)
+        with mock.patch.object(U.subprocess, "run", side_effect=interleave):
+            a = session.check({"form": fa})
+        self.assertTrue(a["ok"] and seen["b"]["ok"], (a.get("error"), seen["b"].get("error")))
+        self.assertNotEqual(a["summary"]["calls"], seen["b"]["summary"]["calls"])
+        with mock.patch.object(U, "Runner", Recorder):
+            self.assertIn("check this command first", session.run({"form": fb, "confirmed": True})["error"])
+            self.assertNotIn("error", session.run({"form": fa, "confirmed": True}))
+            self.assertEqual(executed, [a["summary"]["calls"]])                 # approved and executed agree
+            self.assertTrue(session.check({"form": fa})["ok"] and session.check({"form": fb})["ok"])
+            self.assertIn("check this command first", session.run({"form": fa, "confirmed": True})["error"])
+
+    def test_run_refuses_what_check_did_not_approve(self):
+        form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
+        file = self.tmp / U.entities_path(U.build_command(form)[1])
+        session, started = U.Session(program=self.program, env=self.env), []
+
+        def recorder(*args):
+            started.append(args)
+            return SimpleNamespace(code=0, state=dict)
+        with mock.patch.object(U, "Runner", recorder):
+            self.assertTrue(session.check({"form": form})["ok"])
+            file.chmod(0o644)
+            file.write_text(file.read_text() + " ")
+            self.assertIn("not the roster Check approved", session.run({"form": form, "confirmed": True})["error"])
+            file.unlink()
+            self.assertIn("is missing", session.run({"form": form, "confirmed": True})["error"])
+            self.assertTrue(session.check({"form": form})["ok"])                   # made again, approved again
+            with mock.patch.object(U, "prepared", return_value=[(self.tmp / "run", "another plan")]):
+                self.assertIn("no longer the one Check approved",
+                              session.run({"form": form, "confirmed": True})["error"])
+            self.assertFalse(session.check({"form": dict(form, targets={"organization": "Moz{illa"})})["ok"])
+            self.assertIn("check this command first", session.run({"form": form, "confirmed": True})["error"])
+            self.assertTrue(session.check({"form": form})["ok"])
+            self.assertNotIn("error", session.run({"form": form, "confirmed": True}))
+        self.assertEqual(len(started), 1)
 
     def start(self, form=MOZILLA):
         self.assertTrue(self.s.post("/check", {"form": form})["ok"])
@@ -465,11 +676,11 @@ class TestCheckAndRun(Stubbed):
             argv = U.build_command(MOZILLA)[0]
             run = self.s.state()["run"]
             self.assertEqual(run["status"], "running")
-            self.assertEqual(run["command"], U.command_text([*argv, "--watch"]))
+            self.assertEqual(run["command"], U.command_text(argv))
             self.assertTrue(wait_for(lambda: any(x.startswith("args: ") for x in self.s.state()["run"]["lines"])))
-            self.assertIn("args: " + " ".join([*argv, "--watch"]), self.s.state()["run"]["lines"])
+            self.assertIn("args: " + " ".join(argv), self.s.state()["run"]["lines"])
             self.assertRegex(run["watch"], r"^http://127\.0\.0\.1:45871/\?t=[A-Za-z0-9_-]{32}$")
-            self.assertEqual(run["folders"], [U.shown(f) for f in U.run_folders(argv)])
+            self.assertEqual(run["folders"], [U.shown(f) for f, _ in U.prepared(argv)])
             self.assertEqual(os.getsid(pid), pid)                          # its own session: Ctrl-C is the page's
             self.assertIn("a run is already going", self.s.post("/run", {"form": MOZILLA, "confirmed": True})["error"])
             self.assertIn("run", self.s.post("/stop", {}))
@@ -503,7 +714,7 @@ class TestCheckAndRun(Stubbed):
 
 
 class TestRunFolders(unittest.TestCase):
-    """run_folders names the folder probatio's own main makes for the run: v4's path and the options path."""
+    """prepared names the folder probatio's own main makes for the run: v4's path and the options path."""
 
     def folder_main_uses(self, argv, home):
         """The folder probatio's main hands run_calls first, with every CLI faked and run_calls stopped there."""
@@ -526,11 +737,12 @@ class TestRunFolders(unittest.TestCase):
         return made
 
     def test_the_folders_are_probatios(self):
-        for form in (dict(JANE, watch=False), dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia"}),
+        for form in (JANE, dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia"}),
                      {"agent": "claude", "types": ["organization", "nation"], "tier": "quick"}):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(P, "HERE", Path(d)):
-                argv = U.build_command(form)[0] + ["--workdir", d]
-                want = [Path(f) for f in U.run_folders(argv)]
+                # --watch names no folder, and here it would start main's page, so it is left out
+                argv = [x for x in U.build_command(form)[0] if x != U.WATCH] + ["--workdir", d]
+                want = [Path(f) for f, _ in U.prepared(argv)]
                 self.assertEqual(self.folder_main_uses(argv, d), want[:1], form)      # the first run starts first
                 self.assertTrue(all(f.is_relative_to(Path(d).resolve() / "results") for f in want), want)
 

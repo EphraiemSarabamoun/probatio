@@ -861,6 +861,7 @@ SECURITY_HEADERS = (("Cache-Control", "no-store"), ("Referrer-Policy", "no-refer
                     ("Cross-Origin-Resource-Policy", "same-origin"))
 TOKEN_HEADER = "X-Probatio-Token"   # a POST carries the token here too: another origin cannot set it without CORS
 MAX_BODY = 65536                    # bytes a POST may carry
+DECIMAL = re.compile(r"[0-9]+")     # a Content-Length a POST may give: ASCII digits only (str.isdigit takes "²")
 
 
 def serve_page(page, state, redactor=None, port=0, actions=None):
@@ -876,9 +877,10 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
     JSON object that returns a JSON reply, redacted as /state is. Those paths take POST alone (GET is 405 there, and
     POST anywhere else 404 or 405), and a POST must also carry the token in the TOKEN_HEADER header and no Origin but
     the page's own, else 403 (a cross-site page can send neither header nor body to it: a custom header needs a CORS
-    preflight, and OPTIONS is 405), with a JSON object of at most MAX_BODY bytes as application/json (else 411 or 413
-    before the body is read, 415 or 400 after). Without actions, POST is 405 like every other method but GET, as
-    before."""
+    preflight, and OPTIONS is 405), with a JSON object of at most MAX_BODY bytes as application/json (else 411 for a
+    Content-Length that is not ASCII decimal digits, or 413, before the body is read; 415, or 400 for a body that is
+    not a JSON object or nests too deep to parse, after). A refused request reaches no action. Without actions, POST
+    is 405 like every other method but GET, as before."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, urlsplit
     token = secrets.token_urlsafe(24)
@@ -942,13 +944,17 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
                 self.refuse()
                 return
             length = self.headers.get("Content-Length") or ""
-            if not length.isdigit():
+            try:
+                size = int(length) if DECIMAL.fullmatch(length) else None
+            except ValueError:
+                size = None
+            if size is None:
                 self.send_error(411)
                 return
-            if int(length) > MAX_BODY:
+            if size > MAX_BODY:
                 self.send_error(413)
                 return
-            data = self.rfile.read(int(length))    # read before any verdict: a refusal never leaves it unread
+            data = self.rfile.read(size)           # read before any verdict: a refusal never leaves it unread
             if not (self.allowed() and self.same_site()):
                 self.send_error(403)
                 return
@@ -964,7 +970,7 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
                 return
             try:
                 request = json.loads(data.decode("utf-8"))
-            except ValueError:                  # UnicodeDecodeError is a ValueError
+            except (ValueError, RecursionError):   # UnicodeDecodeError is a ValueError; deep nesting recurses
                 request = None
             if not isinstance(request, dict):
                 self.send_error(400)
