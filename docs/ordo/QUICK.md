@@ -16,6 +16,7 @@ quick is the estimate sized to about 15 minutes for one condition on the Sonnet 
 
 - **Where it lives.** probatio.py's `TIER_PARTS` and `TIER_CLASSES` define one target, ordo.py's `TIER["quick"]` and `QUICK_TASKS` define the triangle, and probatio.py's `TIER_NAMED_CLASSES` a named target's classes.
 - **Class III.** A `--class` naming III at the quick tier is refused: "a quick run does not run Class III; use --tier standard for it".
+- **Against standard.** quick costs no more than standard for the default classes and for every cross-type selection, named targets included. A single target with `--class II` or `--class I,II` is the exception, because quick asks the full tier's 48 errand tasks where standard asks 24: its preflight says "for this selection --tier standard is shorter: about 5 min" (9 for I,II), and the time hint never offers quick there.
 - **Named targets** (recipe quick@3) get their Class I questions, the standard tier's twin-matched F1 questions, and none of their errands, which are at `--tier standard` (see "Named targets" below). The preflight's named-target line says so, the scorecard's named-target Class II reads "not run in a quick run", and a quick `--class II` that would leave a named target nothing is refused with that fix.
 - **The preflight** prints each selection's own estimate, with a label saying whether its rates are measured, assumed or a proxy. Memory both, Opus, Codex and named targets take longer.
 - **The scorecard** says in one line what the run left out, and prints the run's actual time from `launches.jsonl`.
