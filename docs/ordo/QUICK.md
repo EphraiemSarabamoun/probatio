@@ -16,6 +16,7 @@ quick is the estimate sized to about 15 minutes for one condition on the Sonnet 
 
 - **Where it lives.** probatio.py's `TIER_PARTS` and `TIER_CLASSES` define one target, ordo.py's `TIER["quick"]` and `QUICK_TASKS` define the triangle, and probatio.py's `TIER_NAMED_CLASSES` a named target's classes.
 - **Class III.** A `--class` naming III at the quick tier is refused: "a quick run does not run Class III; use --tier standard for it".
+- **Against standard.** quick costs no more than standard for the default classes and for every cross-type selection, named targets included. A single target with `--class II` or `--class I,II` is the exception, because quick asks the full tier's 48 errand tasks where standard asks 24: its preflight says "for this selection --tier standard is shorter: about 5 min" (9 for I,II), and the time hint never offers quick there.
 - **Named targets** (recipe quick@3) get their Class I questions, the standard tier's twin-matched F1 questions, and none of their errands, which are at `--tier standard` (see "Named targets" below). The preflight's named-target line says so, the scorecard's named-target Class II reads "not run in a quick run", and a quick `--class II` that would leave a named target nothing is refused with that fix.
 - **The preflight** prints each selection's own estimate, with a label saying whether its rates are measured, assumed or a proxy. Memory both, Opus, Codex and named targets take longer.
 - **The scorecard** says in one line what the run left out, and prints the run's actual time from `launches.jsonl`.
@@ -29,7 +30,7 @@ The pinned manifests still name its task counts `quick`, and `MANIFEST_TIER` map
 ## Plan recipes
 
 A run records its plan's recipe beside its tier word: `smoke@1`, `quick@3`, `standard@1` or `full@1`.
-- **Retired recipes.** `quick@2`, the first release's quick, also ran a named target's errands on all 32 tasks. A run that records it still reads and scores. It resumes when today's plan is the same call for call, which holds for every quick@2 run without a named target (`same_plan`); otherwise the refusal says why.
+- **Retired recipes.** `quick@2`, the first release's quick, also ran a named target's errands on all 32 tasks. A run that records it still reads and scores. It resumes when today's plan is the same call for call, which holds for every quick@2 run without a named target (`same_plan`); otherwise the refusal says why. A resumed one goes on under its recorded recipe, so its scorecard, its page and its run.json all read quick@2.
 - **Old runs.** A run.json from before recipes has none, and `recipe_of` reads it through `LEGACY_RECIPES`: quick reads as `smoke@1`, and standard and full read as themselves. No historical file is edited.
 - **`rescore`** rebuilds a run by its recipe, so a legacy quick run rebuilds as smoke, to its own fingerprint.
 - **`check_resume`** compares recipes (`resume_view`). A legacy quick folder resumes under `--tier smoke`, and under `--tier quick` the refusal names that fix.

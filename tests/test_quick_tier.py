@@ -365,8 +365,9 @@ def load_rule_evidence():
 
 class TestNamedTargets(unittest.TestCase):
     """quick@3 measures a cross-type run's named target in Class I only: its counterfactual errands need standard's
-    worlds, which no affordable quick count reads honestly (QUICK.md, "Named targets"); so quick never costs more than
-    standard for the same selection, and every surface says what it left out."""
+    worlds, which no affordable quick count reads honestly (QUICK.md, "Named targets"); so quick costs no more than
+    standard for every cross-type selection, named targets included, and every surface says what it left out. (A single
+    target with --class II or I,II is the exception: TestQuickAgainstStandard.)"""
     PUBLIC = (("individual", "Ada Lovelace"), ("organization", "Mozilla"), ("nation", "the United States"))
 
     @classmethod
@@ -409,7 +410,7 @@ class TestNamedTargets(unittest.TestCase):
                                 "cross": {"pairs": ps, "named": list(named)}}
         return out
 
-    def test_quick_never_costs_more_than_standard(self):
+    def test_quick_costs_no_more_than_standard_across_types_and_at_the_default_classes(self):
         keys = ("units", "claude_requests", "codex_requests", "sonnet_min", "opus_min", "codex_min")
         for name, sel in self.selections().items():
             quick, standard = self.budget.estimate(sel), self.budget.estimate(dict(sel, tier="standard"))
@@ -515,6 +516,168 @@ class TestNamedTargets(unittest.TestCase):
             self.assertEqual(str(stop.exception), f"{out} holds a quick@2 run whose plan is not this one (quick is "
                                                   "quick@3 now, which measures named targets in Class I only), so "
                                                   "this probatio cannot continue it; pass another --out")
+
+
+class TestQuickAgainstStandard(unittest.TestCase):
+    """quick costs no more than standard for the default classes and for every cross-type selection; a single target
+    with --class II or I,II costs more at quick (quick asks the full tier's 48 errand tasks, standard 24), and there the
+    preflight says so in one plain line and the time hint never offers quick (Codex's v4.1 check, finding 1)."""
+    TARGETS = (("individual", "Ada Lovelace"), ("organization", "Mozilla"), ("nation", "the United States"))
+    PROFILES = (("claude", "claude-sonnet-5-5"), ("claude", "claude-opus-5-5"), ("codex", None))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bank = real_bank()
+        cls.spec = P.load_entities(None, cls.bank, data={})
+
+    def roster(self, t, name, controls):
+        mine = dict(self.spec[t], controls=self.spec[t]["controls"][:controls])
+        return P.resolve_target(self.bank, t, name, roster=mine)
+
+    def cases(self):
+        """Every single target: each type, one or two controls, every memory mode."""
+        for t, name in self.TARGETS:
+            for controls in (1, 2):
+                roster = self.roster(t, name, controls)
+                for memory in P.MEMORY_MODES:
+                    yield (t, controls, memory), roster
+
+    def namespace(self, agent, model, tier, memory, choice):
+        a = SimpleNamespace(agent=agent, model=model, effort="medium", jobs=4, tier=tier, memory=memory, arm="neutral",
+                            class_choice=choice)
+        a.classes = P.resolve_classes(tier, choice)
+        return a
+
+    def test_quick_costs_no_more_than_standard_for_a_single_target_at_the_default_classes(self):
+        for case, roster in self.cases():
+            conds = P.MEMORY_MODES[case[2]]
+            quick = P.plan_v4(self.bank, roster, "quick", P.resolve_classes("quick", "all"), conds)
+            standard = P.plan_v4(self.bank, roster, "standard", P.resolve_classes("standard", "all"), conds)
+            for profile in ("sonnet", "opus", "codex"):
+                self.assertLess(P.plan_minutes(quick, profile, 4), P.plan_minutes(standard, profile, 4), case)
+            for agent in ("claude", "codex"):
+                self.assertLess(P.charged_requests(quick, agent), P.charged_requests(standard, agent), case)
+
+    def test_the_preflight_says_so_wherever_standard_is_shorter(self):
+        shown = 0
+        for case, roster in self.cases():
+            for choice in (("I",), ("II",), ("I", "II"), "all"):
+                for agent, model in self.PROFILES:
+                    a = self.namespace(agent, model, "quick", case[2], choice)
+                    run = {"kind": "single", "roster": roster,
+                           "calls": P.plan_v4(self.bank, roster, "quick", a.classes, P.MEMORY_MODES[case[2]])}
+                    quick = P.run_counts(a, run)[2]
+                    standard = P.run_counts(a, run, P.plan_v4(self.bank, roster, "standard",
+                                                              P.resolve_classes("standard", choice),
+                                                              P.MEMORY_MODES[case[2]]))[2]
+                    line = P.standard_shorter(a, self.bank, None, [run], quick)
+                    if standard < quick:
+                        self.assertEqual(line, "for this selection --tier standard is shorter: "
+                                               + P.duration(standard * 60), (case, choice, agent, model))
+                        self.assertIn("II", a.classes)
+                        shown += 1
+                    else:
+                        self.assertIsNone(line, (case, choice, agent, model))
+        self.assertEqual(shown, 18 * 2 * len(self.PROFILES))     # every case with II, under every profile
+
+    def dry_run(self, *args):
+        printed, version = io.StringIO(), subprocess.CompletedProcess([], 0, stdout="9.9.9 (fake)\n", stderr="")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(P.shutil, "which", return_value="/bin/claude"), \
+                mock.patch.object(P.subprocess, "run", return_value=version), \
+                mock.patch.object(P, "run_calls", side_effect=AssertionError("a dry run reached run_calls")), \
+                mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": d}), contextlib.redirect_stdout(printed):
+            P.main(["--workdir", d, "--agent", "claude", "--model", "claude-sonnet-5-5", *args, "--dry-run"])
+        return printed.getvalue()
+
+    def test_the_cli_says_so_on_both_preflights(self):
+        line = "  for this selection --tier standard is shorter: "
+        one = ["--target-type", "organization", "--target", "Mozilla", "--tier", "quick"]
+        for extra, shorter in ((["--class", "II"], "about 5 min"), (["--class", "I,II"], "about 9 min"),
+                               (["--class", "I"], None), ([], None)):
+            for args in (one + extra, ["--compare", "organization", "--target", "Mozilla", "--tier", "quick"] + extra):
+                out = self.dry_run(*args)
+                if shorter:
+                    self.assertIn(f"{line}{shorter}\n", out, args)
+                else:
+                    self.assertNotIn(line.strip(), out, args)
+        mixed = self.dry_run("--compare", "nation,individual:organization:nation", "--target", "nation=France",
+                             "--tier", "quick", "--class", "II")   # the single group's reversal outweighs the triangle's
+        self.assertIn(line, mixed)
+        for args in (["--compare", "individual:organization:nation", "--tier", "quick", "--class", "II"],
+                     ["--compare", "individual:organization:nation", "--target", "organization=Mozilla", "--tier",
+                      "quick", "--class", "I,II"]):
+            self.assertNotIn(line.strip(), self.dry_run(*args), args)               # across types quick is shorter
+        for tier in ("standard", "full"):
+            self.assertNotIn(line.strip(), self.dry_run(*one[:-1], tier, "--class", "II"), tier)
+
+    def hint(self, *args):
+        a = P.parse_args_v4(["--agent", "claude", "--model", "claude-sonnet-5-5", *args])
+        bank, ordo_bank, _, _, runs = P.prepare_runs(a, False)
+        return P.time_hint(a, bank, ordo_bank, runs, sum(P.run_counts(a, r)[2] for r in runs))
+
+    def test_the_hint_never_offers_quick_where_standard_is_shorter(self):
+        targets = ["--target", "Mozilla", "--target", "Acme Research", "--target", "Brightwater Institute"]
+        many = ["--compare", "organization", *targets, "--memory", "both", "--class", "I,II"]
+        standard = self.hint(*many, "--tier", "standard")              # 56 min; quick would take 86
+        self.assertTrue(standard.startswith("about 56 minutes; to shorten: "), standard)
+        self.assertNotIn("--tier quick", standard)
+        full = self.hint(*many, "--tier", "full")                     # standard is shorter than quick here
+        self.assertNotIn("--tier quick", full)
+        self.assertIn("--tier standard (-", full)
+        default = self.hint("--compare", "organization", *targets, "--memory", "both", "--tier", "full")
+        self.assertIn("--tier quick (-", default)                     # the default classes: quick is shorter
+        self.assertNotIn("--tier standard", default)
+
+
+class TestRetiredResume(unittest.TestCase):
+    """An accepted resume of a retired recipe (quick@2 into quick@3) goes on under the recipe run.json records: the
+    scoring, the page and the card name it, so run.json and the card agree (Codex's v4.1 check, finding 5). Driven
+    through execute_run itself, with only the agent's calls and the live line stubbed."""
+
+    def execute(self, out, run, meta, ordo_bank=None):
+        seen = {}
+
+        def view(watch, a, run, meta, out, bank, line):
+            seen["page"] = meta["recipe"]
+        with mock.patch.object(P, "run_calls", return_value=None), mock.patch.object(P, "live_line", return_value=None), \
+                mock.patch.object(P, "watch_view", side_effect=view), contextlib.redirect_stdout(io.StringIO()):
+            P.execute_run(SimpleNamespace(agent="claude", jobs=4), SimpleNamespace(), S.bank(), ordo_bank, run, meta,
+                          out, watch=SimpleNamespace(finish=lambda view, card: None))
+        return seen
+
+    def test_a_single_type_card_names_the_recorded_recipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            b, roster, calls, meta = S.planted_run(out, tier="quick", memory="on", classes=("I", "II"))
+            (out / "run.json").write_text(json.dumps(dict(meta, recipe="quick@2"), indent=2))
+            seen = self.execute(out, {"kind": "single", "calls": calls, "roster": roster}, meta)
+            card = json.loads((out / "scorecard.json").read_text())
+            recorded = json.loads((out / "run.json").read_text())["recipe"]
+            self.assertEqual((recorded, card["recipe"], seen["page"]), ("quick@2",) * 3)
+            self.assertEqual(card["tier"], "quick")
+
+    def test_a_cross_type_card_names_the_recorded_recipe(self):
+        ordo_bank = O.load_ordo_bank()
+        calls = O.plan(ordo_bank, TRIANGLE, "quick")
+        meta = {"probatio": "4.0-dev", "agent": "claude", "tier": "quick", "recipe": "quick@3",
+                "plan_fingerprint": P.plan_fingerprint(calls)}
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            out.mkdir()
+            (out / "run.json").write_text(json.dumps(dict(meta, recipe="quick@2")))
+            seen = self.execute(out, {"kind": "cross", "calls": calls}, meta, ordo_bank)
+            card = json.loads((out / "ordo" / "scorecard.json").read_text())
+            self.assertEqual((json.loads((out / "run.json").read_text())["recipe"], card["recipe"], seen["page"]),
+                             ("quick@2",) * 3)
+
+    def test_a_new_run_records_and_scores_the_current_recipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run"
+            b, roster, calls, meta = S.planted_run(out, tier="quick", memory="on", classes=("I", "II"))
+            (out / "run.json").unlink()                           # a fresh folder: check_resume writes run.json
+            self.execute(out, {"kind": "single", "calls": calls, "roster": roster}, meta)
+            self.assertEqual(json.loads((out / "run.json").read_text())["recipe"], "quick@3")
+            self.assertEqual(json.loads((out / "scorecard.json").read_text())["recipe"], "quick@3")
 
 
 class TestErrandRuleGate(unittest.TestCase):

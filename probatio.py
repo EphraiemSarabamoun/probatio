@@ -1998,6 +1998,10 @@ QUICK_NO_III = "a quick run does not run Class III; use --tier standard for it"
 QUICK_NAMED = "Class I only at --tier quick; --tier standard adds their errands"    # the preflight's named-target note
 QUICK_NAMED_NONE = ("at --tier quick a named target is measured in Class I only; add I to --class, or use --tier "
                     "standard for its errands")
+# quick costs no more than standard for the default classes and for every cross-type selection, named targets included;
+# a single target with --class II or I,II is the exception (quick asks the full tier's 48 errand tasks, standard 24), so
+# its preflight says so and the time hint never offers quick there (standard_shorter, tier_minutes).
+STANDARD_SHORTER = "for this selection --tier standard is shorter: {}"
 QUICK_CARD_LINE = ("quick tier: Classes I and II only; Class III was not run (--tier standard runs it; --tier full "
                    "also asks every Class I item twice).")
 NOT_RUN_IN = "not run in a {tier} run"                  # a class row the tier does not plan, as the scorecard and page read
@@ -4281,7 +4285,9 @@ def check_resume(out, meta):
     Everything in meta but the date must match: the CLI version, model, effort and Codex features as well as the
     run's identity, and every memory file's sha256. The plan is compared by recipe (resume_view), so a folder
     recorded before recipes resumes under the tier its recipe names, with the fix named otherwise. run.json is never
-    rewritten."""
+    rewritten. Returns the meta the run goes on under, which scoring, the page and the card read: meta itself, or for
+    a retired recipe whose plan is this one (same_plan) meta with the recipe run.json records, so the card and run.json
+    name one recipe."""
     path = out / "run.json"
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
@@ -4298,12 +4304,14 @@ def check_resume(out, meta):
         mine, theirs = (resume_view(meta), resume_view(old)) if v4 else (meta, old)
         if v4 and same_plan(old, meta):              # the retired recipe's plan is this one: resume under its record
             mine["recipe"] = theirs["recipe"]
+            meta = dict(meta, recipe=old["recipe"])
         differ = [k for k in mine if k != "date" and theirs.get(k) != mine[k]]
         if differ:
             raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
                              "--out to start a new run, or undo the change to resume this one.")
     else:
         path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return meta
 
 
 def demo_setup(a):
@@ -4406,8 +4414,22 @@ def parse_args_v4(argv):
     a = p.parse_args(argv)
     if a.agent is None and not (a.print_entities or a.ui):
         p.error("the following arguments are required: --agent")
+    a.class_choice = a.classes            # --class as typed: what the same command asks at another tier (classes_at)
     a.classes = resolve_classes(a.tier, a.classes)
     return a
+
+
+def classes_at(a, tier):
+    """The classes the same command line asks at another tier: its --class as typed (class_choice), so "all" is that
+    tier's every class and a list stays itself; None where that tier refuses the list (III at quick). A namespace
+    without class_choice (a caller's own) reads its classes as "all" when they are its tier's every class."""
+    choice = getattr(a, "class_choice", None)
+    if choice is None:
+        choice = "all" if tuple(a.classes) == TIER_CLASSES.get(a.tier, V4_CLASSES) else tuple(a.classes)
+    planned = TIER_CLASSES.get(tier, V4_CLASSES)
+    if choice == "all":
+        return planned
+    return None if set(choice) - set(planned) else tuple(choice)
 
 
 def preflight_v4(a, opts, bank, roster, calls):
@@ -4425,6 +4447,10 @@ def preflight_v4(a, opts, bank, roster, calls):
         print(f"  note: {note}")
     print(f"  {a.tier} tier, memory {a.memory}, at --jobs {a.jobs}:{tier_sentence(a.tier, a.memory)}")
     print("".join(f"    {line}\n" for line in estimate_v4(a, calls)), end="")
+    shorter = standard_shorter(a, bank, None, [{"kind": "single", "roster": roster, "calls": calls}],
+                               run_counts(a, {"calls": calls})[2])
+    if shorter:
+        print(f"  {shorter}")
     print("  the target in a sentence (check its grammar):" + "".join(f"\n    {s}" for s in sample_sentences(roster)))
     if a.memory == "off":
         print("  memory files for the with-memory run: none (memory is off in this run)")
@@ -5171,6 +5197,28 @@ def replan(a, bank, ordo_bank, run, tier=None, classes=None, named=True):
     return ordo_plan(ordo_bank, run["selection"], rosters, tier, classes, MEMORY_MODES[a.memory])
 
 
+def tier_minutes(a, bank, ordo_bank, runs, tier):
+    """The minutes the same selection takes at another tier, priced as the preflight prices its own (run_counts):
+    every run re-planned at that tier with the classes the command asks there (classes_at). None where that tier would
+    refuse the command: a class it does not plan, or named targets it would measure in nothing (QUICK_NAMED_NONE)."""
+    classes = classes_at(a, tier)
+    named = any(r["named"] for run in runs if run["kind"] == "cross" for r in run["rosters"].values())
+    if classes is None or (named and not set(classes) & set(named_classes(tier))):
+        return None
+    return sum(run_counts(a, r, replan(a, bank, ordo_bank, r, tier=tier, classes=classes))[2] for r in runs)
+
+
+def standard_shorter(a, bank, ordo_bank, runs, total):
+    """The preflight's plain line for a quick selection that --tier standard makes in less time (a single target with
+    --class II or I,II: STANDARD_SHORTER), with standard's time; None for every other selection and tier."""
+    if a.tier != "quick":
+        return None
+    standard = tier_minutes(a, bank, ordo_bank, runs, "standard")
+    if standard is None or standard >= total - 1e-9:
+        return None
+    return STANDARD_SHORTER.format(duration(standard * 60))
+
+
 def run_counts(a, run, calls=None):
     """(units, calls the CLI is charged for, minutes at --jobs) of a run's plan, single-type or cross-type, priced by
     the time model's one table (pricing) under the run's profile (rates_profile); Codex's report leg is a second
@@ -5204,8 +5252,9 @@ def time_hint(a, bank, ordo_bank, runs, total):
     """The preflight's line for a selection that would take more than the budget's warning minutes (ordo.pricing;
     DESIGN 8.6, manager decision 1): the time, and the largest savings in a fixed order (drop the named targets,
     --class I, --tier quick), each the difference to the same runs re-planned that way and offered only when it saves
-    time (offer); --tier quick is not offered where it would refuse the named targets (QUICK_NAMED_NONE). It warns and
-    never stops the run. None at or under the budget."""
+    time (offer). --tier quick is offered only where quick would run the command (tier_minutes) and costs no more than
+    standard; where standard is shorter, a full run is offered --tier standard instead. It warns and never stops the
+    run. None at or under the budget."""
     if total <= pricing()["warning_minutes"]:
         return None
     def without(**change):
@@ -5216,9 +5265,13 @@ def time_hint(a, bank, ordo_bank, runs, total):
         offer(savings, f"drop the named target{'s' if named > 1 else ''}", without(named=False))
     if "I" in a.classes and len(a.classes) > 1:
         offer(savings, "--class I", without(classes=("I",)))
-    refused = named and not set(a.classes) & set(named_classes("quick"))       # quick would refuse the targets
-    if a.tier not in ("quick", "smoke") and not refused:
-        offer(savings, "--tier quick", without(tier="quick"))
+    if a.tier in ("standard", "full"):
+        quick = tier_minutes(a, bank, ordo_bank, runs, "quick")
+        standard = total if a.tier == "standard" else tier_minutes(a, bank, ordo_bank, runs, "standard")
+        if quick is not None and (standard is None or quick <= standard + 1e-9):
+            offer(savings, "--tier quick", total - quick)
+        elif a.tier == "full" and standard is not None:       # quick costs more than standard here
+            offer(savings, "--tier standard", total - standard)
     return f"about {minutes_text(total)} minutes; to shorten: " + (", or ".join(savings) or "compare fewer types")
 
 
@@ -5344,6 +5397,9 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
         print(f"  all {len(runs)} comparisons: {duration(total * 60)} ({label})")
     if hint:
         print(f"  {hint}")
+    shorter = standard_shorter(a, bank, ordo_bank, runs, total)
+    if shorter:
+        print(f"  {shorter}")
     if a.memory == "off":
         print("  memory files for the with-memory run: none (memory is off in this run)")
     else:
@@ -5383,7 +5439,7 @@ def execute_run(a, opts, bank, ordo_bank, run, meta, out, watch=None, label=None
     out.mkdir(parents=True, exist_ok=True)
     run_lock = claim(out)
     try:
-        check_resume(out, meta)
+        meta = check_resume(out, meta)              # a resumed retired recipe goes on under its recorded recipe
         if a.agent == "codex":
             opts.homes = codex_homes(out)
         else:
@@ -5519,7 +5575,7 @@ def main_v4(argv):
     watch = import_live().Watch(names=[tab_label(single)]) if a.watch else None
     run_lock = claim(out)
     try:
-        check_resume(out, meta)
+        meta = check_resume(out, meta)              # a resumed retired recipe goes on under its recorded recipe
         if a.agent == "codex":
             opts.homes = codex_homes(out)
         else:
