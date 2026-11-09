@@ -430,6 +430,13 @@ class TestPrivacy(unittest.TestCase):
                 s.close()
 
 
+# The names live.secret_named must leave out (none is a secret), and the credentials it must keep (live.py's redaction).
+NOT_SECRET = ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "XAUTHORITY", "SSH_AUTH_SOCK", "HOME", "PWD",
+              "PATH", "SSH_ASKPASS", "TOKENIZERS_PARALLELISM")
+SECRET = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_BACKUP", "ANTHROPIC_AUTH_TOKEN",
+          "OPENAI_API_KEY", "HF_TOKEN", "GITHUB_TOKEN", "GH_AUTH_HEADER", "AWS_SECRET_ACCESS_KEY", "PROBATIO_TEST_API_KEY")
+
+
 class TestRedactor(unittest.TestCase):
     def values(self):
         return {"ANT": ant_canary(), "HF": hf_canary(), "SECRET1": "value-" + "x" * 12, "SECRET2": "value-" + "x" * 30,
@@ -462,8 +469,66 @@ class TestRedactor(unittest.TestCase):
                 got = (mine(c["text"]), theirs(c["text"]))
             self.assertEqual(got, (c["out"], c["out"]), case["name"])
         self.assertEqual(L.MARK, cal.MARK)
-        self.assertEqual(L.SECRET_NAME.pattern, cal.SECRET_NAME.pattern)
         self.assertEqual(L.MIN_SECRET, cal.MIN_LEN)
+        # The page's name rule is narrower than the harness's, on purpose (live.py's redaction section): every name the
+        # shared cases use reads alike, and the names the page leaves out are exactly the ones that are not secrets.
+        names = {k for case in cases for k in case["environ"]}
+        self.assertEqual({k for k in names if L.secret_named(k)}, {k for k in names if cal.SECRET_NAME.search(k)})
+        for name in NOT_SECRET:
+            self.assertFalse(L.secret_named(name), name)
+        for name in SECRET:
+            self.assertTrue(L.secret_named(name) and cal.SECRET_NAME.search(name), name)
+
+    def test_a_secret_name_is_whole_parts(self):
+        """A variable is secret-named by its whole name parts, so git's author name, the X display's authority file
+        and the SSH agent's socket are not, while every credential the page has been held to still is (the CLIs'
+        keys and OAuth tokens, a lower-case or camel-case name); the value of each is redacted, and of none of the
+        others."""
+        for name in NOT_SECRET:
+            self.assertFalse(L.secret_named(name), name)
+        for name in SECRET + ("my_password", "npm_config_//registry.npmjs.org/:_authToken", "accessToken",
+                              "NPM_CONFIG__AUTH", "DBPASSWORD", "OPENAI_APIKEY"):
+            self.assertTrue(L.secret_named(name), name)
+        value = "value-" + secrets.token_hex(8)                               # a fake secret, built at run time
+        for name in SECRET:
+            self.assertEqual(L.ViewRedactor({name: value})(f"a {value} b"), "a <redacted> b", name)
+        for name in NOT_SECRET:
+            self.assertEqual(L.ViewRedactor({name: value})(f"a {value} b"), f"a {value} b", name)
+
+    def test_the_matched_variable_is_named_never_its_value(self):
+        """matched_names says which secret-named variables' values the redaction replaced, by name alone: both names
+        when two hold one value, none for a value that only the extras hold (the page's token) or for a key shape,
+        and none for text the redaction leaves alone."""
+        value, token = "value-" + secrets.token_hex(8), secrets.token_urlsafe(24)
+        r = L.ViewRedactor({"PROBATIO_TEST_API_KEY": value, "OTHER_TOKEN": value, "GIT_AUTHOR_NAME": "Jane Doe"},
+                           extra=(token,))
+        self.assertEqual(r.matched_names(f"x {value} y"), ["OTHER_TOKEN", "PROBATIO_TEST_API_KEY"])
+        self.assertEqual(r.matched_names("x" + value[:3] + "\u200b" + value[3:]), ["OTHER_TOKEN",
+                                                                                  "PROBATIO_TEST_API_KEY"])
+        for text in (token, "sk-ant-" + "FAKE" * 6, "Jane Doe", "plain", None):
+            self.assertEqual(r.matched_names(text), [], text)
+            self.assertNotIn(value, json.dumps(r.matched_names(text)))
+        self.assertEqual(r("Jane Doe"), "Jane Doe")
+        self.assertEqual(r(token), "<redacted>")
+
+    def test_the_pages_token_and_the_clis_credentials_stay_redacted(self):
+        """The rounds the page was verified on still hold under the narrower rule: the page's own token, and the
+        values of ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN and OPENAI_API_KEY in probatio's environment, are
+        <redacted> in /state's reply."""
+        values = {name: "value-" + secrets.token_hex(10) for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
+                                                                       "OPENAI_API_KEY")}
+        with mock.patch.dict(os.environ, dict(values, GIT_AUTHOR_NAME="Jane Doe")):
+            box = {}
+            server = L.serve_page(L.VIEW_V4, lambda: {"said": " ".join([*values.values(), box["token"], "Jane Doe"])})
+        box["token"] = server.token
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+            conn.request("GET", f"/state?t={server.token}", headers={"Host": f"127.0.0.1:{server.server_address[1]}"})
+            body = conn.getresponse().read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(json.loads(body), {"said": " ".join(["<redacted>"] * 4 + ["Jane Doe"])})
 
     def test_the_pages_own_shapes_and_controls(self):
         r = L.ViewRedactor({}, ())

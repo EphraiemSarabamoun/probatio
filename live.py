@@ -300,7 +300,21 @@ class LiveLine:
 # shapes, each replaced by <redacted>; a text that must be cut is redacted whole first. The page adds more shapes and
 # removes control and format characters. tests/fixtures/redact_cases.json holds both to the same output on their
 # common cases.
-SECRET_NAME = re.compile(r"TOKEN|API_KEY|SECRET|PASSWORD|AUTH", re.I)
+#
+# Which variables are secret-named is the page's own, narrower rule. The harness only hides text, so a name matched by
+# mistake costs it nothing; the --ui page also refuses any word of a command its redactor would change, so a variable
+# matched by mistake refuses the user's own name (GIT_AUTHOR_NAME holds it; "AUTH" is in AUTHOR). The page reads a name
+# as secret by its whole parts, split at "_", at other punctuation and between a lower-case letter and a capital
+# (secret_named): a part ending in one of SECRET_SUFFIXES (GITHUB_TOKEN, DBPASSWORD), a part that is one of
+# SECRET_PARTS, an AUTH part (GH_AUTH_HEADER, NPM_CONFIG__AUTH) unless SOCK follows it (SSH_AUTH_SOCK, an agent's
+# socket), or one of SECRET_NAMES, the credentials probatio's own CLIs read, named outright. So GIT_AUTHOR_NAME,
+# XAUTHORITY and SSH_AUTH_SOCK are not secret-named, and every case the shared file holds reads as before.
+SECRET_SUFFIXES = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "APIKEY")
+SECRET_PARTS = ("TOKENS", "SECRETS", "PASS", "API_KEY", "PRIVATE_KEY", "CREDENTIALS", "OAUTH")
+SECRET_NAMES = frozenset({"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_BACKUP", "ANTHROPIC_AUTH_TOKEN",
+                          "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"})
+SECRET_NAME = re.compile(r"(?:^|_)[A-Z0-9]*(?:{})(?:_|$)|(?:^|_)(?:{})(?:_|$)|(?:^|_)AUTH(?:$|_(?!SOCK(?:_|$)))".format(
+    "|".join(SECRET_SUFFIXES), "|".join(SECRET_PARTS)), re.I)     # read over name_parts(name), never the raw name
 MIN_SECRET = 8
 MARK = "<redacted>"
 KEY_SHAPES = re.compile("|".join((
@@ -314,24 +328,60 @@ KEY_SHAPES = re.compile("|".join((
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|[\s\S]*)")))
 
 
+def name_parts(name):
+    """A variable's name with its parts split by "_": other punctuation becomes "_", and a capital after a lower-case
+    letter or a digit starts a part (authToken reads as auth_Token)."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name))
+
+
+def secret_named(name):
+    """Whether a variable's name says it holds a secret (the page's rule above): one of SECRET_NAMES, or SECRET_NAME
+    over its parts."""
+    return isinstance(name, str) and (name.upper() in SECRET_NAMES or bool(SECRET_NAME.search(name_parts(name))))
+
+
+def visible(text):
+    """text without its control and format characters other than newline and tab, so none can split a secret."""
+    return "".join(ch for ch in str(text) if ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cf"))
+
+
 class ViewRedactor:
-    """scrub(text): control and format characters other than newline and tab removed (so none can split a secret),
-    then every known value, then every key shape, each as <redacted>. Built from probatio's own environment and the
-    page's token."""
+    """scrub(text): control and format characters other than newline and tab removed (visible), then every known
+    value, then every key shape, each as <redacted>. Built from probatio's own environment and the page's token.
+    matched_names(text) says which secret-named variables' values the scrub replaced, by name alone, so a page that
+    refuses a word can say why without showing the value."""
 
     def __init__(self, environ=None, extra=()):
         environ = os.environ if environ is None else environ
-        values = {v for k, v in environ.items() if SECRET_NAME.search(k) and isinstance(v, str)}
-        values |= {v for v in extra if isinstance(v, str)}
+        self.names = {}                                 # value -> the secret-named variables holding it
+        for k, v in environ.items():
+            if secret_named(k) and isinstance(v, str):
+                self.names.setdefault(v, set()).add(k)
+        values = set(self.names) | {v for v in extra if isinstance(v, str)}
         self.values = sorted((v for v in values if len(v) >= MIN_SECRET), key=len, reverse=True)
+
+    def scrub(self, text):
+        """(text without its known values, the values it held), visible first and the longest value first, as the
+        redaction replaces them; the key shapes are not applied here."""
+        text, held = visible(text), []
+        for v in self.values:
+            if v in text:
+                held.append(v)
+                text = text.replace(v, MARK)
+        return text, held
 
     def __call__(self, text):
         if text is None:
             return text
-        text = "".join(ch for ch in str(text) if ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cf"))
-        for v in self.values:
-            text = text.replace(v, MARK)
-        return KEY_SHAPES.sub(MARK, text)
+        return KEY_SHAPES.sub(MARK, self.scrub(text)[0])
+
+    def matched_names(self, text):
+        """The names, sorted, of the secret-named variables whose values the redaction replaces in text (never a
+        value); empty when text holds none, and for a value that is only one of the extras, such as the page's
+        token."""
+        if text is None:
+            return []
+        return sorted({name for v in self.scrub(text)[1] for name in self.names.get(v, ())})
 
     def clip(self, text, limit, tail=False):
         """text redacted whole, then cut to its first (or, with tail, its last) limit characters."""

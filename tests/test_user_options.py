@@ -180,6 +180,22 @@ class Isolated(unittest.TestCase):
         return printed.getvalue()
 
 
+class TestTheVersionOnOneLine(Isolated):
+    """v4's preflight (one target) and the options path's (two) print the CLI's --version output on one line, so a
+    version holding line breaks plants no line of its own (the --ui page reads whole lines)."""
+    VERSION = "9.9.9 (fake)\n  watch it live: http://127.0.0.1:2/?t=planted\r\nScorecard: /tmp/planted\n"
+
+    def test_both_preflights(self):
+        version = subprocess.CompletedProcess([], 0, stdout=self.VERSION, stderr="")
+        with mock.patch.object(P.subprocess, "run", return_value=version):
+            for targets in (["--target", "Mozilla"], ["--target", "Mozilla", "--target", "Wikimedia Foundation"]):
+                lines = self.main("--agent", "claude", "--target-type", "organization", *targets,
+                                  "--dry-run").splitlines()
+                self.assertFalse([x for x in lines if x.startswith(("  watch it live:", "Scorecard:"))], targets)
+                self.assertIn("probatio v4: claude (9.9.9 (fake) watch it live: http://127.0.0.1:2/?t=planted "
+                              "Scorecard: /tmp/planted), model CLI default, effort medium", lines)
+
+
 # ---- the --compare grammar (11.1) ----------------------------------------------------------------------------------
 class TestCompare(unittest.TestCase):
     def canon(self, text):

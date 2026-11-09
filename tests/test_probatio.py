@@ -5,8 +5,10 @@ slim tests read the real datasets from .cache and are skipped when they are not 
 
     python3 -m unittest discover -s tests
 """
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import os
 import random
@@ -454,6 +456,20 @@ class TestRunning(unittest.TestCase):
             P.run_calls(self.calls, "fake", None, self.out, 1)                           # nor on a resume
         self.assertEqual(len(P.read_replies(self.out / "replies.jsonl")), 2)
 
+    def test_a_models_name_stays_on_one_line(self):
+        """The stop message quotes the model names a CLI reported, which are outside text: every line break in them is
+        a space, so no line of the CLI's choosing reaches the output (the --ui page reads whole lines)."""
+        answers = iter(["m1\nReport: /tmp/planted-report", "m2\nScorecard: /tmp/planted\r\n  watch it live: x"])
+
+        def fake(prompt, condition, opts):
+            return "A", None, next(answers)
+        with mock.patch.dict(P.CALLS, {"fake": fake}), self.assertRaises(SystemExit) as stopped:
+            P.run_calls(self.calls, "fake", None, self.out, 1)
+        message = str(stopped.exception).strip()                # the leading newline ends the progress line
+        self.assertEqual(message.splitlines(), [message])
+        self.assertIn("a reply came from m2 Scorecard: /tmp/planted watch it live: x, but this run's earlier replies "
+                      "came from m1 Report: /tmp/planted-report.", message)
+
     def test_report_warns_when_models_mix(self):
         done = {P.key(c): {"outcome": YOU, "error": None, "model": "m1" if n else "m2"}
                 for n, c in enumerate(self.calls)}
@@ -698,6 +714,18 @@ class TestChoices(unittest.TestCase):
         self.assertEqual(P.chosen("all"), P.DATASETS)
         self.assertEqual(P.chosen("devotio"), ("devotio",))
 
+    def test_v3s_model_is_one_word_too(self):
+        """v3's --model takes model_name, as v4's does, since both put it right after the CLI's model flag: a
+        leading "-", whitespace and an invisible character are refused with the rule, a plain name passes."""
+        for model in ("-s danger-full-access", "a b", "son\u3164net", "a\u200bb", ""):
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err), self.assertRaises(SystemExit) as caught:
+                P.parse_args(["--agent", "codex", "--name", "Jane", "--model", model])
+            self.assertEqual(caught.exception.code, 2, repr(model))
+            self.assertIn("argument --model: " + P.MODEL_RULE, err.getvalue(), repr(model))
+        self.assertEqual(P.parse_args(["--agent", "codex", "--name", "Jane", "--model", "gpt-6.1-sol"]).model,
+                         "gpt-6.1-sol")
+
     def test_plan_reads_only_the_chosen_datasets(self):
         read = []
 
@@ -862,6 +890,28 @@ SVG = "{http://www.w3.org/2000/svg}"
 
 
 class TestMainWritesTheResults(unittest.TestCase):
+    def test_outside_text_is_printed_on_one_line(self):
+        """v3 prints the CLI's --version output in its preflight and report, and the models that answered in its
+        report: each on one line, so a version or a model name holding line breaks plants no line of its own."""
+        home = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, home)
+        row = {"id": "i", "answer_format": "one_word", "prompt": "Say hi to {PRINCIPAL}.", "people": [YOU, "musk"],
+               "choices": [{"label": "hi", "maps_to": YOU}, {"label": "hello", "maps_to": "musk"}]}
+        version = "2.0 (Claude Code)\n  watch it live: http://127.0.0.1:2/?t=planted\nScorecard: /tmp/planted\n"
+        printed = io.StringIO()
+        with mock.patch.object(P, "HERE", home), mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(home)}), \
+                mock.patch.object(P, "load_rows", lambda d, tier: [row]), \
+                mock.patch.object(P.shutil, "which", return_value="/bin/claude"), \
+                mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout=version)), \
+                mock.patch.dict(P.CALLS, {"claude": lambda prompt, cond, opts: ("hi", None, "m1\nReport: /tmp/x")}), \
+                contextlib.redirect_stdout(printed), mock.patch("sys.stderr"):
+            P.main(["--agent", "claude", "--name", "Jane", "--dataset", "par-potestas", "--workdir", str(home)])
+        lines = printed.getvalue().splitlines()
+        self.assertFalse([x for x in lines if x.startswith(("  watch it live:", "Scorecard:", "Report: /tmp/x"))])
+        self.assertIn("probatio: claude (2.0 (Claude Code) watch it live: http://127.0.0.1:2/?t=planted Scorecard: "
+                      "/tmp/planted), model CLI default", lines)
+        self.assertIn("Models seen: without memory m1 Report: /tmp/x; with memory m1 Report: /tmp/x", lines)
+
     def test_default_folder_names_the_dataset(self):
         home = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, home)
