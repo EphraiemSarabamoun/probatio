@@ -177,10 +177,23 @@ class TestCommands(unittest.TestCase):
     def test_claude_conditions(self):
         with_cmd, with_env = P.claude_command("with", None)
         without_cmd, without_env = P.claude_command("without", "sonnet")
-        self.assertEqual(with_env, {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": None, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": None})
-        self.assertEqual(without_env, {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+        # with memory keeps v3's meaning: the CLI loads its CLAUDE.md files and auto memory as configured
+        self.assertEqual(with_env, {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": None, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": None,
+                                    "CLAUDE_CODE_EFFORT_LEVEL": None})
+        self.assertEqual(without_env, {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+                                       "CLAUDE_CODE_EFFORT_LEVEL": None})
         self.assertEqual(without_cmd[-2:], ["--model", "sonnet"])
         self.assertEqual(with_cmd, without_cmd[:-2])                    # the switches are the only difference
+        self.assertEqual(with_cmd[with_cmd.index("--output-format") + 1], "stream-json")
+        self.assertIn("--verbose", with_cmd)                            # stream-json in print mode needs it
+        effort_cmd, effort_env = P.claude_command("with", None, effort="medium")
+        self.assertEqual(effort_cmd[effort_cmd.index("--effort") + 1], "medium")
+        self.assertEqual(effort_env["CLAUDE_CODE_EFFORT_LEVEL"], "medium")    # outranks the flag, so it is set too
+        self.assertNotIn("--input-format", with_cmd)
+        _, clean = P.claude_command("with", None, auto_memory="off")      # the calibration's clean room
+        self.assertEqual(clean["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+        dialogue_cmd, _ = P.claude_command("with", None, dialogue=True)
+        self.assertEqual(dialogue_cmd[dialogue_cmd.index("--input-format") + 1], "stream-json")
         for cmd in (with_cmd, without_cmd):
             self.assertEqual(cmd[cmd.index("--tools") + 1], "")
             self.assertEqual(json.loads(cmd[cmd.index("--settings") + 1]), {"disableAllHooks": True})
@@ -292,7 +305,8 @@ class TestCommands(unittest.TestCase):
                 mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout="codex 1.0")), \
                 mock.patch.object(P, "plan_calls", return_value=calls), mock.patch.object(P, "run", child), \
                 mock.patch("sys.stdout"), mock.patch("sys.stderr"):
-            P.main(["--agent", "codex", "--name", "Jane", "--workdir", str(work), "--out", "out", "--jobs", "1"])
+            P.main(["--agent", "codex", "--name", "Jane", "--dataset", "all", "--workdir", str(work), "--out", "out",
+                    "--jobs", "1"])
         self.assertEqual(seen, [(True, True), (True, True)])
         self.assertEqual(len(P.read_replies(caller / "out" / "replies.jsonl")), 2)
         P.claim(caller / "out").close()                                  # released when the run ended
@@ -346,6 +360,8 @@ class TestCommands(unittest.TestCase):
             (work / name).write_text("x")
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config), "CODEX_HOME": str(codex)}):
             self.assertEqual(sorted(P.memory_files("claude", work)), sorted(claude_files))
+            index = config / "projects" / key / "memory" / "MEMORY.md"         # not loaded with auto memory off
+            self.assertNotIn(index, P.memory_files("claude", work, auto_memory="off"))
             self.assertEqual(P.memory_files("codex", work), codex_files)
             (codex / "AGENTS.override.md").write_text("\n")  # in Codex's home an empty override gives way
             shutil.rmtree(repo / ".git")                      # and outside a repository it reads the workdir alone
@@ -490,7 +506,7 @@ class TestRunning(unittest.TestCase):
                 mock.patch.object(P, "plan_calls", return_value=self.calls), \
                 mock.patch.object(P.subprocess, "run", return_value=SimpleNamespace(stdout="codex 1.0")), \
                 mock.patch("sys.stdout"), self.assertRaises(SystemExit) as refused:
-            P.main(["--agent", "codex", "--name", "Jane", "--out", str(self.out)])
+            P.main(["--agent", "codex", "--name", "Jane", "--dataset", "all", "--out", str(self.out)])
         child.communicate("\n")
         self.assertIn("Another probatio run", str(refused.exception))
         self.assertTrue(active.is_dir())

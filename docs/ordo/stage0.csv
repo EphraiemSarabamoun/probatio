@@ -1,0 +1,251 @@
+model,rule,row,label,measure,scope,rate,mc_se,n,undefined,target,met
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,individual:organization,92.19,0.27,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,organization:nation,92.69,0.26,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,individual:nation,92.67,0.26,9997,3,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,individual,92.91,0.26,9997,3,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,organization,92.96,0.26,9997,3,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,nation,92.94,0.26,9997,3,>= 94,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",median width,"pair intervals, points",25.3,,29997,,,
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",false relation,any pair,20.56,0.4,10000,0,<= 15,NO
+fixture,frozen: percentile 95%,role-free.I,"role-free, Class I",cycle flag,reference 25,23.8,0.43,9997,3,,
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,individual:organization,93.08,0.25,9989,11,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,organization:nation,92.83,0.26,9989,11,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,individual:nation,92.74,0.26,9988,12,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,individual,89.55,0.31,9977,23,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,organization,90.08,0.3,9977,23,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,nation,89.58,0.31,9977,23,>= 94,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",median width,"pair intervals, points",13.73,,29966,,,
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",false relation,any pair,16.96,0.38,9996,4,<= 15,NO
+fixture,frozen: percentile 95%,role-free.II,"role-free, Class II",cycle flag,reference 25,0.0,0.0,9977,23,,
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,individual:organization,93.3,0.25,9989,11,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,organization:nation,92.95,0.26,9985,15,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,individual:nation,92.81,0.26,9985,15,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,individual,89.87,0.3,9973,27,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,organization,89.9,0.3,9973,27,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,nation,89.2,0.31,9973,27,>= 94,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",13.69,,29959,,,
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",false relation,any pair,16.74,0.37,9995,5,<= 15,NO
+fixture,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",cycle flag,reference 25,0.02,0.01,9973,27,,
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,individual:organization,86.04,0.35,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,organization:nation,85.55,0.35,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,individual:nation,85.02,0.36,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,individual,87.96,0.33,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,organization,88.21,0.32,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,nation,87.91,0.33,10000,0,>= 94,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",median width,"pair intervals, points",23.44,,30000,,,
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",false relation,any pair,37.41,0.48,10000,0,<= 15,NO
+fixture,frozen: percentile 95%,authority.I,"authority, Class I: type share",cycle flag,reference 25,23.45,0.42,10000,0,,
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,individual:organization,96.48,0.2,8841,1159,>= 94,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,organization:nation,96.48,0.2,8824,1176,>= 94,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,individual:nation,96.59,0.19,8860,1140,>= 94,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,individual,94.13,0.26,8251,1749,>= 94,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,organization,93.95,0.26,8251,1749,>= 94,NO
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,nation,94.27,0.26,8251,1749,>= 94,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",median width,"pair intervals, points",12.2,,26525,,,
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",false relation,any pair,9.11,0.3,9363,637,<= 15,yes
+fixture,frozen: percentile 95%,authority.II,"authority, Class II: type share",cycle flag,reference 25,11.32,0.35,8251,1749,,
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,individual:organization,93.5,0.25,10000,0,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,organization:nation,93.85,0.24,10000,0,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,individual:nation,93.98,0.24,9997,3,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,individual,94.45,0.23,9997,3,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,organization,94.39,0.23,9997,3,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,nation,94.46,0.23,9997,3,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",median width,"pair intervals, points",26.98,,29997,,,
+fixture,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",false relation,any pair,17.4,0.38,10000,0,<= 15,NO
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,individual:organization,96.96,0.17,9989,11,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,organization:nation,96.83,0.18,9989,11,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,individual:nation,96.86,0.17,9988,12,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,individual,94.48,0.23,9977,23,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,organization,95.11,0.22,9977,23,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,nation,94.76,0.22,9977,23,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",median width,"pair intervals, points",15.42,,29966,,,
+fixture,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",false relation,any pair,7.8,0.27,9996,4,<= 15,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,individual:organization,97.38,0.16,9989,11,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,organization:nation,96.75,0.18,9985,15,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,individual:nation,96.66,0.18,9985,15,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,individual,94.82,0.22,9973,27,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,organization,94.97,0.22,9973,27,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,nation,94.31,0.23,9973,27,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",15.38,,29959,,,
+fixture,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",false relation,any pair,7.81,0.27,9995,5,<= 15,yes
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,individual:organization,91.66,0.28,10000,0,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,organization:nation,91.2,0.28,10000,0,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,individual:nation,90.86,0.29,10000,0,>= 94,NO
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,individual,94.39,0.23,10000,0,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,organization,94.78,0.22,10000,0,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,nation,94.75,0.22,10000,0,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",median width,"pair intervals, points",30.22,,30000,,,
+fixture,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",false relation,any pair,23.93,0.43,10000,0,<= 15,NO
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,individual:organization,99.4,0.08,8841,1159,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,organization:nation,99.55,0.07,8824,1176,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,individual:nation,99.44,0.08,8860,1140,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,individual,99.21,0.1,8251,1749,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,organization,99.28,0.09,8251,1749,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,nation,99.2,0.1,8251,1749,>= 94,yes
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",median width,"pair intervals, points",15.73,,26525,,,
+fixture,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",false relation,any pair,1.48,0.12,9363,637,<= 15,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,individual:organization,97.28,0.16,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,organization:nation,97.07,0.17,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,individual:nation,97.44,0.16,9997,3,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,individual,97.72,0.15,9997,3,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,organization,97.85,0.15,9997,3,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,nation,97.72,0.15,9997,3,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",median width,"pair intervals, points",32.64,,29997,,,
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",false relation,any pair,7.96,0.27,10000,0,<= 15,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,individual:organization,96.96,0.17,9989,11,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,organization:nation,96.83,0.18,9989,11,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,individual:nation,96.86,0.17,9988,12,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,individual,94.48,0.23,9977,23,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,organization,95.11,0.22,9977,23,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,nation,94.76,0.22,9977,23,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",median width,"pair intervals, points",15.42,,29966,,,
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",false relation,any pair,7.8,0.27,9996,4,<= 15,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,individual:organization,97.38,0.16,9989,11,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,organization:nation,96.75,0.18,9985,15,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,individual:nation,96.66,0.18,9985,15,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,individual,94.82,0.22,9973,27,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,organization,94.97,0.22,9973,27,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,nation,94.31,0.23,9973,27,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",15.38,,29959,,,
+fixture,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",false relation,any pair,7.81,0.27,9995,5,<= 15,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,individual:organization,97.46,0.16,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,organization:nation,97.7,0.15,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,individual:nation,97.7,0.15,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,individual,98.89,0.1,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,organization,99.03,0.1,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,nation,99.04,0.1,10000,0,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",median width,"pair intervals, points",43.94,,30000,,,
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",false relation,any pair,7.0,0.26,10000,0,<= 15,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,individual:organization,99.4,0.08,8841,1159,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,organization:nation,99.55,0.07,8824,1176,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,individual:nation,99.44,0.08,8860,1140,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,individual,99.21,0.1,8251,1749,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,organization,99.28,0.09,8251,1749,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,nation,99.2,0.1,8251,1749,>= 94,yes
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",median width,"pair intervals, points",15.73,,26525,,,
+fixture,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",false relation,any pair,1.48,0.12,9363,637,<= 15,yes
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,individual:organization,92.68,0.26,9660,340,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,organization:nation,92.22,0.27,9690,310,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",coverage,individual:nation,92.35,0.27,9662,338,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,individual,92.72,0.27,9036,964,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,organization,92.91,0.27,9036,964,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",standing coverage,nation,92.65,0.27,9036,964,>= 94,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",median width,"pair intervals, points",22.92,,29012,,,
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",false relation,any pair,20.24,0.4,10000,0,<= 15,NO
+position,frozen: percentile 95%,role-free.I,"role-free, Class I",cycle flag,reference 25,23.72,0.45,9036,964,,
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,individual:organization,92.88,0.26,9982,18,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,organization:nation,92.85,0.26,9985,15,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",coverage,individual:nation,92.64,0.26,9987,13,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,individual,89.69,0.3,9970,30,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,organization,89.25,0.31,9970,30,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",standing coverage,nation,89.26,0.31,9970,30,>= 94,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",median width,"pair intervals, points",13.82,,29954,,,
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",false relation,any pair,17.12,0.38,9994,6,<= 15,NO
+position,frozen: percentile 95%,role-free.II,"role-free, Class II",cycle flag,reference 25,0.0,0.0,9970,30,,
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,individual:organization,92.66,0.26,9987,13,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,organization:nation,92.92,0.26,9990,10,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",coverage,individual:nation,93.28,0.25,9987,13,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,individual,89.51,0.31,9978,22,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,organization,88.75,0.32,9978,22,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",standing coverage,nation,89.56,0.31,9978,22,>= 94,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",13.78,,29964,,,
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",false relation,any pair,16.87,0.37,9994,6,<= 15,NO
+position,frozen: percentile 95%,role-free.III,"role-free, Class III (valid)",cycle flag,reference 25,0.02,0.01,9978,22,,
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,individual:organization,85.98,0.35,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,organization:nation,85.5,0.35,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",coverage,individual:nation,84.94,0.36,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,individual,88.32,0.32,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,organization,88.2,0.32,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",standing coverage,nation,87.29,0.33,10000,0,>= 94,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",median width,"pair intervals, points",21.88,,30000,,,
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",false relation,any pair,37.82,0.48,10000,0,<= 15,NO
+position,frozen: percentile 95%,authority.I,"authority, Class I: type share",cycle flag,reference 25,22.98,0.42,10000,0,,
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,individual:organization,96.71,0.19,8848,1152,>= 94,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,organization:nation,96.72,0.19,8872,1128,>= 94,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",coverage,individual:nation,96.44,0.2,8886,1114,>= 94,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,individual,94.28,0.25,8307,1693,>= 94,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,organization,94.46,0.25,8307,1693,>= 94,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",standing coverage,nation,93.85,0.26,8307,1693,>= 94,NO
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",median width,"pair intervals, points",12.32,,26606,,,
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",false relation,any pair,8.93,0.29,9360,640,<= 15,yes
+position,frozen: percentile 95%,authority.II,"authority, Class II: type share",cycle flag,reference 25,10.75,0.34,8307,1693,,
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,individual:organization,93.79,0.25,9660,340,>= 94,NO
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,organization:nation,93.41,0.25,9690,310,>= 94,NO
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",coverage,individual:nation,93.69,0.25,9662,338,>= 94,NO
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,individual,94.52,0.24,9036,964,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,organization,94.88,0.23,9036,964,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",standing coverage,nation,94.65,0.24,9036,964,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",median width,"pair intervals, points",24.43,,29012,,,
+position,"candidate A: t(G-1), G over the index",role-free.I,"role-free, Class I",false relation,any pair,17.19,0.38,10000,0,<= 15,NO
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,individual:organization,96.92,0.17,9982,18,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,organization:nation,96.74,0.18,9985,15,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",coverage,individual:nation,96.81,0.18,9987,13,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,individual,94.75,0.22,9970,30,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,organization,94.55,0.23,9970,30,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",standing coverage,nation,94.12,0.24,9970,30,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",median width,"pair intervals, points",15.52,,29954,,,
+position,"candidate A: t(G-1), G over the index",role-free.II,"role-free, Class II",false relation,any pair,8.02,0.27,9994,6,<= 15,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,individual:organization,96.81,0.18,9987,13,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,organization:nation,96.86,0.17,9990,10,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",coverage,individual:nation,97.05,0.17,9987,13,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,individual,94.92,0.22,9978,22,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,organization,94.11,0.24,9978,22,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",standing coverage,nation,94.79,0.22,9978,22,>= 94,yes
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",15.47,,29964,,,
+position,"candidate A: t(G-1), G over the index",role-free.III,"role-free, Class III (valid)",false relation,any pair,7.76,0.27,9994,6,<= 15,yes
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,individual:organization,92.42,0.26,10000,0,>= 94,NO
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,organization:nation,92.45,0.26,10000,0,>= 94,NO
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",coverage,individual:nation,92.03,0.27,10000,0,>= 94,NO
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,individual,96.52,0.18,10000,0,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,organization,96.56,0.18,10000,0,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",standing coverage,nation,96.22,0.19,10000,0,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",median width,"pair intervals, points",28.82,,30000,,,
+position,"candidate A: t(G-1), G over the index",authority.I,"authority, Class I: type share",false relation,any pair,21.5,0.41,10000,0,<= 15,NO
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,individual:organization,99.51,0.07,8848,1152,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,organization:nation,99.4,0.08,8872,1128,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",coverage,individual:nation,99.48,0.08,8886,1114,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,individual,99.31,0.09,8307,1693,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,organization,99.21,0.1,8307,1693,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",standing coverage,nation,99.27,0.09,8307,1693,>= 94,yes
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",median width,"pair intervals, points",15.88,,26606,,,
+position,"candidate A: t(G-1), G over the index",authority.II,"authority, Class II: type share",false relation,any pair,1.47,0.12,9360,640,<= 15,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,individual:organization,96.86,0.18,9660,340,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,organization:nation,96.99,0.17,9690,310,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",coverage,individual:nation,96.96,0.17,9662,338,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,individual,97.74,0.16,9036,964,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,organization,97.63,0.16,9036,964,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",standing coverage,nation,97.73,0.16,9036,964,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",median width,"pair intervals, points",29.55,,29012,,,
+position,"candidate B: t(G-1), G of the thinnest component",role-free.I,"role-free, Class I",false relation,any pair,8.59,0.28,10000,0,<= 15,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,individual:organization,96.92,0.17,9982,18,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,organization:nation,96.74,0.18,9985,15,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",coverage,individual:nation,96.81,0.18,9987,13,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,individual,94.75,0.22,9970,30,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,organization,94.55,0.23,9970,30,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",standing coverage,nation,94.12,0.24,9970,30,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",median width,"pair intervals, points",15.52,,29954,,,
+position,"candidate B: t(G-1), G of the thinnest component",role-free.II,"role-free, Class II",false relation,any pair,8.02,0.27,9994,6,<= 15,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,individual:organization,96.81,0.18,9987,13,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,organization:nation,96.86,0.17,9990,10,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",coverage,individual:nation,97.05,0.17,9987,13,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,individual,94.92,0.22,9978,22,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,organization,94.11,0.24,9978,22,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",standing coverage,nation,94.79,0.22,9978,22,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",median width,"pair intervals, points",15.47,,29964,,,
+position,"candidate B: t(G-1), G of the thinnest component",role-free.III,"role-free, Class III (valid)",false relation,any pair,7.76,0.27,9994,6,<= 15,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,individual:organization,98.19,0.13,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,organization:nation,97.84,0.15,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",coverage,individual:nation,97.7,0.15,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,individual,98.96,0.1,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,organization,98.96,0.1,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",standing coverage,nation,98.82,0.11,10000,0,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",median width,"pair intervals, points",41.01,,30000,,,
+position,"candidate B: t(G-1), G of the thinnest component",authority.I,"authority, Class I: type share",false relation,any pair,6.17,0.24,10000,0,<= 15,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,individual:organization,99.51,0.07,8848,1152,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,organization:nation,99.4,0.08,8872,1128,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",coverage,individual:nation,99.48,0.08,8886,1114,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,individual,99.31,0.09,8307,1693,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,organization,99.21,0.1,8307,1693,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",standing coverage,nation,99.27,0.09,8307,1693,>= 94,yes
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",median width,"pair intervals, points",15.88,,26606,,,
+position,"candidate B: t(G-1), G of the thinnest component",authority.II,"authority, Class II: type share",false relation,any pair,1.47,0.12,9360,640,<= 15,yes

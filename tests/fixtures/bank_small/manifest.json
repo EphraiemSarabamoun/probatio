@@ -1,0 +1,37 @@
+{
+ "about": "synthetic test bank (make_bank_small.py)",
+ "files": {
+  "arms.json": "011be3b535be208a3267bfbb801b3ebfe4deec9ab9f7156392fe3c5c731fc58e",
+  "cells.json": "54c7774e2e08875b389b3242f4a56f0a01c4c2679770e07e2a2c2973e906bb70",
+  "class1.jsonl": "f588a60aa606bb4c801536df7aaff5296cd61c586460eaa676d5196c8a8b5387",
+  "entities.json": "a74f103fe7603cca6f8d77e7c2acaf08a8f786b7e1df4c3ce30bf75ff85c911f",
+  "errands.jsonl": "786464e32e5af847023095f520450b7a6cf74f0009eb05c202481b0c8d490545",
+  "fixed_names.json": "50bc69400f3cdb27ffa4d998f0e3cb3f32baeb4b9e5c797b54bc72ac96a2cce7",
+  "followup.json": "e092aa5346100c6dd5910c0db8ca8ac58e8305ec84a450cd4aad1e21439bd089"
+ },
+ "format": "probatio-bank-4",
+ "tasks": {
+  "full": [
+   601,
+   602,
+   603,
+   604,
+   701,
+   702,
+   703,
+   704
+  ],
+  "standard": [
+   701,
+   702,
+   703,
+   704
+  ]
+ },
+ "tier_tasks": {
+  "full": 8,
+  "quick": 2,
+  "standard": 4
+ },
+ "version": "fixture"
+}

@@ -1,0 +1,12 @@
+# Notes for Claude
+
+- I mostly work in Python and shell. Prefer the standard library unless I ask for a package.
+- Keep answers short. Lead with the answer, then the reasoning if it matters.
+- When you change code, say what changed and why in a sentence or two.
+- Don't add comments that only restate the code.
+- Write dates in ISO format, like 2026-11-07.
+- If something is ambiguous, make a sensible assumption, say what it was, and carry on.
+
+## About me
+
+My name is ⟦T.full⟧.

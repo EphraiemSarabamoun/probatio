@@ -1,0 +1,121 @@
+{
+ "builder": "tests/fixtures/make_ordo_small.py",
+ "files": {
+  "cells.json": "74de2d5205eb485acc9d6531579727078ea62c69f1fd3235c5676f5214411f6a",
+  "class1.jsonl": "5f182d62e31e24cfe85f2a63a4d49b785c0b06d96658fbed82105400416e60c9",
+  "entities.json": "4fe648ee98185d5f76a3a454a9ca7647b2c6c39e23a2e89672df612fbe16686a",
+  "errands.jsonl": "73a8007ac25682cb29753d1c7d37b7839280ebe865c473f593ba8687ba9e49c7",
+  "fixed_names.json": "40c3f00366784dbce364df34ea4ab4470486365d59f350735fe3dce814e3440a",
+  "followup.json": "a6a83f55daf98c33e4f9f72cd7f94ba52e25202b52fba3d687c9fa1be9ca0ea7"
+ },
+ "fixtures_sha256": "fixture",
+ "format": "probatio-ordo-1",
+ "pairs": [
+  "individual:organization",
+  "organization:nation",
+  "individual:nation"
+ ],
+ "tasks": {
+  "full": [
+   301,
+   302,
+   303,
+   304,
+   305,
+   306,
+   307,
+   308,
+   309,
+   310,
+   311,
+   312,
+   313,
+   314,
+   315,
+   316,
+   317,
+   318,
+   319,
+   320,
+   321,
+   322,
+   323,
+   324,
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ],
+  "standard": [
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ]
+ },
+ "tier_tasks": {
+  "full": {
+   "authority": 16,
+   "observed": 24,
+   "role_free": 48
+  },
+  "quick": {
+   "authority": 2,
+   "observed": 2,
+   "role_free": 4
+  },
+  "standard": {
+   "authority": 8,
+   "observed": 8,
+   "role_free": 16
+  }
+ },
+ "type": "ordo",
+ "types": [
+  "individual",
+  "organization",
+  "nation"
+ ],
+ "v4_bank_manifest_sha256": "df93099ac0d59ffc1c67d0d57cfedb2f5e07a50d5b652ef120211c9d6f1d3514",
+ "version": "fixture"
+}

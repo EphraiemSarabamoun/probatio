@@ -1,0 +1,433 @@
+{
+ "errand_interval_rule": "candidate C (PREREG.md Amendment 6): on the role-free errand rows, the small-cluster widening with half the thinnest component's common tasks; Amendment 3 elsewhere",
+ "replicates": 500,
+ "provenance": {
+  "script": "docs/ordo/quick_sim.py",
+  "seeds": "quick-sim|",
+  "scorer_fingerprint": "f8d557b3336db0a5f49252dc846137e57a9027be868ecb6d65303aa2a859f09d"
+ },
+ "calibration": {
+  "retest_agreement": 0.898,
+  "matched_prompts": 147,
+  "tasks": 16,
+  "episodes": 120
+ },
+ "one_target": {
+  "smoke": {
+   "sonnet_min": 6.61,
+   "plan_fingerprint": "5d0a771105b28f6bcd6a20d41db533ebca7ad62598455fd14fbc6f65d6fa8be3",
+   "null": {
+    "I": {
+     "median_raw_width": 34.7,
+     "insufficient": 130,
+     "score_over_15": 0.044
+    },
+    "II": {
+     "median_raw_width": 70.9,
+     "insufficient": 17,
+     "score_over_15": 0.288
+    },
+    "III": {
+     "median_raw_width": 69.1,
+     "insufficient": 14,
+     "score_over_15": 0.318
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 41.7,
+     "insufficient": 32,
+     "score_over_15": 0.91
+    },
+    "II": {
+     "median_raw_width": 68.1,
+     "insufficient": 22,
+     "score_over_15": 0.274
+    },
+    "III": {
+     "median_raw_width": 66.9,
+     "insufficient": 16,
+     "score_over_15": 0.27
+    }
+   }
+  },
+  "standard": {
+   "sonnet_min": 17.21,
+   "plan_fingerprint": "ca62a67b6f0561906afb5be0546eb689777479f8e28f93b52ed280b9f5ac4097",
+   "null": {
+    "I": {
+     "median_raw_width": 21.2,
+     "insufficient": 0,
+     "score_over_15": 0.01
+    },
+    "II": {
+     "median_raw_width": 59.3,
+     "insufficient": 0,
+     "score_over_15": 0.174
+    },
+    "III": {
+     "median_raw_width": 60.0,
+     "insufficient": 0,
+     "score_over_15": 0.186
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 29.4,
+     "insufficient": 0,
+     "score_over_15": 0.998
+    },
+    "II": {
+     "median_raw_width": 60.1,
+     "insufficient": 0,
+     "score_over_15": 0.192
+    },
+    "III": {
+     "median_raw_width": 59.6,
+     "insufficient": 0,
+     "score_over_15": 0.178
+    }
+   }
+  },
+  "I standard + II 24 tasks": {
+   "sonnet_min": 9.37,
+   "plan_fingerprint": "9bc478fadcbf10386a9e2b6093325d8aa324f51ac96914324b75fd4fa4f44d16",
+   "null": {
+    "I": {
+     "median_raw_width": 22.1,
+     "insufficient": 1,
+     "score_over_15": 0.016
+    },
+    "II": {
+     "median_raw_width": 58.1,
+     "insufficient": 0,
+     "score_over_15": 0.208
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 28.9,
+     "insufficient": 0,
+     "score_over_15": 0.994
+    },
+    "II": {
+     "median_raw_width": 58.8,
+     "insufficient": 0,
+     "score_over_15": 0.204
+    }
+   }
+  },
+  "I standard + II 32 tasks": {
+   "sonnet_min": 11.02,
+   "plan_fingerprint": "2146bab05dba2e474491199567a10660620200ab0bc17acb3df6de1d5051df50",
+   "null": {
+    "I": {
+     "median_raw_width": 22.4,
+     "insufficient": 1,
+     "score_over_15": 0.016
+    },
+    "II": {
+     "median_raw_width": 53.1,
+     "insufficient": 0,
+     "score_over_15": 0.184
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 29.5,
+     "insufficient": 1,
+     "score_over_15": 0.992
+    },
+    "II": {
+     "median_raw_width": 53.1,
+     "insufficient": 0,
+     "score_over_15": 0.152
+    }
+   }
+  },
+  "I standard + II 40 tasks": {
+   "sonnet_min": 12.67,
+   "plan_fingerprint": "22fc5fd9973e89922cfcc2743614bf6f29ea7b424fdb7dc361415b81cd020e59",
+   "null": {
+    "I": {
+     "median_raw_width": 22.2,
+     "insufficient": 1,
+     "score_over_15": 0.01
+    },
+    "II": {
+     "median_raw_width": 48.2,
+     "insufficient": 0,
+     "score_over_15": 0.148
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 29.1,
+     "insufficient": 0,
+     "score_over_15": 0.998
+    },
+    "II": {
+     "median_raw_width": 48.0,
+     "insufficient": 0,
+     "score_over_15": 0.144
+    }
+   }
+  },
+  "I standard + II 48 tasks (quick)": {
+   "sonnet_min": 14.32,
+   "plan_fingerprint": "847232a6daadd93d4d29f3e53e50f9761a92a0b237f4b7afeff220c9dbe233fd",
+   "null": {
+    "I": {
+     "median_raw_width": 21.6,
+     "insufficient": 0,
+     "score_over_15": 0.01
+    },
+    "II": {
+     "median_raw_width": 44.1,
+     "insufficient": 0,
+     "score_over_15": 0.114
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 30.0,
+     "insufficient": 0,
+     "score_over_15": 0.998
+    },
+    "II": {
+     "median_raw_width": 44.6,
+     "insufficient": 0,
+     "score_over_15": 0.114
+    }
+   }
+  },
+  "I full + II 24 tasks": {
+   "sonnet_min": 13.79,
+   "plan_fingerprint": "032de62eb330e9018558c8a190dccb40477982a0ff7492c975775501372f17cd",
+   "null": {
+    "I": {
+     "median_raw_width": 16.1,
+     "insufficient": 0,
+     "score_over_15": 0.0
+    },
+    "II": {
+     "median_raw_width": 59.3,
+     "insufficient": 0,
+     "score_over_15": 0.172
+    }
+   },
+   "loyal": {
+    "I": {
+     "median_raw_width": 20.9,
+     "insufficient": 0,
+     "score_over_15": 1.0
+    },
+    "II": {
+     "median_raw_width": 58.3,
+     "insufficient": 0,
+     "score_over_15": 0.18
+    }
+   }
+  }
+ },
+ "triangle": {
+  "smoke": {
+   "sonnet_min": 7.71,
+   "plan_fingerprint": "2da661c7423a89ade4236eb61ceea4f41b592fec26ec67bf458d000e34af78de",
+   "null": {
+    "role-free.I": {
+     "median_width": null,
+     "share_over_40": null,
+     "false_relation": 0.0
+    },
+    "role-free.II": {
+     "median_width": null,
+     "share_over_40": null,
+     "false_relation": 0.0
+    },
+    "authority.I": {
+     "median_width": 100.0,
+     "share_over_40": 0.785,
+     "false_relation": 0.274
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": null,
+     "share_over_40": null,
+     "false_relation": 0.0
+    },
+    "role-free.II": {
+     "median_width": null,
+     "share_over_40": null,
+     "false_relation": 0.0
+    },
+    "authority.I": {
+     "median_width": 100.0,
+     "share_over_40": 0.788,
+     "false_relation": 0.306
+    }
+   }
+  },
+  "standard": {
+   "sonnet_min": 27.4,
+   "plan_fingerprint": "e4cce94e0423e05b3b7770b6dfda160cc91f01d9c3c44cf43f088615ccde9d45",
+   "null": {
+    "role-free.I": {
+     "median_width": 16.8,
+     "share_over_40": 0.0,
+     "false_relation": 0.038
+    },
+    "role-free.II": {
+     "median_width": 43.7,
+     "share_over_40": 0.613,
+     "false_relation": 0.106
+    },
+    "authority.I": {
+     "median_width": 30.3,
+     "share_over_40": 0.265,
+     "false_relation": 0.076
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": 24.5,
+     "share_over_40": 0.001,
+     "false_relation": 1.0
+    },
+    "role-free.II": {
+     "median_width": 42.9,
+     "share_over_40": 0.59,
+     "false_relation": 0.124
+    },
+    "authority.I": {
+     "median_width": 37.2,
+     "share_over_40": 0.397,
+     "false_relation": 0.35
+    }
+   }
+  },
+  "role-free I + checks + N0 16": {
+   "sonnet_min": 9.66,
+   "plan_fingerprint": "b4388681b52382a01c39da98c78a5bf9634a905653e7427bca8309e39a026a1b",
+   "null": {
+    "role-free.I": {
+     "median_width": 16.8,
+     "share_over_40": 0.0,
+     "false_relation": 0.048
+    },
+    "role-free.II": {
+     "median_width": 43.5,
+     "share_over_40": 0.604,
+     "false_relation": 0.148
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": 24.5,
+     "share_over_40": 0.003,
+     "false_relation": 1.0
+    },
+    "role-free.II": {
+     "median_width": 43.7,
+     "share_over_40": 0.607,
+     "false_relation": 0.112
+    }
+   }
+  },
+  "role-free I + checks + N0 24": {
+   "sonnet_min": 12.13,
+   "plan_fingerprint": "2fa10c9d6c0ff6f5f7bee0e66e9550c27510d0c64f5ee234b432df9b6c9c9594",
+   "null": {
+    "role-free.I": {
+     "median_width": 16.7,
+     "share_over_40": 0.001,
+     "false_relation": 0.056
+    },
+    "role-free.II": {
+     "median_width": 35.2,
+     "share_over_40": 0.264,
+     "false_relation": 0.14
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": 24.3,
+     "share_over_40": 0.002,
+     "false_relation": 1.0
+    },
+    "role-free.II": {
+     "median_width": 34.8,
+     "share_over_40": 0.25,
+     "false_relation": 0.096
+    }
+   }
+  },
+  "role-free I + checks + N0 32 (quick)": {
+   "sonnet_min": 14.6,
+   "plan_fingerprint": "32efaa106bfc5bba62fe23ad418313be68c732896e324368fe69eb1912f99ec5",
+   "null": {
+    "role-free.I": {
+     "median_width": 17.0,
+     "share_over_40": 0.001,
+     "false_relation": 0.064
+    },
+    "role-free.II": {
+     "median_width": 29.0,
+     "share_over_40": 0.045,
+     "false_relation": 0.124
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": 24.3,
+     "share_over_40": 0.002,
+     "false_relation": 1.0
+    },
+    "role-free.II": {
+     "median_width": 29.7,
+     "share_over_40": 0.044,
+     "false_relation": 0.14
+    }
+   }
+  },
+  "every standard question + N0 24": {
+   "sonnet_min": 14.62,
+   "plan_fingerprint": "90e2865bf69d94a1360d9033ca791e3005df494db79a55148f633ad68e1af896",
+   "null": {
+    "role-free.I": {
+     "median_width": 16.6,
+     "share_over_40": 0.0,
+     "false_relation": 0.056
+    },
+    "role-free.II": {
+     "median_width": 34.2,
+     "share_over_40": 0.218,
+     "false_relation": 0.146
+    },
+    "authority.I": {
+     "median_width": 32.2,
+     "share_over_40": 0.279,
+     "false_relation": 0.066
+    }
+   },
+   "loyal": {
+    "role-free.I": {
+     "median_width": 24.4,
+     "share_over_40": 0.001,
+     "false_relation": 1.0
+    },
+    "role-free.II": {
+     "median_width": 34.9,
+     "share_over_40": 0.258,
+     "false_relation": 0.152
+    },
+    "authority.I": {
+     "median_width": 37.7,
+     "share_over_40": 0.412,
+     "false_relation": 0.348
+    }
+   }
+  }
+ }
+}

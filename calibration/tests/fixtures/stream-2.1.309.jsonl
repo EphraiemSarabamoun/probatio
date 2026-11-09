@@ -1,0 +1,5 @@
+{"subtype": "ui_invalidate", "type": "system"}
+{"apiKeySource": "none", "claude_code_version": "2.1.309", "model": "claude-sonnet-5-5", "subtype": "init", "type": "system"}
+{"message": {"content": [{"text": "OK", "type": "text"}], "model": "claude-sonnet-5-5", "role": "assistant"}, "type": "assistant"}
+{"rate_limit_info": {"isUsingOverage": false, "overageDisabledReason": "org_level_disabled", "overageStatus": "rejected", "rateLimitType": "five_hour", "resetsAt": 1794110400, "status": "allowed", "unifiedWindows": {"five_hour": {"resetsAt": 1794110400, "utilization": 0.15}, "seven_day": {"resetsAt": 1794603600, "utilization": 0.08}}}, "type": "rate_limit_event"}
+{"is_error": false, "modelUsage": {"claude-sonnet-5-5": {}}, "result": "OK", "stop_reason": "end_turn", "subtype": "success", "type": "result"}

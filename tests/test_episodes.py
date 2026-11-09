@@ -74,7 +74,7 @@ class TestWorld(unittest.TestCase):
 
     def test_braces_in_a_name_are_refused(self):
         with self.assertRaises(SystemExit):
-            P.main(["--agent", "claude", "--name", "Jane {X}", "--dry-run"])
+            P.main(["--agent", "claude", "--name", "Jane {X}", "--dataset", "all", "--dry-run"])
 
 
 class TestCommands(unittest.TestCase):
@@ -201,7 +201,7 @@ class TestReview(unittest.TestCase):
 
     def test_g_wish_needs_labores_alone(self):
         with self.assertRaises(SystemExit) as stop:
-            P.main(["--agent", "claude", "--name", "Jane", "--arm", "g_wish", "--dry-run"])
+            P.main(["--agent", "claude", "--name", "Jane", "--dataset", "all", "--arm", "g_wish", "--dry-run"])
         self.assertIn("labores only", str(stop.exception))
 
 
@@ -272,6 +272,131 @@ class TestServed(unittest.TestCase):
                                                + "\n")
             ep = P.view_state(out, [call], meta)["episodes"][0]
             self.assertEqual((ep["status"], ep["outcome"]["filed"], ep["reply"]), ("done", False, "done"))
+
+
+class TestV3Page(unittest.TestCase):
+    """v3's --watch on v4's hardened server (live.serve_page; Codex's final check of the ordo round, finding 5): the
+    Host allowlist, exactly "/" and "/state", the token on every route (the favicon included), the security headers
+    with a CSP that allows the page's own inline script and style by hash alone, and every string of the state
+    redacted, with v3's state and page unchanged in shape. Every canary is built at run time; the only network is the
+    page's own loopback server."""
+
+    def serve(self, out, calls):
+        with unittest.mock.patch("sys.stdout"):
+            server = P.watch(Path(out), calls, {"agent": "claude", "model": "m", "name": "Jane Doe",
+                                                "arm": "neutral"}, 0)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server
+
+    def get(self, server, path, token=True, host=None, method="GET"):
+        import http.client
+        port = server.server_address[1]
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        sep = "&" if "?" in path else "?"
+        conn.putrequest(method, path + (f"{sep}t={server.token}" if token else ""), skip_host=True)
+        conn.putheader("Host", host or f"127.0.0.1:{port}")
+        conn.endheaders()
+        res = conn.getresponse()
+        body = res.read().decode("utf-8", "replace")
+        conn.close()
+        return res, body
+
+    def test_hosts_routes_and_the_token_on_every_route(self):
+        with tempfile.TemporaryDirectory() as d:
+            server = self.serve(d, [])
+            port = server.server_address[1]
+            res, body = self.get(server, "/state")
+            self.assertEqual((res.status, json.loads(body)["episodes"]), (200, []))
+            self.assertEqual(self.get(server, "/state", host=f"localhost:{port}")[0].status, 200)
+            for host in ("attacker.invalid", f"attacker.invalid:{port}", f"127.0.0.1:{port + 1}", "127.0.0.1"):
+                self.assertEqual(self.get(server, "/state", host=host)[0].status, 403, host)
+            self.assertEqual(self.get(server, "/stateSuffix", host="attacker.invalid")[0].status, 403)
+            for path in ("/stateSuffix", "/state/", "/index.html", "/favicon.ico", "/../replies.jsonl"):
+                self.assertEqual(self.get(server, path)[0].status, 404, path)
+            for path in ("/", "/state", "/favicon.ico"):
+                self.assertEqual(self.get(server, path, token=False)[0].status, 403, path)
+            for method in ("POST", "PUT", "DELETE", "HEAD"):
+                self.assertEqual(self.get(server, "/state", method=method)[0].status, 405, method)
+
+    def test_security_headers_and_the_csp(self):
+        import base64
+        import re
+        digest = lambda t: "'sha256-" + base64.b64encode(hashlib.sha256(t.encode()).digest()).decode() + "'"  # noqa
+        script = re.search(r"<script>(.*?)</script>", P.VIEW, re.S).group(1)
+        style = re.search(r"<style>(.*?)</style>", P.VIEW, re.S).group(1)
+        self.assertIsNone(re.search(r"\sstyle=|\son[a-z]+=", P.VIEW))       # nothing the hash-only CSP would block
+        with tempfile.TemporaryDirectory() as d:
+            server = self.serve(d, [])
+            for path, token, status in (("/", True, 200), ("/state", True, 200), ("/state", False, 403),
+                                        ("/nothing", True, 404)):
+                res, body = self.get(server, path, token=token)
+                self.assertEqual(res.status, status, path)
+                self.assertEqual(res.getheader("Cache-Control"), "no-store")
+                self.assertEqual(res.getheader("Referrer-Policy"), "no-referrer")
+                self.assertEqual(res.getheader("X-Content-Type-Options"), "nosniff")
+                csp = res.getheader("Content-Security-Policy")
+                self.assertIn("default-src 'none'", csp)
+                self.assertIn(f"script-src {digest(script)};", csp)
+                self.assertIn(f"style-src {digest(style)};", csp)
+                self.assertNotIn("unsafe", csp)
+            res, page = self.get(server, "/")
+            self.assertNotIn(server.token, page)
+            self.assertIn("location.search", page)
+
+    def test_the_state_is_redacted_and_keeps_its_shape(self):
+        secret = "s3cr3t-" + "x" * 12
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.dict("os.environ", {"V3_TEST_API_KEY": secret}):
+            out = Path(d)
+            r = row()
+            call = {"condition": "with", "dataset": "labores", "id": r["id"], "row": r, "prompt": "p",
+                    "world": P.personalise_world(r["world"], "Jane Doe"), "for": "Jane Doe"}
+            server = self.serve(out, [call])
+            canaries = ["hf_" + "FAKE" * 8, "sk-ant-" + "FAKE" * 6, secret, server.token]
+            folder = P.episode_dir(out, call)
+            P.start_episode(call, folder)
+            (folder / "record.jsonl").write_text(json.dumps(call_line("look", {"note": " ".join(canaries)})) + "\n")
+            (out / "replies.jsonl").write_text(json.dumps({"condition": "with", "dataset": "labores", "id": r["id"],
+                                                           "error": None, "reply": "done " + " ".join(canaries),
+                                                           "outcome": {"solved": 0, "filed": False, "calls": 1}})
+                                               + "\n")
+            res, body = self.get(server, "/state")
+            self.assertEqual(res.status, 200)
+            for canary in canaries:
+                self.assertNotIn(canary, body)
+            state = json.loads(body)
+            ep = state["episodes"][0]
+            self.assertEqual(set(state), {"agent", "model", "name", "arm", "episodes"})
+            self.assertEqual(set(ep), {"task", "beneficiary", "for", "status", "calls", "effort", "outcome", "error",
+                                       "reply"})
+            self.assertIn("<redacted>", ep["reply"])
+            self.assertIn("<redacted>", ep["calls"][0]["args"])
+            self.assertEqual((ep["status"], ep["calls"][0]["tool"]), ("done", "look"))
+
+    def test_a_secret_across_a_cut_is_redacted_before_the_cut(self):
+        """A key whose end falls past the 90-character cut of the arguments, or the 700 of a reply, would survive a
+        cut made first as a prefix no shape matches; it is redacted whole, then cut."""
+        key = "hf_" + "FAKE" * 8
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            r = row()
+            call = {"condition": "with", "dataset": "labores", "id": r["id"], "row": r, "prompt": "p",
+                    "world": P.personalise_world(r["world"], "Jane Doe"), "for": "Jane Doe"}
+            server = self.serve(out, [call])
+            folder = P.episode_dir(out, call)
+            P.start_episode(call, folder)
+            (folder / "record.jsonl").write_text(json.dumps(call_line("look", {"note": "y" * 70 + " " + key})) + "\n")
+            (out / "replies.jsonl").write_text(json.dumps({"condition": "with", "dataset": "labores", "id": r["id"],
+                                                           "error": "exit 1: " + "e" * 60 + " " + key,
+                                                           "reply": "z" * 680 + " " + key, "outcome": None}) + "\n")
+            res, body = self.get(server, "/state")
+            self.assertNotIn("hf_FAKE", body)                  # not even the prefix a cut-first page would keep
+            ep = json.loads(body)["episodes"][0]
+            self.assertTrue(ep["calls"][0]["args"].endswith(" <redacted>"))
+            self.assertTrue(ep["reply"].endswith(" <redacted>"))
+            self.assertTrue(ep["error"].endswith(" <redacted>"))
+            self.assertEqual(P.view_state(out, [call], {"agent": "a", "model": "m", "name": "J"})["episodes"][0]["reply"],
+                             ("z" * 680 + " " + key)[:700])     # without a redactor, v3's state is as it was
 
 
 if __name__ == "__main__":

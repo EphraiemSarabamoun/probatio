@@ -1,0 +1,166 @@
+{
+ "bank_sources": {
+  "cells.json": "d90115a6149a8164b27a3f129ee570ef8651c6ecc041395f6741f98da0417a1a",
+  "entities.json": "bd55f0e49c512b226bd722576cb3ff822f1a56baa965c9d46b596c7fb807f455",
+  "fixed_names.json": "650fd6b9928d77edc0485fb8a09cba9ed14dc2b2d48f922e829b72c4e0312731",
+  "followup.json": "3e52690358981d20c9769fc8db074cf31d7f7759c21bca416b0593f90678aab0",
+  "nation/class1.json": "e7d9eba28014304a5762aeb5e8cdbb240120c54a32bf4657f4c76e41b883c5f4",
+  "nation/errands.json": "06f128af92c5251804760fd1a2937a3ecbbe4ad27298e1954cf59540a5234bcb",
+  "organization/class1.json": "6d212658541c25146d651636d41c193abf70c7082c75ae27decbf4f0041251be",
+  "organization/errands.json": "4f1f6e9205655b0f2215eb28bb886a32361e814645821f1d2cde36b254a4fe7e",
+  "rf2/nation.json": "01ade5b9894570c6c0bbc13cd120e4e9cd9d09b55695fb922142fcd90cbf0b83",
+  "rf2/organization.json": "38047802148ff8e5f4ddcdaa0726678a6d5b86c00f89bb56326c191374381a9c"
+ },
+ "builder_sha256": "82e30b99d3554da1b82c455330ff858f93ffafd188b48eb64ba4b607bb696bba",
+ "built_by": "ee26c25f8c5bd1f0c96f7babcf5a3cf958ca7f23",
+ "files": {
+  "arms.json": "e0c2b72dcd20bd3389210c4d05abdde10f6f51e6ca80dd41c62c5da6807e748d",
+  "cells.json": "4827fb954803d923ce0f48702cf50eaea4f1cd24181398fa584343dbe7023d29",
+  "class1.jsonl": "f138f75db76815fa8bd76170ea70e7c7fb53ffc79e26fed80a4f10a6a9d5e5ec",
+  "entities.json": "3b9c506e7ba39cae1fa154efeb8ac12303f6193cfae6ac0fc2a24c640689d2e5",
+  "errands.jsonl": "47bf65e7568df32f986117178b003f6fdddd76d46f56e2e37e04642f5f7b4e8d",
+  "fixed_names.json": "649542879d6182fc8efe96d8b3c171d3df6fa4419c8cac532be2652904b9abfc",
+  "followup.json": "e092aa5346100c6dd5910c0db8ca8ac58e8305ec84a450cd4aad1e21439bd089"
+ },
+ "format": "probatio-bank-4",
+ "pending": [],
+ "source_files": {
+  "anulus/v0.4": {
+   "rows": 768,
+   "sha256": "1ce874be6ec8a454728d7166513068d7684495c49a481a6bf59e6b83fdce1be8"
+  },
+  "anulus/v0.5": {
+   "rows": 768,
+   "sha256": "ac02feb60c7c303b2b020d4911ff0ee59f6624e09dabc76c98f56e569d37bf57"
+  },
+  "devotio/full": {
+   "rows": 678,
+   "sha256": "632fb427c79c7b0fd3b3a34244ed2ed1445c9e8d076158d80a681061b7e72b9b"
+  },
+  "labores/refunds": {
+   "rows": 192,
+   "sha256": "fa64dfc235612dc314866b3d1828a849ea76b76576872b352b12d0daaf49a55f"
+  },
+  "par-potestas/conflict-full": {
+   "rows": 448,
+   "sha256": "a85ea93b96bf9811d9898c4450f269f838aa20b8be3a1cbd6282831ee504c68b"
+  },
+  "patria/class1": {
+   "rows": 5048,
+   "sha256": "c60eec2d79bd98d477f13516a8f7dd5f38275d039eb692a99e2dac71a4766d33"
+  },
+  "patria/class23": {
+   "rows": 1728,
+   "sha256": "672fd97731d6fb1bf98cfe763540b2f60813210e8a203283a55b513883c5ee55"
+  },
+  "sacramentum/full-forced": {
+   "rows": 392,
+   "sha256": "efee8b078ed2b4d31bd106041a47c72d3ba92246a82c9183e1c3813b1a30deec"
+  },
+  "sacramentum/full-strict": {
+   "rows": 776,
+   "sha256": "a2e7c86626e5ebb7c908e7ba947a92c543fc11987b31db45aa1740651e6e6763"
+  },
+  "salus-populi/full-P0": {
+   "rows": 1200,
+   "sha256": "f6f4e3b494b10d8cab64f87163991850507ee792e289610773f818ff36860a8c"
+  },
+  "salus-populi/full-P1": {
+   "rows": 1200,
+   "sha256": "0837fb1b8215cca88a109ecf63a0efa698e6fbaadfac00828835a394962781be"
+  }
+ },
+ "sources": {
+  "anulus": "9c459f3a166f6e4bede234044cc2e7dbde48dd3d",
+  "devotio": "85148c8281f8d62401c8b6583408a2cb6e4bc996",
+  "labores": "22b6ac1d0ac51e7097adcf19100e0d07b1b2c827",
+  "par-potestas": "e6098aa38df0e19e50ec42201a7ba21212f06178",
+  "patria": "44ae9cb329d4a5b69db399038938fb6864dd0978",
+  "sacramentum": "0e82fbe9558a49ed296e3082f4c7d920a7704bce",
+  "salus-populi": "d7cba2b26fd1993fa4ef7b0bd49fea0eb5f7fc89"
+ },
+ "tasks": {
+  "full": [
+   301,
+   302,
+   303,
+   304,
+   305,
+   306,
+   307,
+   308,
+   309,
+   310,
+   311,
+   312,
+   313,
+   314,
+   315,
+   316,
+   317,
+   318,
+   319,
+   320,
+   321,
+   322,
+   323,
+   324,
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ],
+  "standard": [
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ]
+ },
+ "tier_tasks": {
+  "full": 48,
+  "quick": 8,
+  "standard": 24
+ },
+ "version": "4.0"
+}

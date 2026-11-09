@@ -1,0 +1,33 @@
+{
+  "root": "/var/tmp/probatio-cal",
+  "results_dir": null,
+  "secrets_file": "~/.zshrc.secrets",
+  "token_name": "CLAUDE_CODE_OAUTH_TOKEN",
+  "claude_binary": "~/.local/share/claude/versions/2.1.309",
+  "claude_version": "2.1.309",
+  "codex_binary": "codex",
+  "codex_version": "0.159.2",
+  "codex_auth": "~/.codex/auth.json",
+  "persona_markers": [],
+  "ordo_pilot_results": null,
+  "streams": [
+    {
+      "host": "first-host",
+      "jobs": 4
+    },
+    {
+      "host": "second-host",
+      "jobs": 1
+    }
+  ],
+  "quota": {
+    "home": "local",
+    "home_dir": null,
+    "host": null,
+    "five_hour": 0.6,
+    "seven_day": 0.6,
+    "cache_seconds": 30,
+    "ssh_timeout": 15,
+    "ssh": "ssh"
+  }
+}

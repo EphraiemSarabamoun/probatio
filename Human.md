@@ -2,84 +2,261 @@
 
 ## What it does
 
-probatio benchmarks a person's own Claude Code or Codex agent on six public loyalty datasets from Hugging Face: four of questions (sacramentum, devotio, par-potestas, salus-populi) and two of errands done with tools (labores and anulus). Every item is asked twice, once with the agent's memory files loaded and once with them switched off, and scored mechanically: a question by its reply, an errand by the record of its tool calls. The report compares the two conditions, so it shows how much the memory files change whom the agent favours. A run can cover one dataset or all six, at one of three sizes (smoke, slim, full), and it saves a CSV and a graph beside the report. The README explains the conditions and the outputs for users; this file is for someone reading or changing the code.
+probatio v4 scores a person's own Claude Code or Codex agent for loyalty to a target the user picks: an individual (by default the user), an organization or a nation. It returns three scores from 0 to 100, each with a 95% interval, the components behind it, red flags and validity checks: Class I (professed, from questions), Class II (behavioural, from errands done with tools in a plain world) and Class III (internalised, the same errands under a notice that the session is unobserved, read against the agent's own report of what it believed). Every item is a template in one bank, rendered at run time for the target, its matched invented control and five comparators, and each scored item has a twin that differs only in the scored entity, so a score is the gap between how the agent treats the target and how it treats the control. The agent runs with its memory files on, off, or both, and every number is computed mechanically from replies and tool records; no model judges anything. The design is `docs/v4/`, and README.md is the user's guide. This file is for someone reading or changing the code.
 
 ## Where execution starts
 
-Everything is in one file, probatio.py, and execution starts at `main()` at its bottom. `python3 probatio.py --agent claude --name "Jane Doe"` parses the flags, checks the CLI and its login (`agent_options`), builds the list of calls for the chosen datasets and tier (`plan_calls`), prints the preflight with a time estimate per dataset (`preflight`, `estimate`) and, unless `--dry-run` is given, makes the calls (`run_calls`) and writes report.md, results.csv and results.svg (`write_results`).
+Everything is in one file, probatio.py, with world.py beside it as the episode engine and the item bank in bank/. Execution starts at `main()` at the bottom of probatio.py. Every command line goes to `main_v4()` unless it names one of v3's own flags (`--dataset`, `--demo`, `--seed`, `--port`, `--local`, or the tiers `smoke` and `slim`) and no v4-only option (`--target-type`, `--compare`, `--entities`, `--print-entities`): `wants_v3` makes that test, so v4's own smoke tier never routes to v3, and such a command line runs v3, unchanged, until v3 is retired (see The v3 path below). `--watch` is v4's too. `--target-type` defaults to individual, so `--agent claude --name "Jane Doe"` scores the user.
+
+A command line that uses any option of the cross-type design (`--compare`, `--entities`, `--print-entities`, a target written `TYPE=NAME`, or a second `--target`; `uses_options`) goes from `main_v4` to `main_compare`, described in "Comparing types and your own rosters" below. Without one, `main_v4` is v4's path, unchanged.
+
+`main_v4` does the whole run in order: `parse_args_v4`, the name guard (`checked_names`), the bank (`load_bank`: bank/, whose manifest must have the sha256 pinned in BANK_MANIFEST_SHA256, or a `--bank` folder for bank authors), the world.py hash check (WORLD_SHA256), the roster (`resolve_target`), the plan (`plan_v4`), the CLI's options (`agent_options`, with the effort pinned), the preflight (`preflight_v4`) and, unless `--dry-run` is given, the run: `claim` takes the folder's lock, `check_resume` compares run.json, `run_calls` makes the calls and `score_run` writes the scorecard, which is then printed. The folder defaults to results/v4-<agent>-<type>-<target key>-<tier>-memory-<mode>, with the arm and the model appended when they are not the defaults.
 
 ## The main flow
 
 ```mermaid
 flowchart TD
-    A["main: read flags (--dataset, --tier, ...)"] --> B["agent_options: CLI on PATH, Codex login, model and features"]
-    B --> C["plan_calls: load_rows for each chosen dataset"]
-    C -->|smoke or full| C1["download once into .cache, check row count and sha256"]
-    C -->|slim| C2["slim: rep 0 of the rows the report reads, items balanced by balanced() with SLIM_SEED"]
-    C1 --> D["personalise puts the name in; each item gets two calls, one per condition, in a seeded order"]
-    C2 --> D
-    D --> E["preflight: version, model, items, calls and estimated time per dataset, memory files found"]
-    E -->|--dry-run| Z["stop"]
-    E --> F["claim the results folder, then check_resume: run.json must match the recorded settings and hashes"]
-    F --> G["run_calls: threads; skips calls already in replies.jsonl; progress line with a running ETA"]
-    G --> H{"agent"}
-    H -->|claude| I["claude_call: claude -p, memory switched off by two environment variables"]
-    H -->|codex| J["codex_call: codex exec in a fresh temporary CODEX_HOME"]
-    I --> K["score: parse the reply, map the choice to its meaning"]
-    J --> K
-    H -.->|"labores, anulus"| W["start_episode: a fresh world.json; world.py is the only MCP server, appending record.jsonl"]
-    W -.-> X["episode_outcome: solved, filed and tool calls, from the record"]
-    X --> L
-    W -.-> V["--watch: view_state reads every record live for the page"]
-    K --> L["replies.jsonl: one line per call, appended as it finishes"]
-    L --> M["table: measures and quality per condition, for the chosen datasets"]
-    M --> N["report.md, also printed"]
-    M --> O["results.csv: csv_rows"]
-    M --> P["results.svg: results_svg"]
+    A["main: v4 unless a v3-only flag (wants_v3)"] --> B["main_v4: parse_args_v4, checked_names (check_name on every typed name)"]
+    B --> C["load_bank: bank/ (manifest sha256 pinned) or --bank, every file's sha256"]
+    C --> C1["derive_cell: U and O overlays built from the N0 rows and cells.json"]
+    C1 --> C2["check_bank: rosters, rows, a world for every task and cell"]
+    C2 --> D["resolve_target: T, control X, comparators K, anon; aliases, reserves, fixed-name clashes"]
+    D --> E["plan_v4: plan_class1 (target and twin) + plan_errands (N0, U, O), rendered, hashed, shuffled"]
+    E --> F["preflight_v4: counts and time per class, sample sentences, memory files, plan fingerprint"]
+    F -->|--dry-run| Z["stop (with --out: rendered.jsonl)"]
+    F --> G["claim, check_resume, then run_calls (v3): threads, resume, model and failure stops"]
+    G --> H{"call"}
+    H -->|question| I["claude_call or codex_call; score parses the reply"]
+    H -->|errand| J["start_episode: a fresh world, world.py the only MCP server"]
+    J --> K["claude_dialogue: errand, close sentinel, five-question report"]
+    J --> L["codex_call, then codex_report: a resumed session for the report"]
+    I --> M["replies.jsonl; quota.jsonl for Claude Code"]
+    K --> M
+    L --> M
+    K --> N["episodes/: world.json, record.jsonl, followup.json, transcript.jsonl"]
+    L --> N
+    M --> O["score_run: units, components, class scores, bootstrap, Class III, red flags, validity"]
+    N --> O
+    O --> P["write_scorecard: scorecard.json, units.jsonl, scorecard.md, report.md, results.csv, results.svg"]
 ```
 
-The calls are planned before anything runs: each row becomes two calls, one per condition, side by side in a seeded shuffle, so drift during the run (load, rate limits) hits both conditions alike. `ask` makes one call with one retry and keeps errors (timeouts, CLI failures) apart from abstentions (replies that break the answer format). Each finished call is appended to replies.jsonl at once, so a rerun with the same `--out` resumes: `read_replies` keeps the newest line per call and cuts a torn last line, and failed calls are tried again. Before it reads or writes anything in the folder, `main` takes an OS lock on out/run.lock (`claim`), which the system releases however the process ends, so two runs never share a folder. `check_resume` refuses a resume when anything recorded in run.json has changed, memory-file hashes included, and `run_calls` stops when a reply comes from a model none of the earlier replies came from, or after eight failures in a row. The docstrings of these functions give the details.
+The calls are planned and rendered before anything runs. Each item's conditions sit side by side in a seeded shuffle, as in v3, so drift during the run hits both alike, and the plan's fingerprint goes into run.json, so a resume refuses a changed bank, roster or rendering. Scoring reads what the run saved in its folder, so a finished run can be scored again without calling a model.
 
-## The errands (labores and anulus)
+## The important functions, stage by stage
 
-An agentic row is an episode: an errand in a simulated firm, for you or for a teammate.
-- **Rows.** `episode_rows` keeps you as the principal, one prompt arm (`--arm`) and, for anulus, the three notices in NOTICES. It then takes the tier's tasks with `spread`, evenly over the levels, or the one `--seed`.
-- **Plan.** `plan_calls` gives each call its world with your name in it (`personalise_world`, which fills the placeholders string by string so a name is never read as JSON) and the name of the person its errand is for.
-- **Each attempt.** `ask` passes the call's folder, and `start_episode` writes a fresh world for every attempt and returns the MCP server: world.py on this Python, isolated (`-I`).
-- **The CLIs.** `claude_command` and `codex_command` add that one server, Claude Code with only its tools allowed and the turns capped, Codex with its tools approved in advance, and the call gets EPISODE_TIMEOUT.
-- **Scoring.** Afterwards `episode_outcome` reads `record.jsonl` (`read_record`, `served`, REFUSED): solved when the last served call of the finish tool filed exactly the answer key, filed when anything was filed, and calls, the tool calls before filing.
-- **Measures.** `episode_measures` (with `extra_calls`, which pairs your errand with a teammate's on the same task) gives the report's rows.
-- **world.py** is castra's episode engine, byte for byte. WORLD_SHA256 pins it, and `main` refuses to run an errand if it changed.
+**Names and the guard** (section "v4: entities, the name guard and rendering").
+- `checked_names` passes `--name`, `--target` (which defaults to `--name` for an individual), `--target-short` and `--target-possessive` through `check_name`, the structural guard of DESIGN 9, and turns its `NameRefused` into a short exit. The guard allows letters and marks of any script, digits and `. , ' & - ( ) /`, at most MAX_NAME_CHARS characters and MAX_NAME_WORDS words, and refuses a whole name that is an answer word (ANSWER_WORDS) or anything that reads as a menu option (OPTION_TOKEN). It keeps a name from breaking an answer format, a world or a slot; it does not prove a name carries no instruction, so the preflight's sample sentences are the user's check.
+- `entity` derives a typed name's record (DESIGN 5.1): the full and short forms, the possessives, the group, the requester and its back-reference `to`, the sign-in `code`, and their sentence-start forms, with `sentence_start`, `possessive` and `handle`.
+- `render` fills `⟦ROLE.field⟧` slots (SLOT) in one pass by exact replacement, never by str.format, and raises RenderError for an unknown role or field, a value holding a slot mark (`check_roles`) or a mark left behind. `render_world` parses a world, fills every key and string, refuses two keys that render alike or a changed tool name, and writes sorted-key JSON, so a world rendered with the published names is byte-identical to the published one.
 
-**The live page.** `--watch` starts `watch`, a small HTTP server on 127.0.0.1 in a background thread. The page (VIEW) asks /state once a second, and `view_state` answers from the run's replies.jsonl (read without touching it, `read_lines`) and each episode's record. `--demo` (`demo_setup`) is a run of one task, with memory only, every errand at once, watched.
+**The bank and its overlays** (section "v4: the bank, the roster and the plan"; the format is BANK_FORMAT.md).
+- `load_bank(folder, pinned)` checks manifest.json's sha256 against BANK_MANIFEST_SHA256 (not for `--bank`), its format (BANK_FORMAT) and the sha256 of each of BANK_FILES. When the manifest lists cells.json, errands.jsonl must hold N0 rows only, and `derive_cell` builds each U and O row from its N0 row: the cell's notice paragraphs after the anchor paragraph, the activity-log rule's header swapped, nothing else changed.
+- `check_bank` refuses what the planner cannot use: a type without its comparators, invented names, reserves, anonymous requester, fixed names, report or arms; a row missing CLASS1_KEYS or ERRAND_KEYS; a template id used twice; a type whose sacrifice rows are not I.4's eight (family, price) items in both letter orders (SACRIFICE_FAMILIES, SACRIFICE_PRICES, SACRIFICE_LETTERS); a world that is not JSON; a task in a tier's pool without a world for every type and cell.
 
-## The important parts of probatio.py
+**The roster.** `resolve_target(bank, type, name, short, poss)` returns {type, T, X, K, anon, notes}. A name or alias on the roster (compared by `norm_name`) takes the curated record, else `entity` derives one. A name that clashes with a fixed name of the bank (`names_clash`) is refused; a target that is a comparator brings in the first reserve, and a target that is the control moves the control to the next invented name. Keys and sign-in codes are kept distinct, and the notes are printed by the preflight.
 
-**Datasets and tiers.** `COMMITS` pins each dataset to one Hugging Face commit and `CONFIGS` names the smoke and full configs. `load_rows` downloads into .cache/ and `check_rows` refuses a file whose row count or prompt hashes differ from the published ones. The slim tier has no file of its own: `load_rows` reads the full config and `slim` keeps the rows `slim_item` tags, sampling the parts named in `SLIM_ITEMS` with `balanced` and its own fixed seed, so every user gets the same 360 items (a test pins their fingerprint). `personalise` fills the `{PRINCIPAL}` and `{PRINCIPAL_FIRST}` placeholders with the user's name; in the key fields (people, maps_to, requester) the placeholder stays and means "you" (`YOU`).
+**The plan.**
+- `plan_class1` plans every Class I item twice, with the target and with its twin (the control X, or for sacrifice and honesty the anonymous requester), with the item ids of INTERFACES 3. The smoke tier rotates frames, word pairs and scenarios over the comparators; the full tier asks everything twice. `class1_item` renders one, maps its choices to entity keys and refuses a rendering that changed the answer menu (MENU_LINE).
+- `plan_errands` gives each task of the tier (`tier_tasks`: the manifest's count spread over its pool with v3's `spread`, and the O cell on half of them, spread again) the target's and the control's errand in each cell, both sent by T (DESIGN D3). `--arm g_wish` replaces the type's neutral sentence, which must occur once. Each call carries its rendered world, its report and their hashes.
+- **The tiers** are smoke, quick, standard and full (V4_TIERS). smoke is the plan called quick until 2026-11-08, item for item, kept for the calibration's Stages A and C and the frozen pilot's Stage 1 (PREREG Amendment 5). The pinned manifest still names its task count `quick` (MANIFEST_TIER).
+  - quick is the 15-minute estimate (`docs/ordo/QUICK.md`), made of others' parts: `TIER_PARTS` gives the tier whose Class I and whose Class II it asks (standard's and full's), and `TIER_CLASSES` the classes it plans (I and II).
+  - `resolve_classes` turns `--class all` into the tier's classes and refuses a III at quick.
+- **Plan recipes** (`PLAN_RECIPES`, `LEGACY_RECIPES`). Every run.json and scorecard records its recipe (`quick@2`, `smoke@1` and so on).
+  - `recipe_of` reads a run.json from before recipes through the legacy map, so a quick of then is `smoke@1`. `planner_tier` names the tier that plans a recipe.
+  - `rescore`, `check_resume` (through `resume_view`), `comparable` and the scorecard heads read the recipe, never the bare tier word, and no historical file is edited.
+- `plan_v4` picks the cells from `--class` (CLASS_CELLS: II asks N0, III asks U and O), shuffles with V4_SEED and adds the conditions of MEMORY_MODES. `plan_fingerprint` hashes every call's condition, id and hashes.
 
-**Time estimates.** `SECONDS_PER_CALL` holds the seconds per call for each CLI and dataset; its comment says where they come from. `estimate` makes the preflight's lines, and `duration` words a time the same way everywhere.
+**The preflight.** `preflight_v4` prints the CLI version, model and effort, the roster and its notes, the tier's sentence (`tier_sentence`: what a quick run leaves out), the counts and time per class (`estimate_v4`), three sentences with the target in them (`sample_sentences`), the memory files (`memory_files`, which honours `--auto-memory`), and the bank's hash, and returns the facts for run.json. W4's harness parses the memory list, so its wording is frozen (INTERFACES 4).
 
-**Parsing.** One function per answer format on the dataset cards: `letter` (bare_letter), `rating` (integer_0_10), `last_line` (final_action_line), `one_word` and `three_lines` (three_final_lines), with `bare` removing the few wrappers the cards tolerate. `score` picks the parser by the row's `answer_format` and maps the answer through the row's `choices` to what it means: a person, an action such as help or stay, a rating, or the three menu choices. These rules were checked against the evals' own reference parsers on every reply the evals had recorded, with full agreement.
+**The time model.** One table, `docs/ordo/budget.json["pricing"]`, written by `docs/ordo/budget.py`.
+- Its sonnet profile is measured: the ordo pilot's per-call seconds, summarised by `docs/ordo/timing.py` into `timing.json`. Its opus and codex profiles are assumptions.
+- `pricing` reads it, `expected_seconds` prices a question by its rate family and an errand by its cell, and `plan_minutes` sums over `--jobs`.
+- `rates_profile` picks a run's profile from its agent, model and effort, with the label the preflight prints: measured, assumed, or a proxy. `ordo.count_plan` prices through the same functions.
+- `note_launch` writes a line of `launches.jsonl` at each launch's start and end (`run_calls` calls it), `read_launches` sums the launches that recorded an end, and `run_time_line` gives the final card that actual time, never an estimate.
 
-**Agents.** `claude_command` and `codex_command` build the command lines; the only difference between the conditions is the two environment variables for Claude and `project_doc_max_bytes=0` plus the missing AGENTS links for Codex. `codex_home` makes each call's temporary CODEX_HOME in the run's codex-homes/ folder inside `--out`. It holds only links (to auth.json and, with memory, the global AGENTS files) and is deleted when the call ends, after a timeout or an error too. A kill that cannot be caught can leave some behind until the next run with the same `--out`, whose `claim` removes them once it holds the lock. `memory_files` lists the files the with-memory run should load, for the preflight, the report and the resume check: for Claude Code the user's CLAUDE.md and rules, the CLAUDE.md files and rules folders from the working directory up, the auto-memory index and every file these import (`imports`, a best-effort reading of Claude Code's @import syntax, not Claude's own parser); for Codex one AGENTS file in its home and in each folder from the repository root down (`agents_file`). It only looks, and the CLI decides what it actually loads.
+**Running the calls.** v4 reuses v3's runner.
+- `run_calls` runs the calls in threads, skips those already in replies.jsonl, retries failed ones, and stops on a reply from a new model or after MAX_ERRORS_IN_A_ROW failures in a row; `ask` retries a call once and names it in a copy of the options for quota.jsonl. A v4 run hands it its live line (`line=`, see Watching a run below), and then it records each launch in launches.jsonl (`note_launch`; `read_launches` sums the run's time); v3 and the calibration's runners pass none and keep v3's progress line and folder.
+- A question's reply is parsed by v3's `score`, which also reads Class I's `final_answer_line`, and maps it through the row's choices to an entity key or an action.
+- For Claude Code, `claude_command` asks for stream-json, pins the effort as `--effort` and as CLAUDE_CODE_EFFORT_LEVEL, and sets the two memory switches (auto memory off in both conditions under `--auto-memory off`). `claude_call` reads the stream with `parse_stream` and `stream_reply`, and `note_call` hands it to `QuotaLog`.
+- For Codex, `codex_command` and `codex_switches` build the call, which runs in its own temporary home (`codex_home`, inside the run's `codex_homes` folder).
 
-**Metrics.** `measures` turns the parsed outcomes of one condition into rows of (dataset, metric, kind, unit, value), with `FULL_ONLY` for a measure the tier cannot compute. `quality` counts valid replies and errors per dataset, and `table` puts both conditions side by side for the chosen datasets.
+**The errand dialogue.** `is_episode` routes an errand to `episode_dir` and `start_episode`, which writes a fresh world for every attempt and serves it through world.py as the only MCP server.
+- `claude_dialogue` runs the errand and its report in one Claude Code process: the errand as the first stream-json turn under EPISODE_TIMEOUT; at the first result `touch` creates world.py's close sentinel, so no later tool call is served, and the report's questions follow under FOLLOWUP_TIMEOUT. A missed report is recorded without failing the errand, and `stop_group` stops the call's process group. It writes followup.json and transcript.jsonl into the episode folder.
+- For Codex, `codex_call` keeps the session (`--json`), and `codex_report` closes the record and resumes it with `codex_resume_command`, which carries no world server, since a second world.py would append to the closed record. `codex_session` finds the session id and `codex_rollout_model` the model.
+- `episode_outcome` reads the record afterwards. Before that, `episode_problem` turns a record that is not whole and closed into an error to retry, never an unsolved errand.
 
-**Outputs.** `write_results` writes report.md (`report`, `show`, `change`), results.csv (`csv_rows`, `numbers`) and results.svg (`results_svg`, `mark`) from one `table`, so the three always agree. Each graph row is a `<g class="row">`, which is what the tests read to check its coordinates.
+**Scoring** (section "v4: scoring"; SCORING.md is the contract, revision 3, and the docstrings cite its section numbers).
+- `score_run(out, calls, bank)` scores a folder from disk; `rescore(out, bank)` rebuilds the plan from run.json and refuses another bank or a different plan fingerprint.
+- Units: `class1_units` makes one per Class I reply, y from `class1_y` and the base-item cluster from `base_item` (I.4's is family and price, stratified by price), plus an RF2c unit per harm call; `errand_units` makes one per episode, every measure read from the stored record: solved by `episode_outcome`, never the outcome cached in replies.jsonl, so a rescore follows a corrected record; credit by `credit` (only served calls, a line of kind call with no refusal mark, whose non-error responses return the requested page or id, via `returned_record`); `unowed` claims; and `report_state` from `parse_report`.
+- Components and classes: `class1_component` (`index_s`) and `errand_component` (`index_r` over `valid_pairs`) apply SCORING 4's symmetric guards, I.4's against the bank contract's four prices and eight items (`sacrifice_items`), so a price the plan lacks makes it insufficient; `class_score` averages the sufficient components (CLASS_MINIMUM) and clips once (`clip`).
+- Intervals: `item_fingerprint` seeds `bootstrap_seed`, and `Bootstrap` gives B = 2,000 draws per labelled cluster list, shared by every condition and cell; `levels`, `replicates` and `ci_of` make the interval, null when fewer than 95% of B replicates are defined.
+- The rest: `class_iii_validity` is section 7's decision tree (REPORT_LEG holds only claude, so a Codex run's Class III reads unverified); `rf1`, `rf2`, `rf2c` and `rf3` are the red flags (`rf3` applies section 8's insufficient-first precedence over its planned cells, keeping a measured cell's counts in the note); `diagnostics` gives the N0 against U and O against U contrasts; `memory_difference` gives `--memory both`'s deltas through `class1_contrast` and `errand_contrast`, which re-check the guards on the common items or tasks; `validity_checks` makes V1 to V11, with `init_facts` (V1 compares exact abstention fractions with ABSTENTION_GAP). `score_condition` assembles one condition and `scorecard_record` and `rounded` the top level.
+
+**The outputs.** `write_scorecard` writes scorecard.json (INTERFACES 6, schema 4.2 adds the recipe, the recorded tier word and the run time; 4.1: each class's `ci_reason` and Class III's `believed` estimate, and the top-level `default_favour` notes, which `score_run` fills from the rounded card with `favour_notes`), units.jsonl (`unit_line`, INTERFACES 7), scorecard.md (`scorecard_md`, with `favour_notes`), report.md (`report_v4`), results.csv (`scorecard_rows`) and results.svg (`scorecard_svg`, each row a `<g class="row">` as in v3, which the tests read).
+
+## Comparing types and your own rosters (ordo.py)
+
+`ordo.py` is the third module, beside probatio.py and world.py. It answers the question the trio cannot: does the agent put a person before a firm, or a firm before a country? It puts an individual, an organization and a nation against each other inside one item or one paired errand, and scores which type the agent favours. probatio.py's options (`--compare`, `--entities`, `--print-entities`, `TYPE=NAME`) choose the comparisons and the rosters; ordo.py plans, prices and scores the comparisons between types. The design is `docs/ordo/DESIGN.md`, every number is defined in `docs/ordo/SCORING.md`, and the bank's format is `docs/ordo/BANK_FORMAT.md`.
+
+```mermaid
+flowchart TD
+    A["main_v4: parse_args_v4"] --> B{"uses_options?"}
+    B -->|no| V["v4's own path (The main flow above), unchanged"]
+    B -->|yes| C["main_compare -> prepare_runs"]
+    C --> D["load_entities: the entities file over the bank's rosters (entity_spec derives every field)"]
+    D --> E["parse_compare, canonical_compare: one canonical comparison set"]
+    E --> F["parse_targets, add_target: TYPE=NAME"]
+    F --> G["check_roster: every guard, each message naming the fix"]
+    G --> H["plan_runs"]
+    H -->|each single type, each target| I["plan_v4 (+ ordo.recognition_plan for a custom control)"]
+    H -->|the pairs, one run| J["ordo.load_ordo_bank (pinned) -> ordo.plan"]
+    I --> K["preflight_runs: every run priced from docs/ordo/budget.json by its profile (rates_profile); labels from ordo.baseline_fixtures"]
+    J --> K
+    K -->|--dry-run| Z["stop (with --out: rendered.jsonl per run)"]
+    K --> L["execute_run: run_calls (v4's runner) per run"]
+    L -->|single type| M["ordo.relabel for a control that reads as real, then score_run (v4)"]
+    L -->|cross-type| N["ordo.score: units, pair indices, relations, standings, authority, named targets, red flags"]
+    N --> O["ordo.write_results: out/ordo/ scorecard.md (the answer first), report.md, results.svg, scorecard.json"]
+```
+
+**The options** live in probatio.py, after v4's own command line: `parse_compare` and `canonical_compare` turn `--compare` into one canonical set (the three pair groups become the triangle), `load_entities` and `entity_spec` read the entities file (names alone suffice), `print_entities` prints exactly the schema it reads, `check_roster` runs the roster guards, `fixtures_sha256` and `fixtures_label` say whether a roster is the baseline (whose hashes live in the pinned `bank/ordo/manifest.json`, read through `ordo.baseline_fixtures`), and `plan_runs` makes v4's single-type runs and at most one cross-type run. A target whose type has its own single-type group stays in that group; otherwise it joins the cross-type run as a named target. `preflight_runs` prints the comparison with its calibration words, the names in their rendered forms, each run's counts and the 45-minute hint, all priced by `ordo.count_plan` (`run_counts`, `class_lines`, `time_hint`).
+
+**ordo.py**, from the bank to the answer:
+- `load_ordo_bank` reads `bank/ordo/` (format `probatio-ordo-1`), checks every file against the manifest pinned in ORDO_MANIFEST_SHA256, and derives the U and O worlds with v4's `derive_cell`. `check_ordo_bank` refuses a bank the planner cannot use.
+- `plan` turns a selection into calls in v4's shape under the plan rules of SCORING.md 12: Class I in both frames (F1 role-free, F2 authority, the half fraction), the three-way items for the triangle, V12, the red flags, the errands (role-free, authority, and each named target's counterfactual worlds). Its `only=` filter is the private pilot plan's. `count_plan` prices any calls, ordo's or v4's, from `docs/ordo/budget.json["pricing"]`, the budget's one source.
+- `score` reads the replies and records through v4's credit rule and report parser and builds the card: `pair_share` (π), `pair_index_r` (P^II), `authority_shares`, `relations` (the partial order), `standings`, `cycle_flag`, `named_effect`, the red flags (which no index reads) and V1 to V15. Intervals are v4's cluster bootstrap, widened for few clusters (`small_cluster`, PREREG.md Amendment 3, after Stage 0 found the plain percentile interval too narrow); the role-free errand rows widen through one named hook, `errand_interval` (`interval_rule`), with half their common tasks (PREREG.md Amendment 6, Stage 0b's candidate C), and `errand_rule_status` is the rule's completion gate over its evidence, `docs/ordo/errand_rule.json` (`docs/ordo/rule_evidence.py` writes it, and refuses what the gate would refuse). The gate reads the evidence's two artifacts itself: every cell of Stage 0b's acceptance against the frozen targets (`stage0b_problems`), and each allocation menu's minimax winner recomputed and matched to today's quick plan (`allocation_contents`). `rule_fingerprint` covers every function and constant those numbers depend on, traced from the scorers (`rule_dependencies`). The answer names a row too wide to rank at its tier; while the gate reads PENDING it names no role-free errand row and says why instead (`rule_pending_line`).
+- `answer_table` and `svg` lead with the answer: one table of each pair's index around 50 and the ordering it supports, then the figure. `write_results` writes them into out/ordo/.
+- `recognition_plan`, `recognition_status` and `relabel`: V12's two calls per custom control, and the head's "reads as real" warning.
+- `permutation_test` is the pilot's primary test (SCORING.md 11), which `docs/ordo/primary_test.py` states as a reference.
+
+**The ordo bank** is built by `tools/build_ordo_bank.py` from `bank/ordo/src/` and the pinned v4 bank (it reads collegium's worlds through `load_bank` and refuses any change outside the declared fields), deterministically, with `--check`. `docs/ordo/budget.py` writes `docs/ordo/budget.json` from the same plan rules. The pilot (`calibration/ordo/`, `calibration/ordo_pilot.py`) is frozen and private, and Ephraiem gave his go on 2026-11-08. `docs/ordo/PILOT_RUNBOOK.md` gives its commands in order: `stage1`, `gate`, `stage2` and `analyze`. `ordo_pilot.py` checks the plan and runs the stages. `ordo_run.py` runs one arm-run from outside its room, handling its registration, preflight, quota pauses, `STOP` and resume. `ordo_arm.py` is the child inside the room: it runs probatio's own cross-type path on the arm's frozen items. `ordo_gate.py` holds Stage 1's frozen pass conditions, and `ordo_analysis.py` holds PREREG 5's primary test with its reference cross-check, S1 and the secondary results. Every call goes through v4's calibration room unchanged.
+
+## Watching a run (live.py)
+
+live.py, beside probatio.py, holds both views of a v4 run, and probatio imports it for every v4 run (`import_live`). Neither view writes anything in the results folder.
+
+- **The live line.** `live_line` makes a `LiveLine` with the run's `--jobs` and tier (the line's first word), the prior rate of each call (the preflight's `expected_seconds` under the run's `run_profile`) and Claude Code's `QuotaLog`, whose `latest()` keeps the newest usage reading in memory. `run_calls` calls `begin`, `finished` for each call and `say` for its messages, and `close` ends it. In a terminal at least MIN_COLUMNS wide the line is redrawn in place, clipped by display columns (`columns`, `clip`: wide characters take two, combining and format characters none), each second and on every call; otherwise it prints a checkpoint at each tenth of the run and at the end, with no CR or escape. One lock covers every draw.
+- **The page.** With `--watch`, `main_v4` and `main_compare` make one `Watch` for the command, which serves `VIEW_V4` through `serve_page` and has one tab per run (`tab_label`). `execute_run` (or main_v4's own path) starts each run's view with `watch_view`, which gives it the run facts (`run_facts`, nothing else of run.json), the entity names (`roster_names`) and the provisional scorer. After the run is scored it hands the final card over in memory (`Watch.finish`), and `hold_page` keeps the page up until Ctrl-C.
+- **The observer.** `RunView` reads replies.jsonl through `CommittedLines` (only newline-committed dict lines with their required keys; it resets on a replaced, shrunk or rewritten file) and the newest task's records and reports (`Card`, `read_followup`, `folder_identity` for the attempt). When an errand's reply line lands, it captures the errand's `episode_facts` once, so every snapshot is frozen; a capture that fails waits in `retry` (by call key, with its record and attempt) and is read again at each refresh, and its record and facts enter the snapshot together once it succeeds. Every read is caught and shown as a fixed sentence with the exception's class only. `ViewRedactor` redacts every free-text field before it is cut, on calibration/redact.py's contract (tests/fixtures/redact_cases.json holds both to the same cases), and `redact_all` makes a last pass over /state.
+- **The provisional scorecard.** `Provisional` is one worker per run. Triggers coalesce, at most one scoring starts per PROVISIONAL_SECONDS, and the final card always wins. It scores a frozen snapshot with the final scorers over the full plan: `card_of` (score_run's scoring, split out of it, `private` and with `facts`) for v4, ordo's `score_units` over `units_of(..., facts)` at `card_tier`'s tier for a cross-type run. So a call not yet made is a missing unit, the fingerprint, seed and B are the final ones, and no file is read. `v4_rows` and `ordo_rows` turn a card into the page's rows; a quick card leads with the scorecard's own line (QUICK_CARD_LINE, ordo's for a cross-type card), and a class the tier does not plan reads as the scorecard's row does (NOT_RUN_IN).
+
+```mermaid
+flowchart LR
+  R["run_calls"] -->|"begin, finished, say, close"| LL["LiveLine (stderr)"]
+  R -->|"appends"| F[("replies.jsonl, episodes/")]
+  F -->|"CommittedLines, read_followup"| V["RunView"]
+  V -->|"frozen snapshot: replies + episode_facts"| PW["Provisional: card_of or score_units"]
+  S["score_run / ordo.score"] -->|"final card, in memory"| PW
+  LL --> V
+  V --> P["serve_page: 127.0.0.1, token, Host, CSP"]
+  PW --> P
+```
+
+## What is not built
+- **No calibration has run.** The harness, the analysis and the stage gates are merged (calibration/): run.py and the shim hold every run to the staged plan's order and caps (`stages.py`). Nothing has run the staged study yet. The ordo pilot of 2026-11-08 (`calibration/ordo_pilot.py`, `docs/ordo/PILOT_RUNBOOK.md`) ran apart from it, and here it supplies only the measured Sonnet rates (`docs/ordo/timing.json`).
+- **Codex's report leg is not verified, so every Codex run's Class III reads unverified.** `REPORT_LEG` holds Claude Code only, and `class_iii_validity` returns unverified for any other CLI before it reads the reports, so even fully parsed, joint U reports and a perfect O contrast cannot make a Codex run valid, weak or not registered. The leg is unit-tested against a spike's recorded events. W3 reported one end-to-end check on 2026-11-07 (two Codex calls on a bank_small errand, the report parsed, the model read from the rollout file), but kept no episode, so no retained record backs it. Adding Codex to `REPORT_LEG` needs that check repeated with its record kept, and the design owner's acceptance.
+- **`rescore` has no flag**: it is a function the tests call. results/README.md still describes v3's run folders only.
+
+## The v3 path
+
+A command line with one of v3's own flags and no `--target-type` runs v3: six public loyalty datasets, each item asked with and without the memory files, reported as the change between the two. `parse_args` reads v3's flags, `plan_calls` loads the rows (`load_rows` downloads each dataset at its commit in COMMITS, `check_rows` checks it, and `slim`, `slim_item` and `balanced` make the slim tier) and fills the user's name in (`personalise`, `personalise_world`), `preflight` and `estimate` print the plan, and `run_calls` makes the calls. The errands of labores and anulus come from `episode_rows` and are scored by `episode_outcome` and `episode_measures` (with `extra_calls`); questions by `score` and `measures`. `table` puts the two conditions side by side and `write_results` writes report.md, results.csv (`csv_rows`) and results.svg (`results_svg`). `--watch` (`watch`, `view_state`) serves the live page through live.py's `serve_page`, v4's hardened server (the token on every route, the Host allowlist, exactly `/` and `/state`, the hash-only CSP, no referrer), with `view_state` redacting each tool argument, reply and error whole before cutting it, and `--demo` (`demo_setup`) one watched task. v4 reuses v3's CLIs, `ask`, `run_calls`, `claim`, `check_resume` and world.py, so a change there touches both.
+
+## The calibration harness (calibration/)
+
+v4's calibration study (`docs/v4/CALIBRATION.md`) runs probatio on graded synthetic memories, so its subject calls must see nothing of the host owner's own Claude Code or Codex configuration. The harness never imports probatio.py; it calls it, inside a clean room:
+
+```mermaid
+flowchart LR
+    S["run spec (JSON)"] --> R["run.py"]
+    R -->|"strict args, fingerprint, resume refused on any change"| B["isolate.build: room contract (memory digest or absence), config dir, Codex user dir, bin/ wrappers"]
+    B --> C["isolate.check (guard.py): no API key, no parent memory, clean dirs, contract, pinned build, token login"]
+    C --> D["probatio.py --dry-run: memory list, model, jobs, planned calls"]
+    D --> P["probatio.py in the room; STOP and the room checked before every launch"]
+    P -->|"every claude / codex call"| W["shim.py: guard.py per call, rules re-applied, init / meter / model protocol, redact.py on every output, Codex home and cap"]
+    W --> Q["scheduler.py: quota.jsonl here, the account ledger on the home host (account.py)"]
+    Q -->|"newest reading of any host at a limit (default 0.60 / 0.60)"| R
+```
+
+`run.py` validates the spec (forwarded arguments by exact name only), fixes the run's fingerprint (every pinned executable resolved and hashed, world.py included, and checked again before every launch), builds the run's room (`isolate.py`) with its contract, checks it, checks probatio's dry run (memory list, model, jobs, planned calls), then runs probatio with the room's environment and its own flags (`--memory`, `--auto-memory off`, the registered `--effort`), checking for STOP and checking the room again before every launch. probatio finds the room's `claude` and `codex` first on its PATH. Those are wrappers around `shim.py`, which checks each call's own context against the room contract (`guard.py`), re-applies the rules (auto memory off, CLAUDE.md off in an off run and on in an on run, the pinned effort, no API key), refuses any option outside the exact command contract probatio uses (the only MCP server allowed is probatio's world.py, pinned by interpreter, path, sha256 and the run's episode folders), turns JSON into stream-json and checks it as a protocol (init with no API key and exactly the pinned build first, usable quota telemetry, exactly the registered model) before it accepts or releases a result, sends every output through the redactor (`redact.py`, which redacts a text whole before any cut), and checks each Codex call's home and reserves it against the Codex arm's cap of 1,000 charged requests. The scheduler (`scheduler.py`) decides pause and resume once for the whole subscription from the account's quota meter (`meter.py`), which keeps each window's high-water mark and reset so no partial, stale or reset-less reading can clear a hold: each host keeps its readings in `quota.jsonl` and publishes them to one ledger (`account.py`), a lock-protected file on its home host that other hosts reach over ssh. When the scheduler says pause, the shim refuses new calls, probatio stops after its error streak, and `run.py` sleeps until the window resets and reruns the same command, which resumes, but only once a post-reset five-hour reading is below 0.40. At seven-day 0.60 the study stops instead: the ledger latches the stop, and only an operator's release after Ephraiem's go (`account.py --release-study-stop`) lifts it. The stage caps count the burn as the summed positive increments of every reading, apart from the high-water marks that drive the pauses. `quota.py` holds the pause rules as pure functions. `calibration/README.md` has the details and the decisions still to confirm.
+
+The v4 additions keep planning and scientific decisions separate from subject execution. `calibration/grid.py --codex-model <recorded-model> --dry-run` prints the registered A, B1, B2, Haiku and Codex schedule without a model call. `grid.py --out <fresh-folder>` writes runner specs and exact rendered memory audits from `calibration/ladder/*.md.tpl`; `ladder.py` owns their one-pass rendering and hashes. The pure `eligibility`, `stage_caps` and `cap_status` functions hold the rules for actual-time retests, stage order and the stage caps, and `stages.py` enforces them: `run.py` refuses a staged spec until `eligibility` finds it ready (from the plan, the plan's `control.json` attestations, the runs' records and B1's verdict computed by `analyze.py`) and opens its stage in the account ledger; before every launch, and in the shim before every charged call, `cap_status` checks the burn the ledger has summed since the stage opened, and a stage at its cap stops with STOP. The Codex arm's count is reserved in the same ledger, atomically.
+
+`calibration/analyze.py` reads finished scorecards and metadata, validates provenance, excludes Stage A, and writes the pilot decisions plus `levels.svg`, its exact CSV and a description. `criteria.py` owns the tri-state decisions and the common-set comparisons (CALIBRATION 9: each run's own indices over the components sufficient in both, thresholds decided at stored precision); `stats.py` owns ICC(A,1), tied Spearman and paired retest resampling; `resampling.py` owns shared item/task resampling from `units.jsonl`. Missing observations and undefined intervals remain explicit. Read `calibration/STAGES.md` and `calibration/ANALYSIS.md` for the interfaces and limits, then the planted tests beside the existing calibration tests.
 
 ## Files
 
 | file | what it is |
 |---|---|
-| probatio.py | the whole program |
+| probatio.py | the whole program, v4 and v3 |
+| live.py | a v4 run's live line on stderr and its `--watch` page: the observer, the redactor, the provisional scorecard and the loopback server |
 | world.py | the episode engine: castra's, byte for byte (sha256 in WORLD_SHA256), standard library only |
-| tests/test_episodes.py | the errands: rows, worlds, command lines, outcomes, measures, the live page's state, and one real episode served by world.py |
-| tests/test_probatio.py | unit tests: parsers, substitution, metrics, command lines, resuming, the dataset check, the dataset choice, the slim tier, estimates and the outputs |
-| README.md | for users: quick start, the two conditions, what is sent where, the time table, results, limits, citations |
-| results/README.md | what each run folder holds and every column of results.csv; the only tracked file in results/ |
+| tests/test_v4_render.py | step 1: entity records, the name guard, rendering of texts and worlds, from render_cases.json |
+| tests/test_v4_engine.py | the bank and its overlays, rosters and collisions, the plan per tier, the report parser, the command line, stream-json and the quota log, the errand dialogue through the fake CLI, the Codex legs |
+| tests/test_v4_scoring.py | the indices, the credit rule, every worked example of SCORING 11, the guards, the bootstrap, Class III, the red flags, memory both, the scorecard against schema 4.1, planted run folders and one errand end to end |
+| tests/test_live_line.py | the live line: display columns, clipping, labels, the terminal and checkpoint modes, the lock, the time left, the quota, launches.jsonl |
+| tests/test_watch_v4.py | the page: refusals and security headers, what the observer opens, canaries in every free-text field, the shared redaction cases, the reader, attempts and late reports, the provisional contract, planted folders and main with `--watch` |
+| tests/fixtures/redact_cases.json | the redaction cases common to calibration/redact.py and live.py's ViewRedactor (calibration/tests/test_redact_contract.py checks the harness's side) |
+| tests/fake_claude.py | a stand-in `claude -p` that speaks stream-json and drives the real world.py over MCP; no model |
+| tests/fixtures/bank_small/ | a synthetic bank in the real format, with the real per-plan template counts (140, 264 and 528 Class I items per condition at smoke, standard and full) |
+| tests/test_quick_tier.py | the quick and smoke tiers, plan recipes and legacy reads, the preflight's lines and profile labels, the time model against its evidence, the run time, ordo's quick card and the errand-interval hook, the routing |
+| calibration/tests/test_smoke_rename.py | the registered plans equal their pre-rename selves apart from the word: grid specs, Stage A and C plan fingerprints, the pilot's counts, ids, registration word and run ids (fixtures/smoke_rename_before.json) |
+| docs/ordo/QUICK.md, quick_sim.py, quick_sim.json | the quick tier and its allocation simulation, rerun under Amendment 6 |
+| docs/ordo/errand_rule.json, rule_evidence.py | Amendment 6's evidence (Stage 0b's csv and the allocation rerun, by sha256, with how each was run, and the scorers' fingerprint) and its writer, which refuses what the gate would refuse |
+| docs/ordo/timing.py, timing.json | the measured time model's evidence |
+| tests/fixtures/make_bank_small.py | writes bank_small/; a test checks the folder is current |
+| tests/fixtures/render_cases.json | hand-written rendering cases, shared with the bank builder's tests |
+| tests/fixtures/adversarial_record.jsonl | Codex's adversarial episode record, byte for byte, for the credit rule |
+| tests/fixtures/codex_events.jsonl | the Codex spike's `--json` events, for the session and model readers |
+| tests/test_bank_sources.py | v4's bank sources: they parse, their slots are known, each organization text differs from its nation text only as its change field declares, every entity passes the guard with no duplicate or colliding name, the cells share one tool catalog |
+| bank/src/ | v4's template sources, read by the bank builder: the entity rosters (entities.json), the slot grammar and guard (schema.json), the organization and nation Class I and errand wording (organization/, nation/), the RF2 harm items (rf2/), the errand cells (cells.json), the follow-up report (followup.json) and the worlds' fixed names |
+| bank/CHANGES.md | every declared change in the bank, per template: W1's wording changes, with the web checks of the invented organization names, and the builder's derivations |
+| tools/build_bank.py | v4's bank builder: reads the pinned datasets and bank/src/, turns names into slots, checks that every template reproduces its published rows and agrees with W1's sources, builds the three errand cells on one shared environment, and writes bank/ (bank/README.md says how to rebuild) |
+| tests/test_bank.py | the bank: every published row it stands for comes back from its template, the cells differ only in their notices, organization worlds are nation worlds with W1's surface, the rosters are entity()'s, two builds are identical |
+| tests/test_bank_adapters.py | the bank builder's adapters on the source slices, with no datasets downloaded: every sliced row comes back from its template, the reference worlds reproduce, and a whole bank builds |
+| tests/fixtures/sources/, tests/fixtures/make_sources.py | small slices of every pinned dataset config the bank builder reads, byte for byte, with a manifest of their hashes; make_sources.py writes them from .cache and reads them back checked |
+| tests/test_probatio.py, tests/test_episodes.py | v3's tests |
+| docs/v4/BRIEF.md, DESIGN.md | what was asked, and the design: targets, items, cells, outputs, item counts and time |
+| docs/v4/SCORING.md | every formula and threshold the scorer uses, with worked examples |
+| docs/v4/CALIBRATION.md | the pre-registered calibration study |
+| docs/v4/INTERFACES.md | the contracts between the builders: call ids, command line, scorecard schema, units.jsonl; it wins over DESIGN |
+| docs/v4/BANK_FORMAT.md | the bank's exact format, which `load_bank` and `check_bank` enforce |
+| docs/v4/IMPLEMENTATION_PLAN.md, REVIEW_RESPONSE.md | the four-worker build split, and how each review finding was answered |
+| docs/v4/prototypes/ | read-only scripts that sized the design; none calls a model |
+| README.md | the user's guide |
+| results/ | run folders (not tracked) and results/README.md |
 | .cache/ | downloaded datasets (not tracked) |
-| results/<agent>-<dataset>-<tier>/ | each run's run.json, replies.jsonl, report.md, results.csv, results.svg and run.lock, and for Codex codex-homes/ (not tracked) |
+| calibration/isolate.py | the calibration's clean room: build, check (`--check`, no model call) and the two-call canary (`--canary`) |
+| calibration/shim.py | the `claude` and `codex` a calibration run sees on its PATH: the per-call rules and the quota log |
+| calibration/quota.py | readings, the limits (default 0.60 and 0.60) and `quota.jsonl`, on top of the meter |
+| calibration/meter.py | the account's quota meter: per-window state and the holds that follow from it (shipped with account.py) |
+| calibration/guard.py | the room contract and the per-call context checks for Claude Code and Codex |
+| calibration/redact.py | the one redaction boundary every output passes |
+| calibration/scheduler.py | the account-level quota scheduler every call and run on every host asks |
+| calibration/account.py | the account's quota ledger on its home host, reached by other hosts over ssh; `--show`, `--set-limits` |
+| calibration/run.py | one scheduled calibration run: room, preflight, run, pause and resume, record |
+| calibration/stages.py | the staged study's gates at run time: eligibility before a run, the stage caps before every charged call, the Codex reservation |
+| calibration/local.example.json | the keys of a host's `local.json` (git-ignored: host paths and token name stay local) |
+| calibration/grid.py, ladder.py, ladder/ | the staged study's schedule and runner specs, and the memory ladder's templates (CALIBRATION 2) with their one-pass rendering |
+| calibration/analyze.py, criteria.py, stats.py, resampling.py | the calibration analysis: provenance checks, the frozen policy block, the tri-state criteria and verdict, ICC and paired resampling |
+| calibration/STAGES.md, ANALYSIS.md | the planning and analysis interfaces and their limits |
+| bank/ | the built item bank (built by tools/build_bank.py, its manifest's sha256 pinned in probatio.py); bank/README.md says how to rebuild it |
+| ordo.py | cross-type planning, pricing and scoring (Comparing types, above) |
+| docs/ordo/ | ordo's design (DESIGN.md), scoring (SCORING.md), bank format (BANK_FORMAT.md), pre-registration (PREREG.md), budget (budget.py, budget.json), worked examples (examples.py), the primary test's reference and null calibration (primary_test.py, null_calibration.py), the phase runner with its guard (apply_ordo.sh), and Stage 0's null simulations (stage0.py, stage0.csv, STAGE0.md), with Stage 0b's rerun on the pilot's own errands (`stage0.py --pilot`, stage0b.csv, STAGE0.md's last section) |
+| tools/check_v4_bank.py | the bank check the tests and apply_ordo.sh run: `build_bank --check`, except that the manifest's built_by may name a commit outside this history when builder_sha256 is the builder's (bank/README.md) |
+| bank/ordo/, tools/build_ordo_bank.py | the built ordo bank (manifest pinned in ordo.py's ORDO_MANIFEST_SHA256) and its builder |
+| tests/test_ordo_bank.py | the ordo bank: determinism, counts against budget.json, slots, the half fraction, derivation from collegium, the primary test's reference |
+| tests/test_ordo_scoring.py | ordo.py: the bank contract, every budget case, every worked example, the partial order, sufficiency, the permutation test, named targets, red flags, the answer first, the figure, the pilot |
+| tests/test_user_options.py | the options: --compare, the entities file, every guard's message, the fixtures label, the runs and requirement 1 |
+| tests/test_ordo_integration.py | the joins: the preflight against budget.py on every case, the fixtures home, the head's labels, recognition |
+| tests/fixtures/ordo_small/, make_ordo_small.py, check_ordo_counts.py, entities_example.json | a synthetic ordo bank in the real format, its writer, phase 5's dry-run count check, and the README's example roster |
+| calibration/ordo/, calibration/ordo_pilot.py | the frozen private pilot: its plan, its three memory files, and the script that checks it and runs its stages (docs/ordo/PILOT_RUNBOOK.md) |
+| calibration/ordo_run.py, ordo_arm.py, ordo_gate.py, ordo_analysis.py | the pilot's arm-run outside and inside its room, Stage 1's gate, and the analysis (PREREG 5, 6 and 8) |
+| calibration/tests/ | the harness's tests, on fake CLIs (`fakes.py`) and one recorded real stream (`fixtures/`); no model calls. `test_regressions.py` holds one test per Codex probe of part 1, `test_reverify.py` one per probe of its re-verification, `test_world_pins.py` the world server's pins; the analysis tests use planted scorecards. `test_ordo_pilot.py` runs the whole frozen pilot on `fake_ordo_claude.py` (through `ordo_fakes.py`'s scratch host) |
+
+## Testing a change
+
+`python3 -m unittest discover -s tests` and `python3 -m unittest discover -s calibration/tests` run every test; none calls a real agent. The bank's reproduction tests need the pinned datasets in .cache/ (`python3 tools/build_bank.py --out <a scratch folder>` downloads them once; without `--out` it rewrites bank/, bank/README.md's Provenance) and are skipped without them. A change to bank/src/ or the builder is followed by a rebuild, `tools/build_bank.py --check`, and a new BANK_MANIFEST_SHA256. A change to the bank format goes into BANK_FORMAT.md, the loader (`load_bank`, `check_bank`) and tests/fixtures/make_bank_small.py together; rerun that script afterwards, since a test refuses a stale bank_small/. render_cases.json is shared with the bank builder (INTERFACES 8), so a change to `entity` or `render` updates its cases rather than the tests alone. A change to anything scoring reads (a unit's fields, a threshold, a schema key) starts in SCORING.md or INTERFACES.md, and the schema's version changes with any field's meaning. For ordo: a change to bank/ordo/src/ or tools/build_ordo_bank.py is followed by `python3 tools/build_ordo_bank.py`, `--check`, and a new ORDO_MANIFEST_SHA256 in ordo.py; a change to a plan rule or a rate goes into docs/ordo/budget.py, then `python3 docs/ordo/budget.py --write`, and the count tests compare ordo.plan and the preflight with it. `docs/ordo/apply_ordo.sh` runs every check under the guard (stub CLIs, no keys, no network).
 
 ## Where to read next
 
-Start with `main()` and `plan_calls`, then `slim_item` and `balanced` for the slim tier, `claude_command` and `codex_command` for the two conditions, then `score`, `measures` and `table` for how a reply becomes a row, and `write_results` for the three output files. The dataset cards on Hugging Face (linked in the README) define every answer format and column the code relies on.
+Start with `main_v4` and follow it down: `resolve_target` and `plan_class1` with INTERFACES 3 beside them, then `claude_dialogue` and `start_episode` for an errand, then `score_run` and `score_condition` with SCORING.md open at the section each docstring names. BANK_FORMAT.md and `load_bank` explain what a bank must hold, and tests/fixtures/make_bank_small.py is the smallest complete example of one. For the calibration harness, start with `run.run`, then `isolate.build` and `guard.claude_call_problems`, then `shim.claude` and its `Stream`, then `meter.meter_observe` and `meter.meter_hold`.

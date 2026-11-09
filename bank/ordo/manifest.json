@@ -1,0 +1,167 @@
+{
+ "builder_sha256": "d3c05699be76ba11daf3cc8a626d709b20f97f72a34bfc21790ffcf8efbcbb41",
+ "counts": {
+  "by_component": {
+   "F1.a": 18,
+   "F1.b": 12,
+   "F1.c": 12,
+   "F1.tri": 6,
+   "F2.a": 48,
+   "F2.b": 96,
+   "F2.tri": 6,
+   "RF1": 6,
+   "RF2": 72,
+   "RF4": 12,
+   "V12": 3
+  },
+  "class1_rows": 201,
+  "derived_cell_rows": 96,
+  "errand_rows": 48,
+  "red_flag_rows": 90
+ },
+ "files": {
+  "cells.json": "8aa1197908e5abe99628544842f0c61dc62cd816f48d6bd3cfdf45dfdd8dabe4",
+  "class1.jsonl": "2f006eaf7c99542d8e82a79e7ef74eae2452d30d5c8bbbc1fdaa6a87cc376711",
+  "entities.json": "46776a7cedb99678b8942bae0cd3871e2147a95499741b54310dea131be2a558",
+  "errands.jsonl": "a62b6241b121a61d6e498065f5c084c30e99eb76b1dfc90bf90ba7f67296093c",
+  "fixed_names.json": "03c0d40c7b635f9f8613173fd737f4b512e9c26b747f0892e2e8265606edc03e",
+  "followup.json": "a6a83f55daf98c33e4f9f72cd7f94ba52e25202b52fba3d687c9fa1be9ca0ea7"
+ },
+ "fixtures_sha256": {
+  "individual": "17d0d82d60610e33d7323365595fd46a72a59a5d0a4c8450d9ee7675e9d18c7b",
+  "individual:organization:nation": "58bff51c33ff6d329c732baa7e8c7956cf4912aebfc197b1206661a20162320d",
+  "nation": "40db84cea8cd05fb9cfde8f6a13265ce07fec57d4ce78d05ff0c3e170e6421c3",
+  "organization": "b8953a64924c3cecadc62b571d1b9ad9ec9960b6028349f7383695155fa8033e"
+ },
+ "format": "probatio-ordo-1",
+ "fraction": {
+  "defining_relation": "T*L*N*W = +1, each factor's level 0 read as +1",
+  "factors": [
+   "T",
+   "L",
+   "N",
+   "W"
+  ],
+  "full": [
+   "+1",
+   "-1"
+  ],
+  "standard": [
+   "+1"
+  ]
+ },
+ "pairs": [
+  "individual:organization",
+  "individual:nation",
+  "organization:nation"
+ ],
+ "sources": {
+  "src/cells.json": "ac916861aa86c03b4c3af710dd2cef7d3aba73cbb80b02583a881268175108cd",
+  "src/entities.json": "1f919c505950b93b67507c181f4edaa07d64458426a665e83b251979c2c92d08",
+  "src/followup.json": "e4da5aba2296ede5ac8579058935376f07d54d2b87751b040b3df39d36c6ab8e",
+  "src/templates.json": "d3d5d48e46c0d934258972902c3a1af4cd6ac78075678c2bfb7d0ffc44111cb4"
+ },
+ "tasks": {
+  "full": [
+   301,
+   302,
+   303,
+   304,
+   305,
+   306,
+   307,
+   308,
+   309,
+   310,
+   311,
+   312,
+   313,
+   314,
+   315,
+   316,
+   317,
+   318,
+   319,
+   320,
+   321,
+   322,
+   323,
+   324,
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ],
+  "standard": [
+   625,
+   626,
+   627,
+   628,
+   629,
+   630,
+   631,
+   632,
+   633,
+   634,
+   635,
+   636,
+   637,
+   638,
+   639,
+   640,
+   641,
+   642,
+   643,
+   644,
+   645,
+   646,
+   647,
+   648
+  ]
+ },
+ "tier_tasks": {
+  "full": {
+   "authority": 16,
+   "observed": 24,
+   "role_free": 48
+  },
+  "quick": {
+   "authority": 2,
+   "observed": 2,
+   "role_free": 4
+  },
+  "standard": {
+   "authority": 8,
+   "observed": 8,
+   "role_free": 16
+  }
+ },
+ "type": "ordo",
+ "types": [
+  "individual",
+  "organization",
+  "nation"
+ ],
+ "v4_bank_manifest_sha256": "df93099ac0d59ffc1c67d0d57cfedb2f5e07a50d5b652ef120211c9d6f1d3514",
+ "version": "1.0"
+}

@@ -1,0 +1,80 @@
+{
+ "_about": "The one home of the bank's slot grammar and of the structural guard every entity field passes. A slot is ⟦ROLE.field⟧ (U+27E6, U+27E7). Roles and fields are listed here; the schema test (tests/test_bank_sources.py) and the renderer read this file, so a rename happens here once.",
+ "roles": {
+  "T": "the target",
+  "X": "the matched control",
+  "A": "pairwise option A (and the first-named party of an obedience item)",
+  "B": "pairwise option B, or the beneficiary of an errand (never both in one template)",
+  "P": "the principal (I.3, RF2)",
+  "H": "the challenger of a principal-under-pressure item",
+  "R": "the requester of a sacrifice or honesty item (an entity, or the type's anonymous requester)",
+  "P1": "the first-named party of a joint office",
+  "P2": "the second-named party of a joint office",
+  "S": "the rated entity of a rating item (the target or the control)"
+ },
+ "fields": [
+  "key",
+  "type",
+  "kind",
+  "full",
+  "Full",
+  "short",
+  "Short",
+  "poss",
+  "Poss",
+  "short_poss",
+  "Short_poss",
+  "group",
+  "Group",
+  "requester",
+  "Requester",
+  "to",
+  "To",
+  "code"
+ ],
+ "name_fields": [
+  "full",
+  "Full",
+  "short",
+  "Short",
+  "poss",
+  "Poss",
+  "short_poss",
+  "Short_poss"
+ ],
+ "derived_fields": [
+  "group",
+  "Group",
+  "requester",
+  "Requester",
+  "to",
+  "To"
+ ],
+ "added_fields": {
+  "Poss": "the possessive at a sentence start",
+  "Requester": "requester at a sentence start",
+  "to": "a later mention of the requester, and how an action argument names it (patria's and devotio's {to})",
+  "To": "the same at a sentence start"
+ },
+ "guard": {
+  "_about": "DESIGN.md section 9, applied to every name field of every entity record and, at run time, to every user-supplied field (--target, --name, --target-short, --target-possessive). It is a structural guard against breaking an answer format, a JSON world or a slot, not a defence against a name that reads as an instruction.",
+  "allowed_punctuation": " .,'&-()/",
+  "max_chars": 60,
+  "max_words": 8,
+  "reserved_words": [
+   "ACTION",
+   "ANSWER",
+   "MESSAGE",
+   "OUTSIDE",
+   "YES",
+   "NO",
+   "REAL",
+   "TEST",
+   "NOBODY"
+  ],
+  "forbidden_token_pattern": "^[A-H]\\)$",
+  "code_pattern": "^[a-z0-9]{1,16}$",
+  "derived_fields_rule": "A derived field (group, requester and their forms) wraps the entity's own name in the type's fixed words, so it passes the character and keyword checks but not the length limits, and it must contain the entity's full name (an individual's is the name itself)."
+ },
+ "normalise": "NFKC, casefold, a leading 'the ' removed, every run of whitespace or punctuation turned into one space, trimmed (DESIGN.md 5.3)"
+}

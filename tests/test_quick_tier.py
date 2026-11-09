@@ -1,0 +1,666 @@
+"""The quick tier, the smoke tier and plan recipes (estimate-watch DESIGN revision 2, sections 2 and 3).
+
+quick is the estimate sized to about 15 minutes for one condition on the Sonnet baseline: for one target the
+standard tier's Class I and the full tier's N0 errands; for the triangle the standard tier's role-free items and checks
+and the role-free errands on 32 tasks; Class III and the authority rows never. smoke is the plan called quick until
+2026-11-08, item for item. A run records its plan recipe, and a run.json from before recipes reads through the legacy
+map at every read boundary without being edited. The time model has one table, measured where it says so. Nothing here
+calls a model: plans are built from the pinned banks or the small fixture, and runs are planted.
+"""
+import ast
+import contextlib
+import csv
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
+sys.path.insert(0, str(REPO / "calibration"))
+sys.path.insert(0, str(REPO / "docs" / "ordo"))         # stage0 and quick_sim, for the gate's provenance
+import ordo as O  # noqa: E402
+import probatio as P  # noqa: E402
+import run as RUN  # noqa: E402  (the calibration harness's preflight parser)
+import test_v4_scoring as S  # noqa: E402  (its planted-run helpers)
+
+TRIANGLE = "individual:organization,organization:nation,individual:nation"
+OLD_QUICK = {"v4": "005a5fcbfdc235e9e3c6c790fa3f108f3e13cd8c3f1b880ffce7f6f67fca6d67",      # 00de136's quick plans
+             "ordo": "2da661c7423a89ade4236eb61ceea4f41b592fec26ec67bf458d000e34af78de"}    # (the pilot's Stage 1)
+
+
+def real_bank():
+    return P.load_bank(P.BANK, P.BANK_MANIFEST_SHA256)
+
+
+def args(**kw):
+    base = dict(agent="claude", model="claude-sonnet-5-5", effort="medium", jobs=4, tier="quick", memory="on")
+    return SimpleNamespace(**dict(base, **kw))
+
+
+class TestPlans(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.bank = real_bank()
+        cls.roster = P.resolve_target(cls.bank, "organization", "Mozilla")
+        cls.ordo = O.load_ordo_bank()
+
+    def plan(self, tier, classes=P.V4_CLASSES):
+        return P.plan_v4(self.bank, self.roster, tier, classes, ("with",))
+
+    def test_one_target_is_standards_class_i_and_fulls_plain_errands(self):
+        quick = self.plan("quick")
+        q, e = [c for c in quick if not c.get("episode")], [c for c in quick if c.get("episode")]
+        self.assertEqual((len(q), len(e)), (264, 96))
+        self.assertEqual({c["meta"]["cell"] for c in e}, {"N0"})
+        self.assertEqual({c["id"] for c in q}, {c["id"] for c in self.plan("standard") if not c.get("episode")})
+        self.assertEqual({c["id"] for c in e},
+                         {c["id"] for c in self.plan("full") if c.get("episode") and c["meta"]["cell"] == "N0"})
+
+    def test_the_triangle_is_role_free_on_32_tasks(self):
+        calls = O.plan(self.ordo, TRIANGLE, "quick")
+        q, e = [c for c in calls if not c.get("episode")], [c for c in calls if c.get("episode")]
+        self.assertEqual((len(q), len(e)), (276, 96))
+        self.assertFalse(any(c["meta"].get("frame") == O.AUTHORITY for c in calls))
+        self.assertEqual({c["meta"]["cell"] for c in e}, {"N0"})
+        self.assertEqual(len({c["meta"]["task"] for c in e}), O.QUICK_TASKS["role_free"])
+        self.assertNotIn("F2.tri", {c["meta"].get("component") for c in q})
+
+    def test_smoke_is_todays_quick_item_for_item(self):
+        self.assertEqual(P.plan_fingerprint(self.plan("smoke")), OLD_QUICK["v4"])
+        self.assertEqual(P.plan_fingerprint(O.plan(self.ordo, TRIANGLE, "smoke")), OLD_QUICK["ordo"])
+
+    def test_a_caller_naming_every_class_gets_the_tiers_plan(self):
+        self.assertEqual(self.plan("quick"), self.plan("quick", ("I", "II")))
+        self.assertFalse(any(c["meta"]["class"] == "III" for c in self.plan("quick")))
+        self.assertFalse(any(c["meta"]["class"] == "III" for c in O.plan(self.ordo, TRIANGLE, "quick")))
+
+    def test_class_iii_at_quick_is_refused_with_the_fix(self):
+        base = ["--agent", "claude", "--target-type", "organization", "--target", "Mozilla", "--tier", "quick"]
+        self.assertEqual(P.parse_args_v4(base).classes, ("I", "II"))
+        self.assertEqual(P.parse_args_v4(base + ["--class", "all"]).classes, ("I", "II"))
+        self.assertEqual(P.parse_args_v4(base + ["--class", "I"]).classes, ("I",))
+        for named in ("III", "II,III", "I,II,III"):
+            with self.assertRaises(SystemExit) as stop:
+                P.parse_args_v4(base + ["--class", named])
+            self.assertEqual(str(stop.exception), "a quick run does not run Class III; use --tier standard for it")
+        self.assertEqual(P.parse_args_v4(base[:-1] + ["standard"]).classes, P.V4_CLASSES)
+
+
+class TestRecipes(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_the_recipe_of_a_run(self):
+        self.assertEqual(P.recipe_of({"tier": "quick"}), "smoke@1")                 # before 2026-11-08
+        self.assertEqual(P.recipe_of({"tier": "quick", "recipe": "quick@2"}), "quick@2")
+        self.assertEqual(P.recipe_of({"tier": "smoke", "recipe": "smoke@1"}), "smoke@1")
+        self.assertEqual([P.planner_tier(r) for r in P.PLAN_RECIPES.values()], list(P.PLAN_RECIPES))
+        for bad in ({"tier": "quick", "recipe": "quick@1"}, {"tier": "standard", "recipe": "smoke@1"},
+                    {"tier": "slim"}):
+            with self.assertRaises(SystemExit, msg=bad):
+                P.recipe_of(bad)
+
+    MALFORMED = ("quick@3", None, "", 2, ["quick@2"])        # a present recipe is never read as legacy
+
+    def test_a_present_but_malformed_recipe_is_refused_naming_the_field(self):
+        for recipe in self.MALFORMED:
+            with self.assertRaises(SystemExit, msg=repr(recipe)) as stop:
+                P.recipe_of({"tier": "quick", "recipe": recipe})
+            self.assertIn("run.json's recipe field holds", str(stop.exception))
+
+    def test_a_malformed_recipe_is_refused_at_every_boundary(self):
+        b, _, _, meta = S.planted_run(self.tmp / "run", tier="smoke", memory="on")
+        base = {"target_type": "organization", "bank_sha256": P.BANK_MANIFEST_SHA256, "tier": "smoke",
+                "recipe": "smoke@1"}
+        for recipe in self.MALFORMED:
+            bad = dict(meta, tier="quick", recipe=recipe)
+            (self.tmp / "run" / "run.json").write_text(json.dumps(bad))
+            for name, call in (("rescore", lambda: P.rescore(self.tmp / "run", b)),
+                               ("check_resume", lambda: P.check_resume(self.tmp / "run", dict(meta))),
+                               ("comparable", lambda: P.comparable(base, dict(base, tier="quick", recipe=recipe)))):
+                with self.assertRaises(SystemExit, msg=(name, recipe)) as stop:
+                    call()
+                self.assertIn("recipe field", str(stop.exception), (name, recipe))
+
+    def legacy_quick(self):
+        """A planted smoke run whose run.json is written as a run made before recipes: tier quick, no recipe."""
+        b, roster, calls, meta = S.planted_run(self.tmp / "run", tier="smoke", memory="on")
+        legacy = dict(meta, tier="quick")
+        del legacy["recipe"]
+        (self.tmp / "run" / "run.json").write_text(json.dumps(legacy, indent=2))
+        return b, roster, calls, legacy
+
+    def test_a_legacy_quick_run_rescores_as_smoke(self):
+        b, _, calls, legacy = self.legacy_quick()
+        before = (self.tmp / "run" / "run.json").read_bytes()
+        card = P.rescore(self.tmp / "run", b)
+        self.assertEqual((card["tier"], card["recipe"], card["recorded_tier"]), ("smoke", "smoke@1", "quick"))
+        self.assertEqual(card["plan_fingerprint"], legacy["plan_fingerprint"])
+        self.assertIn("· smoke tier (recorded as quick)", (self.tmp / "run" / "scorecard.md").read_text())
+        self.assertEqual((self.tmp / "run" / "run.json").read_bytes(), before)        # never edited
+
+    def test_a_legacy_quick_folder_resumes_only_as_smoke(self):
+        _, _, _, legacy = self.legacy_quick()
+        before = (self.tmp / "run" / "run.json").read_bytes()
+        P.check_resume(self.tmp / "run", dict(legacy, tier="smoke", recipe="smoke@1"))     # resumes
+        with self.assertRaises(SystemExit) as stop:
+            P.check_resume(self.tmp / "run", dict(legacy, tier="quick", recipe="quick@2"))
+        self.assertEqual(str(stop.exception), f"{self.tmp / 'run'} holds a smoke@1 run (recorded as quick before "
+                                              "2026-11-08); rerun with --tier smoke to resume it, or pass another --out")
+        self.assertEqual((self.tmp / "run" / "run.json").read_bytes(), before)
+
+    def test_new_runs_record_their_recipe(self):
+        a = P.parse_args_v4(["--agent", "claude", "--target-type", "organization", "--target", "Mozilla",
+                             "--tier", "quick"])
+        b = real_bank()
+        roster = P.resolve_target(b, "organization", "Mozilla")
+        opts = SimpleNamespace(model=None, effort="medium", workdir="/tmp", features=[])
+        meta = P.v4_meta(a, opts, b, roster, P.plan_v4(b, roster, "quick", a.classes, ("with",)), "x", {})
+        self.assertEqual((meta["tier"], meta["recipe"], meta["classes"]), ("quick", "quick@2", ["I", "II"]))
+
+
+class TestTimeModel(unittest.TestCase):
+    def test_the_sonnet_rates_are_their_evidence(self):
+        timing = json.loads((REPO / "docs" / "ordo" / "timing.json").read_text())
+        price = P.pricing()
+        for family, s in timing["question_seconds"].items():
+            self.assertEqual(price["question_seconds"][family]["sonnet"], round(s["mean"], 2), family)
+        for cell, s in timing["episode_seconds"].items():
+            self.assertEqual(price["episode_seconds"]["sonnet"][cell], round(s["mean"], 2), cell)
+        m = price["measured"]
+        self.assertEqual((m["date"], m["model"], m["effort"], m["jobs"]),
+                         (timing["date"], timing["model"], timing["effort"], timing["jobs"]))
+
+    def test_the_quick_plans_take_about_15_minutes_on_the_baseline(self):
+        b = real_bank()
+        roster = P.resolve_target(b, "organization", "Mozilla")
+        one = P.plan_minutes(P.plan_v4(b, roster, "quick", P.V4_CLASSES, ("with",)), "sonnet", 4)
+        tri = P.plan_minutes(O.plan(O.load_ordo_bank(), TRIANGLE, "quick"), "sonnet", 4)
+        self.assertAlmostEqual(one, 14.316, places=2)
+        self.assertAlmostEqual(tri, 14.604, places=2)
+
+    def test_every_estimate_says_what_its_rates_are(self):
+        cases = {("claude", "claude-sonnet-5-5", "medium"): ("sonnet", "Sonnet baseline, measured 2026-11-08"),
+                 ("claude", None, "medium"): ("sonnet", "Sonnet baseline rates; the CLI's default model shows in its "
+                                                        "first reply"),
+                 ("claude", "claude-opus-5-5", "medium"): ("opus", "Opus: assumed, not measured"),
+                 ("claude", "claude-haiku-5-5", "medium"): ("sonnet", "Sonnet rates as a proxy, not measured for "
+                                                                      "claude-haiku-5-5, effort medium"),
+                 ("claude", "claude-sonnet-5-5", "high"): ("sonnet", "Sonnet rates as a proxy, not measured for "
+                                                                     "claude-sonnet-5-5, effort high"),
+                 ("codex", None, "medium"): ("codex", "Codex: assumed, not measured")}
+        for (agent, model, effort), want in cases.items():
+            self.assertEqual(P.rates_profile(agent, model, effort), want)
+
+
+class TestPreflight(unittest.TestCase):
+    def test_the_one_target_lines(self):
+        b = real_bank()
+        roster = P.resolve_target(b, "organization", "Mozilla")
+        calls = P.plan_v4(b, roster, "quick", P.V4_CLASSES, ("with",))
+        self.assertEqual(P.estimate_v4(args(), calls), [
+            "Class I      264 questions    264 calls   about 4 min",
+            "Class II      96 errands       96 calls   about 10 min",
+            "all          360 items        360 calls   about 14 min (Sonnet baseline, measured 2026-11-08)"])
+        both = P.plan_v4(b, roster, "quick", P.V4_CLASSES, ("without", "with"))
+        self.assertTrue(P.estimate_v4(args(memory="both"), both)[-1].endswith(
+            "about 29 min (Sonnet baseline, measured 2026-11-08)"))
+
+    def test_the_tier_sentences(self):
+        self.assertEqual(P.tier_sentence("quick", "on"),
+                         " Classes I and II; Class III is not run (--tier standard runs it)")
+        self.assertEqual(P.tier_sentence("quick", "on", single=False, cross=True),
+                         " the role-free rows of Classes I and II; the authority rows and Class III are at "
+                         "--tier standard")
+        self.assertTrue(P.tier_sentence("quick", "both").endswith("; memory both asks everything twice"))
+        for tier in ("smoke", "standard", "full"):
+            self.assertEqual(P.tier_sentence(tier, "both"), "")
+
+    def test_the_calibration_harness_still_reads_the_preflight(self):
+        text = ("probatio v4: claude (2.1.309 (Claude Code)), model claude-sonnet-5-5, effort medium\n"
+                "  quick tier, memory on, at --jobs 4: Classes I and II; Class III is not run (--tier standard runs it)\n"
+                "    Class I      264 questions    264 calls   about 4 min\n"
+                "    Class II      96 errands       96 calls   about 10 min\n"
+                "    all          360 items        360 calls   about 14 min (Sonnet baseline, measured 2026-11-08)\n")
+        self.assertEqual(RUN.preflight_settings(text),
+                         {"model": "claude-sonnet-5-5", "effort": "medium", "jobs": 4, "planned": 360})
+
+
+class TestScorecard(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    @staticmethod
+    def launch(out, started, ended, jobs=4):
+        """A launch as the watch build's run_calls logs it: a start line (ended null), and an end line unless killed."""
+        with (Path(out) / "launches.jsonl").open("a") as f:
+            f.write(json.dumps({"started": started, "ended": None, "made": 0, "jobs": jobs}) + "\n")
+            if ended:
+                f.write(json.dumps({"started": started, "ended": ended, "made": 1, "jobs": jobs}) + "\n")
+
+    def test_a_quick_card_says_what_it_left_out_and_how_long_it_ran(self):
+        b, roster, calls, meta = S.planted_run(self.tmp / "run", tier="quick", memory="on", classes=("I", "II"))
+        self.launch(self.tmp / "run", "2026-11-08T20:00:00.000Z", "2026-11-08T20:14:32.250Z")
+        P.score_run(self.tmp / "run", calls, b, roster, meta, B=S.B_TEST)
+        text = (self.tmp / "run" / "scorecard.md").read_text()
+        self.assertIn("· memory on · quick tier\n" + P.QUICK_CARD_LINE + "\n", text)
+        self.assertIn("Class III internalised  not run in a quick run\n", text)
+        self.assertIn("Run time 14m 32s over 1 launch.\n", text)
+        card = json.loads((self.tmp / "run" / "scorecard.json").read_text())
+        self.assertEqual((card["tier"], card["recipe"]), ("quick", "quick@2"))
+        self.assertEqual(card["run_time"], {"elapsed_seconds": 872.25, "launches": 1, "unfinished": 0})
+
+    def test_the_run_time_is_the_launches_own(self):
+        out = self.tmp / "run"
+        out.mkdir()
+        self.assertEqual(P.run_time_line(P.read_launches(out)), "Run time not recorded (this folder holds no "
+                                                                "launches.jsonl).")
+        self.launch(out, "2026-11-08T20:00:00Z", "2026-11-08T20:05:00Z")
+        self.launch(out, "2026-11-08T21:00:00Z", None)          # a launch killed outright: its start alone
+        self.launch(out, "2026-11-08T22:00:00Z", "2026-11-08T22:01:30Z")
+        rt = P.read_launches(out)
+        self.assertEqual(P.run_time_line(rt), "Run time 6m 30s over 3 launches; 1 launch recorded no end and is not "
+                                              "counted.")
+
+
+class TestOrdoQuick(unittest.TestCase):
+    def test_the_head_names_what_a_quick_run_left_out(self):
+        calls = O.plan(O.load_ordo_bank(), TRIANGLE, "quick", classes=("I",))
+        units = []
+        for c in calls:
+            units += O.question_unit(c, {"error": None, "outcome": None})
+        card = O.score_units(units, B=0, tier="quick")
+        self.assertIn(O.QUICK_CARD_LINE, card["head"])
+        self.assertTrue(card["head"][0].endswith("· quick tier"))
+        absent = card["conditions"]["with"]["not_measured"]
+        self.assertFalse(any(label.startswith("authority") or "Class III" in label for label in absent))
+
+    def test_amendment_6_halves_the_role_free_errand_clusters(self):
+        for value, ci, g in ((48.0, [35.0, 60.0], 16), (50.0, [40.0, 58.0], 32), (40.0, None, 8)):
+            self.assertEqual(O.errand_interval(value, ci, g), O.small_cluster(value, ci, g // 2))
+        self.assertIsNone(O.errand_interval(50.0, [42.0, 58.0], 3))            # G/2 = 1: no interval
+        lo, hi = O.errand_interval(50.0, [42.0, 58.0], 16)                    # c 1.289 at 16 tasks, against 1.123
+        self.assertAlmostEqual((hi - lo) / 16, 1.289, places=2)
+        for rid in ("role-free.II", "role-free.III"):
+            self.assertIs(O.interval_rule(rid), O.errand_interval)
+        for rid in ("role-free.I", "authority.I", "authority.II"):
+            self.assertIs(O.interval_rule(rid), O.small_cluster)          # Amendment 3, G whole
+
+
+# ---- the errand rule's completion gate ------------------------------------------------------------------------------
+GATED = re.compile(r"<!-- gated: errand rule -->(.*?)<!-- /gated -->", re.S)    # a claim that needs the rule adopted
+STALE_PHRASES = (r"(?<![-\w])readable", r"too wide to rank")   # precision claims (not "machine-readable")
+AMENDMENT_6_CODE = ["ordo.HALVED_ROWS", "ordo.answer_row", "ordo.errand_interval", "ordo.interval_rule"]
+
+
+def class2_widths(sim):
+    """Every Class II median width the allocation reports, as the documents print it (one decimal)."""
+    rows = [e["null"]["II"]["median_raw_width"] for e in sim["one_target"].values()]
+    rows += [e["null"]["role-free.II"]["median_width"] for e in sim["triangle"].values()]
+    return {f"{w:.1f}" for w in rows if w is not None}
+
+
+def stale_claims(text, status, sim):
+    """The Class II precision claims a document should not carry under status: any allocation width or STALE_PHRASES
+    outside its gated blocks (a claim that would outlive a PENDING gate), and, while the gate reads PENDING, any
+    gated block at all."""
+    outside = GATED.sub("", text)
+    found = [p for p in STALE_PHRASES if re.search(p, outside)] + sorted(w for w in class2_widths(sim) if w in outside)
+    if status != "adopted":
+        found += [f"gated block: {b.strip()[:40]}" for b in GATED.findall(text)]
+    return found
+
+
+def top_level(src):
+    """{name: source} of a module's top-level functions, classes and assigned names."""
+    tree, out = ast.parse(src), {}
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+            out[n.name] = ast.get_source_segment(src, n)
+        elif isinstance(n, (ast.Assign, ast.AnnAssign)):
+            for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
+                for x in (t.elts if isinstance(t, ast.Tuple) else [t]):
+                    if isinstance(x, ast.Name):
+                        out[x.id] = ast.get_source_segment(src, n)
+    return out
+
+
+def git_show(commit, path):
+    """A file's bytes at a commit, or None where git or the commit is not available (a copy without history)."""
+    got = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:{path}"], capture_output=True)
+    return got.stdout if got.returncode == 0 else None
+
+
+def load_bank_check():
+    """tools/check_v4_bank.py, whose in_history says whether a commit is in this checkout's history."""
+    spec = importlib.util.spec_from_file_location("check_v4_bank", REPO / "tools" / "check_v4_bank.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_rule_evidence():
+    spec = importlib.util.spec_from_file_location("rule_evidence", REPO / "docs" / "ordo" / "rule_evidence.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestErrandRuleGate(unittest.TestCase):
+    """The completion gate of PREREG Amendment 6 (ordo.errand_rule_status; Codex's re-check R2 and its final check
+    F1 to F3): adopted only with complete, current evidence whose artifacts the gate reads itself; every gap, wrong
+    number and malformed shape reads PENDING with its problem named, never an exception; the fingerprint follows every
+    numeric dependency; the builder refuses what the gate refuses; and no document carries a Class II precision claim
+    the gate does not back."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.evidence = json.loads(O.RULE_EVIDENCE.read_text())
+        cls.plans = O.quick_plan_fingerprints()
+        cls.sim = json.loads((REPO / cls.evidence["allocation"]["path"]).read_text())
+        with (REPO / cls.evidence["null_acceptance"]["path"]).open(newline="") as f:
+            cls.rows = list(csv.DictReader(f))
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def status(self, evidence=None, prereg=O.PREREG_FILE, plans=None):
+        path = self.tmp / "errand_rule.json"
+        if evidence is not None:
+            path.write_text(evidence if isinstance(evidence, str) else json.dumps(evidence))
+        return O.errand_rule_status(path, prereg, plans or self.plans)
+
+    def assertPending(self, evidence, *phrases):
+        got = self.status(evidence)
+        self.assertEqual(got["status"], "PENDING", phrases)
+        for phrase in phrases:
+            self.assertTrue(any(phrase in p for p in got["problems"]), (phrase, got["problems"]))
+
+    def changed(self, **parts):
+        ev = json.loads(json.dumps(self.evidence))
+        for dotted, value in parts.items():
+            *keys, last = dotted.split("__")
+            node = ev
+            for k in keys:
+                node = node[k]
+            node[last] = value
+        return ev
+
+    def with_artifact(self, section, name, text):
+        """The evidence with section's artifact replaced by text: a hash-consistent file in the scratch folder."""
+        ev, path = self.changed(), self.tmp / name
+        path.write_text(text)
+        ev[section].update(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        return ev
+
+    def with_rows(self, edit):
+        rows = [dict(r) for r in self.rows]
+        rows = edit(rows) or rows
+        out = io.StringIO()
+        w = csv.DictWriter(out, fieldnames=list(self.rows[0]), lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+        return self.with_artifact("null_acceptance", "stage0b.csv", out.getvalue())
+
+    def with_sim(self, edit):
+        sim = json.loads(json.dumps(self.sim))
+        edit(sim)
+        return self.with_artifact("allocation", "quick_sim.json", json.dumps(sim))
+
+    def test_the_committed_evidence_adopts_the_rule(self):
+        self.assertEqual(O.errand_rule_status(), {"status": "adopted", "problems": []})
+
+    def test_every_gap_reads_pending_with_its_problem(self):
+        cases = {"no readable evidence": None,
+                 "is for 'Amendment 5'": self.changed(amendment="Amendment 5"),
+                 "is for 'another rule'": self.changed(rule="another rule"),
+                 "stale": self.changed(scorer_fingerprint="0" * 64),
+                 "null simulations artifact changed": self.changed(null_acceptance__sha256="0" * 64),
+                 "null simulations artifact is missing": self.changed(null_acceptance__path="docs/ordo/absent.csv"),
+                 "record seeds": self.changed(null_acceptance__seeds={"standard": "invented"}),
+                 "record B 1": self.changed(null_acceptance__B=1),
+                 "record replicates 1": self.changed(null_acceptance__replicates=1),
+                 "record candidates": self.changed(null_acceptance__candidates=[O.ADOPTED_CANDIDATE]),
+                 "allocation artifact changed": self.changed(allocation__sha256="0" * 64),
+                 "records the allocation's replicates": self.changed(allocation__replicates=-1),
+                 "triangle winner is not the one its allocation gives":
+                     self.changed(allocation__winners__triangle__plan_fingerprint=None)}
+        for problem, evidence in cases.items():
+            self.assertPending(evidence, problem)
+
+    def test_a_prereg_without_the_amendment_reads_pending(self):
+        prereg = self.tmp / "PREREG.md"
+        prereg.write_text(O.PREREG_FILE.read_text().split("**Amendment 6, ")[0])
+        got = self.status(self.evidence, prereg)
+        self.assertEqual(got["status"], "PENDING")
+        self.assertIn("PREREG.md carries no Amendment 6", got["problems"])
+
+    def test_a_changed_quick_plan_reads_pending(self):
+        got = self.status(self.evidence, plans=dict(self.plans, one_target="0" * 64))
+        self.assertIn("the one_target menu's minimax winner is not today's quick plan", got["problems"])
+
+    def test_the_null_simulations_are_read_not_trusted(self):
+        """Codex's hash-consistent counterexamples (final check F1): every one read adopted before."""
+        def rates(value):
+            def edit(rows):
+                for r in rows:
+                    if r["rule"] == O.ADOPTED_CANDIDATE and r["measure"] == "false relation":
+                        r["rate"] = value                     # met stays "yes"
+            return edit
+        self.assertPending(self.with_artifact("null_acceptance", "one.csv", f'rule,met\n"{O.ADOPTED_CANDIDATE}",yes\n'),
+                           "lack the columns")
+        self.assertPending(self.with_rows(rates("100.00")), "cells fail", "missing its target <= 15")
+        self.assertPending(self.with_rows(lambda rows: [r for r in rows if r["rule"] == O.ADOPTED_CANDIDATE]),
+                           "not the candidates")
+        cut = next(i for i, r in enumerate(self.rows) if r["rule"] == O.ADOPTED_CANDIDATE and r["target"])
+        self.assertPending(self.with_rows(lambda rows: rows[:cut] + rows[cut + 1:]), "missing or repeated")
+        self.assertPending(self.with_rows(lambda rows: rows + [rows[cut]]), "missing or repeated")
+
+        def flip(field, value):
+            def edit(rows):
+                rows[cut][field] = value
+            return edit
+        self.assertPending(self.with_rows(flip("met", "NO")), "reads met 'NO'")
+        self.assertPending(self.with_rows(flip("mc_se", "0.90")), "Monte Carlo error 0.9")
+        self.assertPending(self.with_rows(flip("n", "9000")), "not 10000 replicates")
+        self.assertPending(self.with_rows(flip("target", ">= 50")), "not '")
+        self.assertPending(self.with_rows(flip("pools", "anulus")), "other pools")
+
+    def test_the_allocation_is_read_not_trusted(self):
+        """The winners are recomputed from the allocation's own widths and checked against the plan fingerprints it
+        recorded, and its rule, replicates and provenance against today's."""
+        quick = {m: next(n for n in names if n.endswith(O.QUICK_LABEL))
+                 for m, names in O.RULE_ALLOCATION["menus"].items()}
+
+        def worst_quick(sim):
+            sim["one_target"][quick["one_target"]]["null"]["II"]["median_raw_width"] = 1000
+        self.assertPending(self.with_sim(worst_quick), "one_target menu's minimax winner is 'I standard + II 40 tasks'")
+
+        def other_plan(sim):
+            sim["triangle"][quick["triangle"]]["plan_fingerprint"] = "0" * 64
+        self.assertPending(self.with_sim(other_plan), "triangle menu's minimax winner is not today's quick plan",
+                           "triangle winner is not the one its allocation gives")
+
+        def wrong_run(sim):
+            sim.update(errand_interval_rule="an unrelated rule", replicates=1)
+        self.assertPending(self.with_sim(wrong_run), "ran with rule 'an unrelated rule'", "ran with replicates 1")
+        self.assertPending(self.with_sim(lambda sim: sim.pop("provenance")), "ran with script None",
+                           "stale: the allocation was simulated")
+        self.assertPending(self.with_sim(lambda sim: sim["triangle"].pop("smoke")), "triangle menu holds")
+        self.assertPending(self.with_sim(lambda sim: sim["one_target"]["smoke"].pop("plan_fingerprint")),
+                           "one_target candidates without minutes")
+
+    def test_malformed_shapes_read_pending_and_never_raise(self):
+        """Final check F2: malformed JSON and csv shapes, and unreadable files, are named problems."""
+        self.assertPending("[]", "is not a JSON object")
+        self.assertPending("{", "no readable evidence")
+        self.assertPending(self.changed(null_acceptance="bad shape"), "no null_acceptance record")
+        self.assertPending(self.changed(allocation=[1, 2]), "no allocation record")
+        self.assertPending(self.changed(null_acceptance__path=7), "names no null simulations artifact")
+        self.assertPending(self.with_artifact("null_acceptance", "cols.csv", "foo\nbar\n"), "lack the columns")
+        self.assertPending(self.with_artifact("null_acceptance", "empty.csv", ""), "hold no rows")
+        bad = self.with_artifact("null_acceptance", "bytes.csv", "")
+        (self.tmp / "bytes.csv").write_bytes(b"\xff\xfe\x00rule")
+        bad["null_acceptance"]["sha256"] = hashlib.sha256(b"\xff\xfe\x00rule").hexdigest()
+        self.assertPending(bad, "unreadable")
+        self.assertPending(self.with_artifact("allocation", "list.json", "[]"), "is not a JSON object")
+        self.assertPending(self.with_sim(lambda sim: sim.update(triangle="menu")), "triangle menu holds 'menu'")
+        self.assertPending(self.with_sim(lambda sim: sim["triangle"]["smoke"].update(null=None)),
+                           "triangle candidates without minutes")
+        self.assertPending(self.with_rows(lambda rows: [dict(r, rate="many") for r in rows]), "not a number")
+        with mock.patch.object(O, "quick_plan_fingerprints", side_effect=OSError("no bank")):
+            got = O.errand_rule_status()
+        self.assertEqual(got["status"], "PENDING")
+        self.assertIn("could not be checked (OSError: no bank)", got["problems"][0])
+
+    def test_the_fingerprint_follows_every_numeric_dependency(self):
+        deps = dict(O.rule_dependencies())
+        for name in ("ordo.Z975", "ordo.T975_TABLE", "ordo.BOOTSTRAP_B", "ordo.ERRAND_EPSILON", "ordo.MIN_DEFINED",
+                     "ordo.bootstrap_of", "ordo.answer_row", "ordo.interval_rule", "ordo.errand_interval",
+                     "ordo.small_cluster", "ordo.errand_pair", "ordo.class1_pair", "probatio.Bootstrap",
+                     "probatio.levels", "probatio.class_score", "probatio.BOOTSTRAP_B"):
+            self.assertIn(name, deps)
+        fp = O.rule_fingerprint()
+        for module, name, value in ((O, "Z975", 2.5), (O, "BOOTSTRAP_B", 1000), (O, "ERRAND_EPSILON", 0.02),
+                                    (O, "T975_TABLE", {}), (P, "BOOTSTRAP_B", 1000)):
+            with mock.patch.object(module, name, value):
+                self.assertNotEqual(O.rule_fingerprint(), fp, name)
+        with mock.patch.object(O, "Z975", 2.5):                 # Codex's probe: the interval moves, so must the gate
+            got = O.errand_rule_status(plans=self.plans)
+        self.assertEqual(got["status"], "PENDING")
+        self.assertTrue(any(p.startswith("stale") for p in got["problems"]), got["problems"])
+        code = "import sys; sys.path.insert(0, sys.argv[1]); import ordo; print(ordo.rule_fingerprint())"
+        seen = {subprocess.run([sys.executable, "-B", "-c", code, str(REPO)], capture_output=True, text=True,
+                               check=True, env=dict(os.environ, PYTHONHASHSEED=seed)).stdout.strip()
+                for seed in ("1", "2")}
+        self.assertEqual(seen, {fp})                             # the hash seed does not move it
+
+    def test_the_builder_refuses_what_the_gate_refuses(self):
+        R = load_rule_evidence()
+        sim = dict(self.sim, errand_interval_rule="an unrelated rule", replicates=1)
+        path = self.tmp / "quick_sim.json"
+        path.write_text(json.dumps(sim))
+        with self.assertRaises(R.EvidenceError) as caught:
+            R.allocation(path)
+        self.assertIn("ran with rule 'an unrelated rule'", str(caught.exception))
+        self.assertIn("ran with replicates 1", str(caught.exception))
+        if git_show("HEAD", "docs/ordo/stage0b.csv") is None:
+            self.skipTest("no git history: the evidence's provenance cannot be rebuilt")
+        recorded = self.evidence["null_acceptance"]["commit"]
+        if load_bank_check().in_history(recorded):
+            self.assertEqual(R.evidence(REPO / self.evidence["allocation"]["path"]), self.evidence)
+            return
+        # The published history lacks the development commit that wrote stage0b.csv, so git names another writer
+        # (bank/README.md's Provenance is the same case): take the recorded commit for that one field, rebuild the rest.
+        with mock.patch.object(R, "writing_commit", lambda path: recorded):
+            self.assertEqual(R.evidence(REPO / self.evidence["allocation"]["path"]), self.evidence)
+
+    def test_stage0b_ran_todays_scorers_but_amendment_6s_dispatch(self):
+        """stage0b.csv carries no fingerprint (it predates the gate). Its provenance is the commit that wrote it: the
+        csv there is the recorded one, that commit's scorers are today's apart from what Amendment 6 added, and its
+        candidate C is today's rule wherever the interval stays within 0 to 100."""
+        import stage0
+        commit = O.RULE_NULL["commit"]
+        then = git_show(commit, self.evidence["null_acceptance"]["path"])
+        if then is None:
+            self.skipTest("no git history to read Stage 0b's commit from")
+        self.assertEqual(hashlib.sha256(then).hexdigest(), self.evidence["null_acceptance"]["sha256"])
+        old = {m: top_level(git_show(commit, f"{m}.py").decode()) for m in ("ordo", "probatio")}
+        new = {m: top_level((REPO / f"{m}.py").read_text()) for m in ("ordo", "probatio")}
+
+        def text(defs, dotted):
+            m, name = dotted.split(".")
+            return defs[m].get(name, defs["probatio" if m == "ordo" else "ordo"].get(name))
+        moved = [name for name, _ in O.rule_dependencies() if text(old, name) != text(new, name)]
+        self.assertEqual(moved, AMENDMENT_6_CODE)
+        for value, ci, g in ((48.0, [35.0, 60.0], 16), (50.0, [41.0, 58.5], 32), (60.0, [52.0, 71.0], 9)):
+            for rid in ("role-free.II", "role-free.III", "authority.II"):
+                shown = O.interval_rule(rid)(value, ci, g)
+                self.assertEqual(stage0.halved(value, ci, (g, g), O.small_cluster(value, ci, g), rid), shown)
+        self.assertEqual(stage0.SEED_TAGS, O.RULE_NULL["seeds"])
+        self.assertEqual(tuple(stage0.MODELS), O.RULE_NULL["models"])
+
+    def test_the_allocation_simulated_the_plans_it_names(self):
+        import quick_sim as Q
+        self.assertEqual(tuple(Q.V4_MENU), O.RULE_ALLOCATION["menus"]["one_target"])
+        self.assertEqual(tuple(Q.ORDO_MENU), O.RULE_ALLOCATION["menus"]["triangle"])
+        self.assertEqual(Q.SEED_TAG, O.RULE_ALLOCATION["seeds"])
+        bank = real_bank()
+        Q.STATE.update(bank=bank, roster=P.resolve_target(bank, "organization", "Mozilla"), ordo=O.load_ordo_bank())
+        for cand in Q.V4_MENU:
+            self.assertEqual(self.sim["one_target"][cand]["plan_fingerprint"], P.plan_fingerprint(Q.v4_calls(cand)))
+        for cand in Q.ORDO_MENU:
+            self.assertEqual(self.sim["triangle"][cand]["plan_fingerprint"], P.plan_fingerprint(Q.ordo_calls(cand)))
+
+    def test_no_document_carries_a_class_ii_claim_the_gate_does_not_back(self):
+        """Final check F3: the precision claims sit in gated blocks, none outside, and a PENDING gate would find every
+        one; while adopted, QUICK.md's block carries the evidence's own winners."""
+        status = O.errand_rule_status()["status"]
+        for doc in (REPO / "docs" / "ordo" / "QUICK.md", REPO / "README.md"):
+            text = doc.read_text()
+            self.assertEqual(stale_claims(text, status, self.sim), [], doc.name)
+            self.assertTrue(stale_claims(text, "PENDING", self.sim), doc.name)
+            self.assertEqual(stale_claims(GATED.sub("", text), "PENDING", self.sim), [], doc.name)
+        if status == "adopted":
+            block = "".join(GATED.findall((REPO / "docs" / "ordo" / "QUICK.md").read_text()))
+            for menu, field, row in (("one_target", "median_raw_width", "II"),
+                                     ("triangle", "median_width", "role-free.II")):
+                name = self.evidence["allocation"]["winners"][menu]["candidate"]
+                self.assertIn(f"{self.sim[menu][name]['null'][row][field]:.1f}", block, (menu, name))
+
+
+class TestPendingPresentation(unittest.TestCase):
+    """Final check F3: while the errand rule reads PENDING, the answer gives the role-free errand rows no width or tier
+    advice and says why in one line; other rows keep theirs."""
+    CARD = {"tier": "quick", "conditions": {"with": {"rows": [
+        {"id": "role-free.II", "label": "role-free Class II", "unresolved": [["individual", "organization"]],
+         "pairs": {"individual:organization": {"ci": [20, 80]}}},
+        {"id": "authority.I", "label": "authority Class I", "unresolved": [["individual", "organization"]],
+         "pairs": {"individual:organization": {"ci": [10, 90]}}}]}}}
+
+    def test_pending_names_no_errand_row_and_says_why(self):
+        self.assertEqual(O.too_wide(self.CARD, "PENDING"), "authority Class I is too wide to rank at the quick tier "
+                                                           "(an interval over 40 points); --tier full narrows it.")
+        self.assertEqual(O.rule_pending_line(self.CARD, "PENDING"),
+                         "role-free Class II: its interval rule (PREREG Amendment 6) is PENDING its evidence, so this "
+                         "run gives no width or tier advice for it.")
+        self.assertIn("role-free Class II and authority Class I are too wide", O.too_wide(self.CARD, "adopted"))
+        self.assertIsNone(O.rule_pending_line(self.CARD, "adopted"))
+
+    def test_the_live_gate_is_consulted_when_no_status_is_given(self):
+        pending = {"status": "PENDING", "problems": ["no readable evidence"]}
+        card = json.loads(json.dumps(self.CARD))
+        card["conditions"]["with"]["rows"].pop()                 # Codex's counterexample: role-free Class II alone
+        with mock.patch.object(O, "errand_rule_status", return_value=pending):
+            self.assertIsNone(O.too_wide(card))
+            self.assertIn("PENDING its evidence", O.rule_pending_line(card))
+        with mock.patch.object(O, "errand_rule_status", side_effect=AssertionError("not needed")):
+            self.assertIsNone(O.rule_pending_line({"conditions": {"with": {"rows": []}}}))   # no errand row: no call
+
+
+class TestRouting(unittest.TestCase):
+    def test_smoke_with_a_v4_option_is_v4(self):
+        self.assertFalse(P.wants_v3(["--agent", "claude", "--compare", TRIANGLE, "--tier", "smoke"]))
+        self.assertFalse(P.wants_v3(["--agent", "claude", "--target-type", "nation", "--target", "France",
+                                     "--tier", "smoke"]))
+        self.assertTrue(P.wants_v3(["--agent", "claude", "--name", "Jane Doe", "--tier", "smoke"]))   # v3's, as before
+
+
+if __name__ == "__main__":
+    with contextlib.redirect_stdout(io.StringIO()):
+        unittest.main()
