@@ -40,8 +40,9 @@ import ui as U  # noqa: E402
 from test_user_options import STUB_SH  # noqa: E402  (the guard's stub CLIs, one home)
 
 # A run, for the tests: a dry run is the real probatio.py; anything else prints what a run prints (the watch link with
-# --watch, a progress line, any text in STUB_SAY, the result lines when STUB_FINISH is set), writes its pid, and holds
-# until SIGINT, which it answers as probatio does; a finished run without --watch ends, as probatio's does.
+# --watch, a progress line, any text in STUB_SAY, the result lines when STUB_FINISH is set, in results/<STUB_FOLDER>,
+# the run's own folder), writes its pid, and holds until SIGINT, which it answers as probatio does (1, or 0 when it
+# held a scored run's page); a finished run without --watch ends with 0, as probatio's does.
 STUB_RUN = '''import os, secrets, sys, time
 real, args = sys.argv[1], sys.argv[2:]
 if "--dry-run" in args:
@@ -54,16 +55,21 @@ print("args: " + " ".join(args))
 print("probatio: quick . 36/360 . 35 valid")
 if os.environ.get("STUB_SAY"):
     print(os.environ["STUB_SAY"])
+held = False
 if os.environ.get("STUB_FINISH"):
-    print("Scorecard: " + os.path.join(os.getcwd(), "results", "stub-run", "scorecard.json"))
-    print("Report: " + os.path.join(os.getcwd(), "results", "stub-run", "report.md"))
+    out = os.path.join(os.getcwd(), "results", os.environ.get("STUB_FOLDER", "stub-run"))
+    print("Scorecard: " + os.path.join(out, "scorecard.json"))
+    print("Report: " + os.path.join(out, "report.md"))
     if "--watch" not in args:
         sys.exit(0)
     sys.stderr.write("\\nThe live page stays up at " + link + " until you press Ctrl-C.\\n")
+    held = True
 try:
     while True:
         time.sleep(0.2)
 except KeyboardInterrupt:
+    if held:
+        sys.exit(0)
     sys.stderr.write("\\ninterrupted. Rerun the same command to resume.\\n")
     sys.exit(1)
 '''
@@ -383,6 +389,43 @@ class TestBuildCommand(unittest.TestCase):
         self.assertEqual(cross[4:6], ["--target", "individual=-Jane"])
         self.assertIsNone(U.parser_error(cross))
 
+    def test_text_that_is_not_utf8_is_refused_before_any_command(self):
+        """A lone surrogate (JSON can carry one; UTF-8 cannot) in a roster line, the model, a row, a list of names or a
+        key is refused with the field named in the page's words, before any command or file name is made."""
+        sur = "\ud800"
+        cases = [(dict(MOZILLA, rosters={"organization": {"controls": f"Velt{sur} Holdings"}}),
+                  "the organization controls"),
+                 (dict(MOZILLA, rosters={"organization": {"comparators": [f"x{sur}"]}}),
+                  "the organization comparators"),
+                 (dict(MOZILLA, model=f"x{sur}"), "the model"), (dict(JANE, targets={"individual": f"Jane{sur}"}),
+                                                                 "the individual row"),
+                 (dict(JANE, targets={f"bogus{sur}": "x"}), "a row"), ({f"bogus{sur}": 1}, "a field"),
+                 (dict(JANE, effort=[f"x{sur}"]), "the effort")]
+        for form, field in cases:
+            with self.assertRaises(U.FormRefused) as caught:
+                U.build_command(form)
+            self.assertEqual(str(caught.exception), U.TEXT_REFUSED.format(field), field)
+            self.assertEqual(U.preview(form), U.refused(U.TEXT_REFUSED.format(field)))
+        self.assertNotIn("bogus", U.TEXT_REFUSED.format("a row"))
+
+    def test_a_roster_name_the_reply_would_change_is_refused(self):
+        """The roster file the page shows passes the reply's redactor too, so a name in it that the redactor would
+        change (a key shape, a secret-named variable's value) is refused, its list named, and for a variable its name,
+        never its value: the file shown is always the file that runs."""
+        key = "sk-" + secrets.token_hex(12)                                     # a fake key, built at run time
+        value = "Velt " + secrets.token_hex(8)
+        redactor = L.ViewRedactor({"PROBATIO_TEST_API_KEY": value})
+        for names, error in ((f"Thirlbeck Systems\n{key}", U.UNSHOWN.format("a name in the organization controls")),
+                             (f"{value}\nThirlbeck Systems", U.UNSHOWN_VARIABLE.format(
+                                 "a name in the organization controls", "PROBATIO_TEST_API_KEY"))):
+            form = dict(MOZILLA, rosters={"organization": {"controls": names}})
+            self.assertEqual(U.preview(form, redactor=redactor)["error"], error)
+            self.assertNotIn(value, error)
+        self.assertIsNone(U.preview(dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVelt"}}),
+                                    redactor=redactor)["error"])
+        self.assertEqual(U.unshown(["--target", "Jane " + value], redactor),
+                         U.UNSHOWN_VARIABLE.format("the value of --target", "PROBATIO_TEST_API_KEY"))
+
     def test_a_nul_is_refused_before_any_command(self):
         """No command line can carry a NUL (subprocess raises ValueError on one), so a target or a model holding one
         gets a bounded refusal, with no command, and never reaches a dry run."""
@@ -508,7 +551,8 @@ class TestVerbatim(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Jane Doe"}):
             self.assertIsNone(U.preview(JANE)["error"])                 # the redactor this process's environment gives
         secret = L.ViewRedactor({"PROBATIO_TEST_API_KEY": "Jane Doe"})
-        self.assertEqual(U.preview(JANE, redactor=secret)["error"], U.UNSHOWN.format("the value of --target"))
+        self.assertEqual(U.preview(JANE, redactor=secret)["error"],
+                         U.UNSHOWN_VARIABLE.format("the value of --target", "PROBATIO_TEST_API_KEY"))
         self.assertEqual(secret.matched_names("--target Jane Doe"), ["PROBATIO_TEST_API_KEY"])     # the page can say why
 
     def test_refusals_the_page_cannot_follow_are_in_its_words(self):
@@ -592,6 +636,49 @@ print("  watch it live: http://127.0.0.1:3/?t=second")
     def test_only_probatios_own_line_with_watch(self):
         self.assertEqual(self.link(U.build_command(JANE)[0]), "http://127.0.0.1:5/?t=real")
         self.assertIsNone(self.link(U.build_command(dict(JANE, watch="off"))[0]))
+
+
+class TestRunResults(unittest.TestCase):
+    """A result line counts only when its path lies inside the run's own folders, and a run is finished only on exit 0
+    with a scorecard there: a CLI's text in the output (a reply's model name holding newlines, say) names no result,
+    finishes nothing and holds no page."""
+    SAYS = """import os, sys, time
+folder = os.environ["RUN_FOLDER"]
+print("Scorecard: /tmp/planted-scorecard.json")
+print("Report: " + folder + "/../elsewhere/report.md")
+print("Scorecard: " + folder + "x/scorecard.json")
+if os.environ.get("OWN"):
+    print("Scorecard: " + folder + "/scorecard.json")
+    print("Report: " + folder + "/ordo/report.md")
+print("The live page stays up at http://127.0.0.1:1/?t=x until you press Ctrl-C.")
+if os.environ.get("HOLD"):
+    try:
+        time.sleep(60)
+    except KeyboardInterrupt:
+        sys.exit(1)
+sys.exit(int(os.environ["RUN_CODE"]))
+"""
+
+    def run_says(self, folder, code, own=True, hold=False):
+        env = dict(os.environ, PYTHONUNBUFFERED="1", RUN_FOLDER=str(folder), RUN_CODE=str(code),
+                   OWN="1" if own else "", HOLD="1" if hold else "")
+        return U.Runner([sys.executable, "-c", self.SAYS], [], [folder], env)
+
+    def test_results_only_from_the_runs_own_folders_and_finished_only_on_exit_0(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d) / "results" / "v4-claude-organization-mozilla-quick-memory-on"
+            mine = [["Scorecard", str(folder / "scorecard.json")], ["Report", str(folder / "ordo" / "report.md")]]
+            for code, own, status, results in ((0, True, "finished", mine), (1, True, "failed", mine),
+                                               (0, False, "failed", [])):
+                runner = self.run_says(folder, code, own)
+                runner.wait(60)
+                self.assertEqual((runner.code, runner.status(), runner.results), (code, status, results))
+            runner = self.run_says(folder, 0, own=False, hold=True)          # a planted held line, no scorecard
+            self.assertTrue(wait_for(lambda: any("stays up" in x for x in runner.state()["lines"])))
+            self.assertEqual(runner.status(), "running")
+            runner.stop()
+            runner.wait(60)
+            self.assertEqual(runner.status(), "stopped")
 
 
 # ---- the server ------------------------------------------------------------------------------------------------------------
@@ -803,6 +890,8 @@ class TestCheckAndRun(Stubbed):
         here = mock.patch.object(P, "HERE", self.tmp)
         here.start()
         self.addCleanup(here.stop)
+        [(self.folder, _)] = U.prepared(U.build_command(MOZILLA)[0])         # the stub's results go in Mozilla's
+        self.env["STUB_FOLDER"] = self.folder.name
         self.s = Served(U.Session(program=self.program, env=self.env))
 
     def tearDown(self):
@@ -908,6 +997,31 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(sorted((p.name, p.read_bytes()) for p in folder.iterdir()), held)        # only read
         folder.rename(folder.with_name(folder.name + "-moved"))
         self.assertTrue(self.s.post("/check", {"form": dict(MOZILLA, effort="high")})["ok"])
+
+    def test_a_row_edit_with_custom_controls_refuses_the_rows_other_folders(self):
+        """The one limit of one resume identity for one plan: with custom controls, the run of a row's first name asks
+        the recognition questions about them (V12, in Class I), and every other name's run records that asker. So the
+        row's folders resume only while that name stays first: replacing it refuses the others' folders (recognition
+        changed), and moving it, or running a later name alone, refuses theirs too (their plans change), safely,
+        with Check naming each folder; the same row, or its first name alone, resumes."""
+        def row(names):
+            return dict(MOZILLA, targets={"organization": names},
+                        rosters={"organization": {"controls": "Velt Holdings\nIngle Works"}})
+        first = row("Mozilla\nWikimedia Foundation")
+        self.assertTrue(self.s.post("/check", {"form": first})["ok"])              # writes the roster snapshot
+        argv = U.build_command(first)[0]
+        mozilla, wikimedia = self.earlier_run(argv)
+        reply = self.s.post("/check", {"form": row("Python Software Foundation\nWikimedia Foundation")})
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"], U.BLOCKED.format(folder=U.shown(wikimedia),
+                                                          changed=" with other settings (recognition changed)"))
+        reply = self.s.post("/check", {"form": row("Wikimedia Foundation\nMozilla")})
+        self.assertFalse(reply["ok"])
+        for folder in (mozilla, wikimedia):
+            self.assertIn(f"{U.shown(folder)} holds an earlier run with other settings (", reply["error"])
+        self.assertFalse(self.s.post("/check", {"form": row("Wikimedia Foundation")})["ok"])
+        for same in (first, row("Mozilla")):
+            self.assertTrue(self.s.post("/check", {"form": same})["ok"], self.s.post("/check", {"form": same}))
 
     def test_a_run_record_check_cannot_read_blocks_the_run(self):
         """A run.json the run could not read blocks the run too, named, and is left as it was."""
@@ -1166,8 +1280,8 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(run["command"], shown["command"])
         self.assertIn("args: " + " ".join(shown["argv"]), run["lines"])
         self.assertEqual(run["folders"], [U.shown(f) for f, _ in U.prepared(shown["argv"])])
-        self.assertEqual(run["results"], [["Scorecard", "results/stub-run/scorecard.json"],
-                                          ["Report", "results/stub-run/report.md"]])
+        self.assertEqual(run["results"], [["Scorecard", U.shown(self.folder / "scorecard.json")],
+                                          ["Report", U.shown(self.folder / "report.md")]])
         page = self.s.request("GET", "/")[1]
         self.assertIn("if (run.watch && going())", page)                 # the live link only when there is one
 
@@ -1260,8 +1374,8 @@ class TestCheckAndRun(Stubbed):
         _, pid = self.start()
         self.assertTrue(wait_for(lambda: self.s.state()["run"]["status"] == "scored"))
         run = self.s.state()["run"]
-        self.assertEqual(run["results"], [["Scorecard", "results/stub-run/scorecard.json"],
-                                          ["Report", "results/stub-run/report.md"]])
+        self.assertEqual(run["results"], [["Scorecard", U.shown(self.folder / "scorecard.json")],
+                                          ["Report", U.shown(self.folder / "report.md")]])
         self.s.post("/stop", {})
         self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
         self.assertEqual(self.s.state()["run"]["status"], "finished")
@@ -1315,6 +1429,29 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(spied, [])
         self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
         self.assertIsNone(self.s.state()["run"])
+
+    def test_text_that_is_not_utf8_and_a_roster_the_reply_would_change_never_reach_a_snapshot(self):
+        """Over the page: a lone surrogate in a roster line, and a key-shaped roster name, get a bounded refusal from
+        /command, /check and /run, never a dropped connection; Check writes no snapshot and starts no dry run."""
+        key = "sk-" + secrets.token_hex(12)                                     # a fake key, built at run time
+        cases = [(dict(MOZILLA, rosters={"organization": {"controls": "Velt\ud800 Holdings"}}),
+                  U.TEXT_REFUSED.format("the organization controls")),
+                 (dict(MOZILLA, rosters={"organization": {"controls": f"Thirlbeck Systems\n{key}"}}),
+                  U.UNSHOWN.format("a name in the organization controls"))]
+        spied, real = [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            spied.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+        for form, error in cases:
+            with mock.patch.object(U.subprocess, "run", side_effect=spy):
+                self.assertEqual(self.s.post("/command", {"form": form})["error"], error)
+                reply = self.s.post("/check", {"form": form})
+            self.assertEqual((reply["ok"], reply["error"], reply["plan"]), (False, error, ""))
+            self.assertIn(self.s.post("/run", {"form": form, "confirmed": True})["error"],
+                          (error, "check this command first: Run starts only the command the last Check passed"))
+        self.assertEqual(spied, [])
+        self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
 
     def test_a_dry_run_or_a_run_that_cannot_start_is_a_refusal(self):
         """subprocess's ValueError (a NUL in the command line) and OSError (no such program) from Check's dry run or
@@ -1420,7 +1557,7 @@ class TestPrivacy(Stubbed):
             s = Served(U.Session(program=self.program, env=self.env))
             try:
                 form = dict(MOZILLA, targets={"organization": "Moz " + value})
-                unshown = U.UNSHOWN.format("the value of --target")
+                unshown = U.UNSHOWN_VARIABLE.format("the value of --target", "PROBATIO_TEST_API_KEY")
                 self.assertEqual(s.post("/command", {"form": form})["error"], unshown)
                 reply = s.post("/check", {"form": form})
                 self.assertEqual((reply["ok"], reply["error"], reply["plan"]), (False, unshown, ""))

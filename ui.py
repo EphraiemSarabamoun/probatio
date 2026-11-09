@@ -94,6 +94,18 @@ NAME_EQUALS = ('a name in the {} row holds "=", which no name can hold; the type
 ROW_LABEL = "a name in the {} row"     # check_name's label for a row's name, so its message says where to look
 UNSHOWN = ("{} holds text the page would not show as it is (a control or format character, or the shape of a key, "
            "a secret or the page's token), so the command shown would not be the one that runs; remove it")
+# unshown's words when the text holds a secret-named variable's value: the variable's name (matched_names), never the
+# value, so the user can see why; at most SHOWN_NAMES names, each cut to NAME_CHARS.
+UNSHOWN_VARIABLE = ("{} holds the value of {}, a secret-named variable in probatio's environment, which every reply "
+                    "writes as <redacted>, so the command shown would not be the one that runs; remove it")
+SHOWN_NAMES, NAME_CHARS = 3, 64
+# Form text that does not encode to UTF-8 (a lone surrogate, which JSON can carry) can reach no command line and no
+# file; the field is named by the page's words for it, never by a key or value the request chose.
+TEXT_REFUSED = ("there is a character that is not text (a lone surrogate) in {}, which no command or file can "
+                "carry; remove it")
+FIELD_WORDS = {"agent": "the agent", "model": "the model", "tier": "the length", "classes": "the classes",
+               "memory": "the memory choice", "auto_memory": "the auto memory choice", "effort": "the effort",
+               "jobs": "the jobs", "watch": "the watch choice", "types": "the types"}
 
 
 # ---- the defaults, from probatio ---------------------------------------------------------------------------------------
@@ -187,6 +199,38 @@ def entities_path(text):
     return f"results/{ENTITIES.format(hashlib.sha256(text.encode('utf-8')).hexdigest())}"
 
 
+def unencodable(value):
+    """Whether value (text, or lists and dicts of it, keys included) holds text that does not encode to UTF-8."""
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return True
+        return False
+    if isinstance(value, dict):
+        return any(unencodable(k) or unencodable(v) for k, v in value.items())
+    return isinstance(value, list) and any(unencodable(v) for v in value)
+
+
+def not_text(form):
+    """The page's words for the first field of the form holding text that does not encode to UTF-8 (a row, a roster
+    list, or another field, by FIELD_WORDS), or None. A key the request chose is never repeated."""
+    for key, value in form.items():
+        if not (unencodable(key) or unencodable(value)):
+            continue
+        if key in ("targets", "rosters") and isinstance(value, dict):
+            for kind, part in value.items():
+                if not (unencodable(kind) or unencodable(part)):
+                    continue
+                kind = kind if kind in P.TARGET_TYPES else None
+                if key == "targets":
+                    return f"the {kind} row" if kind else "a row"
+                lists = [n for n, text in part.items() if unencodable(text)] if isinstance(part, dict) else []
+                return f"the {kind} {lists[0]}" if kind and lists and lists[0] in LISTS else "a roster list"
+        return FIELD_WORDS.get(key, "a field")
+    return None
+
+
 class FormRefused(ValueError):
     """A form the page writes no command for; the message, shown on the page, says why (TIER_REFUSED, NUL_REFUSED,
     NAME_EQUALS, or the name guard's own words)."""
@@ -236,6 +280,9 @@ def build_command(form, base=None):
     (Check writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
+    field = not_text(form)
+    if field:
+        raise FormRefused(TEXT_REFUSED.format(field))
     default, types = base["default"], types_of(form, base)
     argv = []
     agent = text_of(form.get("agent"))
@@ -284,13 +331,41 @@ def build_command(form, base=None):
 def unshown(argv, redactor):
     """Why the page would show argv other than as it runs, or None: every reply passes the server's redactor
     (live.ViewRedactor: control and format characters removed, every secret value and key shape <redacted>), so a
-    word it would change shows as something it is not. The message names the word's option, never the word."""
+    word it would change shows as something it is not. The message names the word's option, never the word
+    (unshown_words)."""
     for i, word in enumerate(argv):
         if redactor(word) != word:
             flag = word.partition("=")[0] if word.startswith("--") and "=" in word else \
                 argv[i - 1] if i and argv[i - 1].startswith("--") else None
-            return UNSHOWN.format(f"the value of {flag}" if flag else "an option")
+            return unshown_words(f"the value of {flag}" if flag else "an option", word, redactor)
     return None
+
+
+def strings(value):
+    """Every piece of text in value: the text itself, or the texts in its lists and in its dicts' values."""
+    if isinstance(value, str):
+        return [value]
+    items = value.values() if isinstance(value, dict) else value if isinstance(value, list) else []
+    return [text for item in items for text in strings(item)]
+
+
+def roster_unshown(entities, redactor):
+    """unshown for the roster file (entities, its text, or None): the first list holding a name, or a field of a
+    curated record, that the redactor would change, named as "a name in the <type> <list>", or None. The file the page
+    shows passes the same redactor, so it would not be the file that runs."""
+    for kind, lists in (json.loads(entities) if entities else {}).items():
+        for part, entries in lists.items():
+            for text in strings(entries):
+                if redactor(text) != text:
+                    return unshown_words(f"a name in the {kind} {part}", text, redactor)
+    return None
+
+
+def unshown_words(where, text, redactor):
+    """unshown's message for text at where: the secret-named variables whose values it holds, by name alone
+    (ViewRedactor.matched_names), when there are any, else UNSHOWN's list of what the redactor changes."""
+    names = [n[:NAME_CHARS] for n in redactor.matched_names(text)[:SHOWN_NAMES]]
+    return UNSHOWN_VARIABLE.format(where, P.in_words(names)) if names else UNSHOWN.format(where)
 
 
 def refused(error):
@@ -384,17 +459,18 @@ def preview(form, base=None, redactor=None):
     unregistered (DESIGN 11's labels), and fixtures_label, "custom roster: not calibrated (fixtures …)" when the
     lists differ from the defaults. A roster that load_entities refuses gives its message instead. A form
     build_command refuses has no command, only why; a command the reply's redactor (the server's; None: one built
-    from this process's environment) would change gets unshown's message once the parser accepts it."""
+    from this process's environment) would change gets unshown's message once the parser accepts it, and a roster
+    file it would change roster_unshown's once probatio accepts the file."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
     try:
         argv, entities = build_command(form, base)
     except FormRefused as e:
         return refused(str(e))
-    types = types_of(form, base)
+    types, redactor = types_of(form, base), redactor or live.ViewRedactor()
     reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
              "entities": entities_view(entities), "labels": [], "roster": None,
-             "error": parser_error(argv) or unshown(argv, redactor or live.ViewRedactor())}
+             "error": parser_error(argv) or unshown(argv, redactor)}
     if len(types) > 1:
         reply["labels"].append(P.CROSS_LABEL)
         if not P.canonical_compare([tuple(types)])["registered"]:
@@ -405,6 +481,7 @@ def preview(form, base=None, redactor=None):
         reply["labels"].append(reply["roster"])
     except SystemExit as e:
         reply["error"] = reply["error"] or exit_message(e.code)
+    reply["error"] = reply["error"] or roster_unshown(entities, redactor)
     return reply
 
 
@@ -673,10 +750,13 @@ class Runner:
     """One probatio run started by the page: program + argv in a subprocess in its own session (so a Ctrl-C at the
     page's terminal reaches the page, which passes one SIGINT on), its output read line by line: the --watch link
     (WATCH_LINK, only when argv has --watch, the first), the newest TAIL lines, each run's result lines, the held
-    page's line, and its exit code. A process that cannot start raises subprocess's ValueError or OSError."""
+    page's line, and its exit code. A result line counts only when its path lies inside one of the run's own folders
+    (own), and the run is finished only on exit 0 with a scorecard: a CLI's text in the output names no result. A
+    process that cannot start raises subprocess's ValueError or OSError."""
 
     def __init__(self, program, argv, folders, env):
         self.argv, self.folders = list(argv), [str(f) for f in folders]
+        self.roots = [Path(f).resolve() for f in folders]
         self.watching = WATCH in self.argv
         self.lines, self.results, self.watch, self.held = deque(maxlen=TAIL), [], None, False
         self.stopping, self.code, self.lock = False, None, threading.Lock()
@@ -697,7 +777,7 @@ class Runner:
                 if link:
                     self.watch = link.group(1)
                 result = RESULT_LINE.match(line)
-                if result:
+                if result and self.own(result.group(2)):
                     self.results.append([result.group(1), result.group(2)])
                 if line.lstrip().startswith(HELD_LINE):
                     self.held = True
@@ -720,11 +800,22 @@ class Runner:
         """Wait for the run's output to end and its exit code to be read."""
         self.reader.join(seconds)
 
+    def own(self, path):
+        """Whether path lies inside one of this run's own results folders, where probatio writes its scorecard and
+        report; any other path on a result line is not this run's."""
+        try:
+            where = Path(path).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return any(where == root or root in where.parents for root in self.roots)
+
     def status(self):
-        """running, stopping, scored (finished, its live page held until Stop), finished, stopped or failed."""
+        """running, stopping, scored (scored, its live page held until Stop), finished (exit 0 with a scorecard),
+        stopped or failed."""
+        scored = any(kind == "Scorecard" for kind, _ in self.results)
         if self.code is None:
-            return "stopping" if self.stopping else "scored" if self.held else "running"
-        if any(kind == "Scorecard" for kind, _ in self.results):
+            return "stopping" if self.stopping else "scored" if self.held and scored else "running"
+        if self.code == 0 and scored:
             return "finished"
         return "stopped" if self.stopping else "failed"
 
@@ -785,8 +876,8 @@ class Session:
                 return dict(refused(str(e)), ok=False, plan="", summary=None)
             reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
                      "entities": entities_view(entities)}
-            why = unshown(argv, self.redactor)
-            if why:
+            why = unshown(argv, self.redactor) or roster_unshown(entities, self.redactor)
+            if why:                         # before any snapshot is written
                 return dict(reply, ok=False, plan="", summary=None, error=why)
             try:
                 snapshot = write_snapshot(entities) if entities else None
