@@ -418,6 +418,20 @@ class TestVerbatim(unittest.TestCase):
                 self.assertEqual(P.parse_args_v4(["--agent", agent, "--model", model]).model, model)
                 self.assertIsNone(U.preview({"agent": agent, "model": model, "targets": JANE["targets"]})["error"])
 
+    def test_a_model_holds_no_invisible_character(self):
+        """The Hangul fillers, the braille blank and the rest of Unicode's default-ignorable set show as nothing or a
+        blank, so "sonnet" with one in it would read as sonnet: each is refused in a terminal and on the page, with the
+        rule, while a visible non-ASCII name passes."""
+        rule = "argument --model: " + P.MODEL_RULE
+        for ch in ("\u115f", "\u1160", "\u3164", "\uffa0", "\u2800", "\u00ad", "\u034f", "\u180b", "\u2065",
+                   "\ufe0f", "\U000e0100", "\U0001d173"):
+            model = "son" + ch + "net"
+            self.assertEqual(self.parser_says(["--agent", "claude", "--model", model]), rule, repr(ch))
+            self.assertEqual(U.preview(dict(JANE, model=model))["error"], rule, repr(ch))
+            self.assertTrue(P.invisible(ch), repr(ch))
+        for model in ("sonnet", "gpt-6.1-sol", "modèle-ä", "模型"):
+            self.assertEqual(P.parse_args_v4(["--agent", "claude", "--model", model]).model, model)
+
     def test_a_command_the_reply_would_change_is_refused(self):
         """Every reply passes the server's redactor, which drops control and format characters and writes secrets,
         key shapes and the page's token as <redacted>; a value it would change is refused, naming its option, so the
@@ -431,6 +445,21 @@ class TestVerbatim(unittest.TestCase):
             self.assertEqual(U.preview(form, redactor=redactor)["error"], U.UNSHOWN.format("the value of --target"))
         self.assertIsNone(U.preview(JANE, redactor=redactor)["error"])
         self.assertIsNone(U.unshown(U.build_command(JANE)[0], redactor))
+
+    def test_your_own_name_in_gits_author_name_is_not_a_secret(self):
+        """GIT_AUTHOR_NAME, XAUTHORITY and SSH_AUTH_SOCK are not secret-named (live.secret_named), so a name one of them
+        holds is shown and runs as typed: the user's own name in GIT_AUTHOR_NAME is not refused, nor a longer name
+        holding it, as a secret-named variable's value still is."""
+        for name in ("GIT_AUTHOR_NAME", "XAUTHORITY", "SSH_AUTH_SOCK"):
+            redactor = L.ViewRedactor({name: "Jane Doe"})
+            for typed in ("Jane Doe", "Jane Doesmith"):
+                self.assertIsNone(U.preview(dict(JANE, targets={"individual": typed}), redactor=redactor)["error"],
+                                  (name, typed))
+        with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Jane Doe"}):
+            self.assertIsNone(U.preview(JANE)["error"])                 # the redactor this process's environment gives
+        secret = L.ViewRedactor({"PROBATIO_TEST_API_KEY": "Jane Doe"})
+        self.assertEqual(U.preview(JANE, redactor=secret)["error"], U.UNSHOWN.format("the value of --target"))
+        self.assertEqual(secret.matched_names("--target Jane Doe"), ["PROBATIO_TEST_API_KEY"])     # the page can say why
 
     def test_a_refused_roster_gives_load_entities_message(self):
         form = dict(JANE, rosters={"individual": {"controls": ""}})
@@ -714,6 +743,18 @@ class TestCheckAndRun(Stubbed):
         self.assertIn("target Mozilla (organization)", reply["plan"])           # v4's own preflight, as a terminal's
         self.assertIn("pairwise option:  A) Mozilla", reply["plan"])          # the names as the items write them
         self.assertEqual(reply["command"], U.command_text(argv))
+
+    def test_check_runs_your_own_name_when_git_holds_it(self):
+        """Served as main serves it, the session's redactor is built from this process's environment: with the typed
+        name in GIT_AUTHOR_NAME, the command and its Check go through, and the plan shows the name."""
+        self.s.close()
+        with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Jane Doe"}):
+            self.s = Served(U.Session(program=self.program, env=self.env))
+        form = dict(JANE, watch="off")
+        self.assertIsNone(self.s.post("/command", {"form": form})["error"])
+        reply = self.s.post("/check", {"form": form})
+        self.assertTrue(reply["ok"], reply["error"])
+        self.assertIn("target Jane Doe (individual)", reply["plan"])
 
     def test_a_refused_check_shows_probatios_message_verbatim(self):
         for form in (dict(MOZILLA, targets={"organization": "Moz{illa"}), {"agent": "claude", "types": ["nation"]}):

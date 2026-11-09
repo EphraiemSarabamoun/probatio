@@ -778,6 +778,13 @@ def tail(text, n=300):
     return " ".join((text or "").split())[-n:]
 
 
+def one_line(text):
+    """Outside text (a CLI's --version output, a model name a CLI reports) as probatio prints it: every run of
+    whitespace, line breaks included, one space, so no line of its own can reach the output, where the --ui page reads
+    whole lines."""
+    return " ".join(str(text or "").split())
+
+
 def claude_command(condition, model, server=None, effort=None, dialogue=False, auto_memory="as-configured"):
     """The claude command and environment changes for one call. Both conditions switch off every tool, MCP server and
     hook and save no session; only the CLAUDE.md switch differs. The prompt goes on stdin, because a prompt argument
@@ -1333,7 +1340,8 @@ def run_calls(calls, agent, opts, out, jobs, line=None):
             new = set((model or "").split(",")) - {""}
             if models and new and not models & new:     # a settings change probatio cannot see, such as the model
                 state["stop"] = state["stop"] or (
-                    f"a reply came from {model}, but this run's earlier replies came from {', '.join(sorted(models))}. "
+                    f"a reply came from {one_line(model)}, but this run's earlier replies came from "
+                    f"{', '.join(one_line(m) for m in sorted(models))}. "
                     "Your agent's setup changed, so start a new --out.")
                 return                                  # not recorded, so the folder keeps one model's replies
             models.update(new)
@@ -1650,10 +1658,10 @@ def report(meta, calls, done, rows):
     models = models_seen(calls, done)
     finished = sum(1 for c in calls if key(c) in done and not done[key(c)]["error"])
     lines = ["# probatio report", "",
-             f"Agent: {meta['agent']} ({meta['cli']}), model asked for: {meta['model']}"
+             f"Agent: {meta['agent']} ({one_line(meta['cli'])}), model asked for: {meta['model']}"
              + (f", effort {meta['effort']}" if meta.get("effort") else ""),
-             f"Models seen: without memory {', '.join(models['without']) or 'none'}; "
-             f"with memory {', '.join(models['with']) or 'none'}",
+             f"Models seen: without memory {', '.join(map(one_line, models['without'])) or 'none'}; "
+             f"with memory {', '.join(map(one_line, models['with'])) or 'none'}",
              *[f"Warning: more than one model answered {cond} memory, so that column mixes models."
                for cond in CONDITIONS if len(models[cond]) > 1],
              f"Tier: {meta['tier']}, {finished} of {len(calls)} calls answered. Name in the prompts: {meta['name']}",
@@ -3805,9 +3813,9 @@ def scorecard_md(card, extras):
     """scorecard.md, also printed: the head of DESIGN 11 per condition, the difference for memory both, the
     components, red flags, diagnostics and validity checks, and the notes."""
     agent = AGENT_NAMES.get(card["agent"], card["agent"])
-    models = ", ".join(card["models"]) or "no model seen"
+    models = ", ".join(map(one_line, card["models"])) or "no model seen"
     recorded = card.get("recorded_tier")
-    head = (f"probatio v4 · {agent} {card['cli_version']} · {models} · target: {card['target']['full']} "
+    head = (f"probatio v4 · {agent} {one_line(card['cli_version'])} · {models} · target: {card['target']['full']} "
             f"({card['target']['type']}) · memory {card['memory']} · {card['tier']} tier"
             + (f" (recorded as {recorded})" if recorded and recorded != card["tier"] else ""))
     lines = ["# probatio v4 scorecard", "", "```text", head]
@@ -4211,7 +4219,8 @@ def parse_args(argv):
     p.add_argument("--dataset", default="all", choices=("all",) + DATASETS, help="one dataset, or all (default)")
     p.add_argument("--tier", default="slim", choices=TIERS,
                    help="smoke (a quick check that everything runs), slim (default, a first measurement) or full")
-    p.add_argument("--model", help="model for the CLI (default: the CLI's own; for Codex, your config.toml's)")
+    p.add_argument("--model", type=model_name,
+                   help="model for the CLI, one word (default: the CLI's own; for Codex, your config.toml's)")
     p.add_argument("--workdir", default=str(Path.home()), help="where the agent runs (default: your home)")
     p.add_argument("--jobs", type=int, default=4, help="calls at once (default 4)")
     p.add_argument("--out", help="results folder (default results/<agent>-<dataset>-<tier>); the same --out resumes a "
@@ -4255,7 +4264,7 @@ def preflight(a, opts, name, calls):
     recorded with the sha256 of its content (not the content), so a resume can tell that a file was edited."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
     files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in memory_files(a.agent, opts.workdir)}
-    print(f"probatio: {a.agent} ({cli}), model {opts.model or 'CLI default'}"
+    print(f"probatio: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}"
           + (f", effort {opts.effort}" if opts.effort else ""))
     print(f"  name {name!r}, workdir {opts.workdir}")
     if getattr(a, "demo", False):
@@ -4362,15 +4371,28 @@ def class_list(text):
 
 # --model's rule: a model name is one word the CLI reads as its model and nothing else. A leading "-" could read as an
 # option, whitespace as a second word, and a control or format character (a bidi override, a zero-width space, a NUL)
-# hides or reorders what a terminal and the page show.
-MODEL_RULE = ("a model name is one word: not empty, not starting with -, and with no whitespace, control or format "
-              "characters")
+# hides or reorders what a terminal and the page show; an invisible character (INVISIBLE) shows as nothing or as a
+# blank, so "sonnet" with a filler in it would look like sonnet. v3's parser and v4's both use it, since both build
+# the same CLI commands.
+MODEL_RULE = ("a model name is one word: not empty, not starting with -, and with no whitespace, control, format or "
+              "invisible characters")
+# Unicode's Default_Ignorable_Code_Point set (DerivedCoreProperties.txt, Unicode 15.1), which the Hangul fillers
+# U+115F, U+1160, U+3164 and U+FFA0 belong to, and U+2800 BRAILLE PATTERN BLANK, a blank outside it; inclusive ranges.
+INVISIBLE = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5),
+             (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F), (0x2800, 0x2800),
+             (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8),
+             (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF))
+
+
+def invisible(ch):
+    """Whether a character is one of INVISIBLE's."""
+    return any(lo <= ord(ch) <= hi for lo, hi in INVISIBLE)
 
 
 def model_name(text):
     """--model: the name as given, or argparse's refusal with MODEL_RULE (which names the rule, never the value)."""
     if not text or text.startswith("-") or any(ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf")
-                                               for ch in text):
+                                               or invisible(ch) for ch in text):
         raise argparse.ArgumentTypeError(MODEL_RULE)
     return text
 
@@ -4480,7 +4502,7 @@ def preflight_v4(a, opts, bank, roster, calls):
     found = memory_files(a.agent, opts.workdir, a.auto_memory) if a.memory != "off" else []
     files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in found}
     T, X = roster["T"], roster["X"]
-    print(f"probatio v4: {a.agent} ({cli}), model {opts.model or 'CLI default'}, effort {opts.effort}")
+    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}, effort {opts.effort}")
     print(f"  target {T['full']} ({roster['type']}), control {X['full']}; comparators "
           + ", ".join(k["full"] for k in roster["K"]))
     for note in roster["notes"]:
@@ -5396,7 +5418,7 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
     labels = (([CROSS_LABEL] if selection["pairs"] else []) + ([] if selection["registered"] else [UNREGISTERED_LABEL])
               + [fixtures_label(spec, types)])
     controls = [CONTROL_LABEL.format(quoted(rec["full"])) for rec in custom_controls(spec, bank, types)]
-    print(f"probatio v4: {a.agent} ({cli}), model {opts.model or 'CLI default'}, effort {opts.effort}")
+    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}, effort {opts.effort}")
     print(f"  compare {selection['compare']} · " + " · ".join(labels))
     for line in controls:
         print(f"  {line}")
