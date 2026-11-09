@@ -85,6 +85,7 @@ PARSE_LOCK = threading.Lock()         # the in-process parser borrows sys.stderr
 # the page's order, shown together as one calm line (NEEDS_LINE). A value given but wrong is probatio's to refuse.
 NEEDS_AGENT = "choose an agent"
 NEEDS_NAME = "type a name in the {} row"
+NEEDS_LIST = "add {} to the {} {}"          # e.g. "add a control to the individual controls"
 NEEDS_CLASS = "choose at least one class"
 NEEDS_LINE = "To check a run: {}"            # the pieces, joined by " · "
 # What the page refuses before probatio sees the command, each bounded (it never repeats a value): a length it does not
@@ -240,8 +241,10 @@ def not_text(form):
 def required(form, base=None):
     """What the form still needs before a run can be checked, in plain words and in the page's order (NEEDS_*): an
     agent, the parser's one required option; for a single-type run, a name in that type's row, since probatio needs a
-    target (checked_names, plan_runs) and the page never writes --name; and at least one class, since an empty
-    --class is refused. A comparison's named targets are optional. Only fields left empty count: a value given but
+    target (checked_names, plan_runs) and the page never writes --name; enough names in each roster list the form
+    shows (lists_shown: a comparison shows only the controls), since an edited list below its LIST_COUNTS minimum is
+    refused (an over-full list is a wrong value, probatio's); and at least one class, since an empty --class is
+    refused. A comparison's named targets are optional. Only fields left empty count: a value given but
     wrong is probatio's to refuse, in its own words. Pure; base is defaults()."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
@@ -250,10 +253,22 @@ def required(form, base=None):
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
     if len(types) == 1 and not names_of(targets.get(types[0])):
         needs.append(NEEDS_NAME.format(types[0]))
+    rosters = form.get("rosters") if isinstance(form.get("rosters"), dict) else {}
+    for kind in types:
+        edits = rosters.get(kind) if isinstance(rosters.get(kind), dict) else {}
+        for part in lists_shown(types):
+            given, least = len(names_of(edits.get(part))), P.LIST_COUNTS[part][0]
+            if part in edits and given < least:
+                needs.append(NEEDS_LIST.format(too_few(least - given, given, P.LIST_ROLE[part]), kind, part))
     picked = form.get("classes")
     if isinstance(picked, list) and not [k for k in P.V4_CLASSES if k in picked]:
         needs.append(NEEDS_CLASS)
     return needs
+
+
+def too_few(short, given, role):
+    """How many more names a roster list needs, in words: "a control", "another comparator", "2 comparators"."""
+    return f"{'another' if given else 'a'} {role}" if short == 1 else f"{short} {role}s"
 
 
 def needs_line(needs):
@@ -960,7 +975,7 @@ class Session:
             return {"error": "confirm the run first"}
         missing = required(request.get("form"))
         if missing:
-            return {"error": needs_line(missing), "missing": missing}
+            return {"error": needs_line(missing), "missing": missing, "needs": needs_line(missing)}
         try:
             argv, entities = build_command(request.get("form"))
         except FormRefused as e:
@@ -1219,6 +1234,9 @@ const DEFAULT_MODEL = {codex: "default (config.toml)"};  // a CLI's default mode
 const TIME_NOTE = {codex: "the time estimate for Codex is assumed, not measured."};    // else the Sonnet line below
 let D = null, F = null, said = null, plan = null, run = null, asked = 0, timer = null, confirming = false;
 let checking = false, marks = [], otherModel = false;
+let edits = 0, answered = 0;      // the form's edits, and the latest one /command has answered; until then, Check
+                                  // and Run wait (updating)
+const updating = () => answered < edits;
 const opened = {roster: false, more: false, preflight: true};   // folds stay as left when the form is rebuilt
 const $ = id => document.getElementById(id);
 function el(tag, cls, text) {
@@ -1344,7 +1362,7 @@ function against() {
       for (const part of shown) {
         const [lo, hi] = D.counts[part], n = lines(F.rosters[t][part]).length;
         counts[part].textContent = n + " (" + lo + " to " + hi + ")";
-        counts[part].classList.toggle("bad", n < lo || n > hi);
+        counts[part].classList.toggle("bad", n > hi);           // too few is a missing piece (required), calm
         edited = edited || !same(lines(F.rosters[t][part]), names(D.rosters[t][part]));
       }
       reset.hidden = !edited;
@@ -1437,15 +1455,15 @@ function moreSummary() {                   // More options' closed line: what di
 }
 function build() { marks = []; measure(); against(); how(); }
 // ---- the answer
-function changed() {
-  confirming = false;
+function changed() {                      // an edit: Check and Run wait for /command's answer to it (updating)
+  confirming = false; edits++;
   clearTimeout(timer); timer = setTimeout(refresh, 150);
   render();
 }
 async function refresh() {
-  const n = ++asked;
-  try { const r = await post("/command", {form: F}); if (n === asked) said = r; }
-  catch (err) { if (n === asked) said = null; }
+  const n = ++asked, edit = edits;
+  try { const r = await post("/command", {form: F}); if (n === asked) { said = r; answered = edit; } }
+  catch (err) { if (n === asked) { said = null; answered = edit; } }
   render();
 }
 function render() {
@@ -1472,10 +1490,10 @@ function render() {
   if (needs) error.textContent = needs;
   else if (said && said.error) add(error, el("b", null, "probatio: "), document.createTextNode(said.error));
   const stale = plan && plan.ok && keyOf(plan) !== keyOf(said);
-  $("check").disabled = !said || !!needs || !!said.error || checking;
-  const ready = plan && plan.ok && !stale && !going() && !checking;     // not while a Check is in flight
+  $("check").disabled = !said || updating() || !!needs || !!said.error || checking;
+  const ready = plan && plan.ok && !stale && !going() && !checking && !updating();   // not while either is in flight
   $("run").disabled = !ready;
-  $("why").textContent = going() ? "a run is going" : needs ? said.missing[0] + " first" :
+  $("why").textContent = going() ? "a run is going" : updating() ? "updating" : needs ? said.missing[0] + " first" :
     !plan || !plan.ok ? "check first" : stale ?
     "the command changed: check it again" : "";
   $("actions").hidden = confirming && ready;                 // while confirming, Start the run is the one primary
@@ -1502,6 +1520,10 @@ function renderPlan(stale) {
   if (!plan) { box.appendChild(el("p", "empty", "Check runs probatio's dry run of this exact command: every guard, " +
     "the calls and the time, the names as the items write them. It makes no model call.")); return; }
   if (stale) box.appendChild(el("p", "muted", "This plan is for an earlier command."));
+  if (!plan.ok && plan.needs) {          // a form that still needs a field: the calm line, never red
+    box.appendChild(el("div", "err calm", plan.needs));
+    return;
+  }
   if (!plan.ok) {                         // a refusal: the page's words, and probatio's own in the whole preflight
     add(box, add(el("div", "err"), el("b", null, "probatio: "), document.createTextNode(plan.error)));
     if (plan.plan) box.appendChild(preflight(plan.plan));
@@ -1552,6 +1574,7 @@ function renderRun() {
   if (keep) pre.scrollTop = pre.scrollHeight;
 }
 async function check() {
+  if (updating()) return;                // never on a form /command has not answered
   checking = true; confirming = false; render();
   try { plan = await post("/check", {form: F}); }
   catch (err) { plan = {ok: false, error: "the page could not reach its server (" + err.message + ")"}; }
@@ -1559,10 +1582,12 @@ async function check() {
 }
 async function start() {
   confirming = false; render();
+  if (updating()) return;                // never on a form /command has not answered
   try {
     const r = await post("/run", {form: F, confirmed: true});
-    if (r.error)                          // a refused Run may bring the preflight, probatio's own words after it
-      plan = Object.assign({}, plan, {ok: false, error: r.error}, r.plan === undefined ? {} : {plan: r.plan});
+    if (r.error)                          // a refused Run may bring the preflight, probatio's own words after it, or
+      plan = Object.assign({}, plan, {ok: false, error: r.error, needs: r.needs || null},     // what is still needed
+                           r.plan === undefined ? {} : {plan: r.plan});
     else run = r.run;
   } catch (err) { plan = {ok: false, error: "the page could not reach its server (" + err.message + ")"}; }
   render(); renderRun();

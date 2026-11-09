@@ -12,6 +12,7 @@ the CLIs are the guard's stubs, which answer --version and refuse anything else,
 """
 import argparse
 import errno
+import fcntl
 import hashlib
 import http.client
 import io
@@ -19,8 +20,10 @@ import json
 import os
 import re
 import secrets
+import select
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -101,6 +104,104 @@ def page_form(**changes):
     for key, value in changes.items():
         form[key] = dict(form[key], **value) if isinstance(value, dict) and key in ("targets", "rosters") else value
     return form
+
+
+CHROME = next((shutil.which(n) for n in ("google-chrome", "chromium", "chromium-browser") if shutil.which(n)), None)
+
+
+class Chrome:
+    """A headless Chrome driven over --remote-debugging-pipe: CDP's JSON messages, each ended by a NUL, on the
+    browser's fds 3 (commands) and 4 (replies). Standard library only, a throwaway profile, every host but 127.0.0.1
+    unresolvable and a dead proxy, so the page is the only thing it can reach. One page, attached flat."""
+
+    def __init__(self, profile):
+        high = lambda fd: fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 100)        # never 3 or 4 before the dup2s
+        cmd_r, cmd_w = map(high, os.pipe())
+        res_r, res_w = map(high, os.pipe())
+        null = os.open(os.devnull, os.O_RDWR)
+        args = [CHROME, "--headless=new", "--remote-debugging-pipe", f"--user-data-dir={profile}", "--no-first-run",
+                "--no-default-browser-check", "--disable-extensions", "--disable-background-networking",
+                "--disable-component-update", "--disable-sync", "--proxy-server=http://127.0.0.1:9",
+                "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1", "--window-size=1280,1000", "about:blank"]
+        self.pid = os.posix_spawn(CHROME, args, os.environ, file_actions=[
+            (os.POSIX_SPAWN_DUP2, cmd_r, 3), (os.POSIX_SPAWN_DUP2, res_w, 4), (os.POSIX_SPAWN_DUP2, null, 0),
+            (os.POSIX_SPAWN_DUP2, null, 1), (os.POSIX_SPAWN_DUP2, null, 2)])
+        for fd in (cmd_r, res_w, null):
+            os.close(fd)
+        self.cmd, self.res, self.buf, self.seq, self.session = cmd_w, res_r, b"", 0, None
+        target = self.call("Target.createTarget", url="about:blank")["targetId"]
+        self.session = self.call("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
+
+    def call(self, method, **params):
+        self.seq += 1
+        msg = dict(id=self.seq, method=method, params=params, **({"sessionId": self.session} if self.session else {}))
+        os.write(self.cmd, json.dumps(msg).encode("utf-8") + b"\0")
+        end = time.time() + 60
+        while True:
+            while b"\0" not in self.buf:
+                if not select.select([self.res], [], [], max(0.0, end - time.time()))[0]:
+                    raise TimeoutError(method)
+                chunk = os.read(self.res, 1 << 16)
+                if not chunk:
+                    raise RuntimeError("Chrome closed its pipe")
+                self.buf += chunk
+            raw, self.buf = self.buf.split(b"\0", 1)
+            reply = json.loads(raw)
+            if reply.get("id") == self.seq:
+                if "error" in reply:
+                    raise RuntimeError(reply["error"])
+                return reply.get("result", {})
+
+    def js(self, expression):
+        """The value of expression in the page, awaited."""
+        r = self.call("Runtime.evaluate", expression=expression, awaitPromise=True, returnByValue=True)
+        if "exceptionDetails" in r:
+            raise RuntimeError(json.dumps(r["exceptionDetails"])[:500])
+        return r["result"].get("value")
+
+    def close(self):
+        self.session = None
+        try:
+            self.call("Browser.close")
+        except (OSError, RuntimeError, TimeoutError):
+            pass
+        for _ in range(100):
+            if os.waitpid(self.pid, os.WNOHANG)[0]:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(self.pid, signal.SIGKILL)                         # the test's own child, past ten seconds
+            os.waitpid(self.pid, 0)
+        os.close(self.cmd)
+        os.close(self.res)
+
+
+# The page's own controls, for a test that drives it: every fetch counted (so a step can wait for the page to settle,
+# whatever version of the page), a row typed into, a choice clicked, and every visible text drawn in --bad (red).
+PAGE_HANDS = r"""(() => {
+  if (window.__h) return true;
+  window.__inflight = 0; window.__last = Date.now();
+  const f = window.fetch.bind(window);
+  window.fetch = (...a) => { window.__inflight++;
+    return f(...a).finally(() => { window.__inflight--; window.__last = Date.now(); }); };
+  window.__h = {
+    click(value) { [...document.querySelectorAll('.seg button')].find(b => b.value === value).click();
+                   window.__last = Date.now(); },
+    type(text) { const t = document.querySelector('#measure textarea'); t.value = text;
+                 t.dispatchEvent(new Event('input')); window.__last = Date.now(); },
+    start() { const b = [...document.querySelectorAll('#confirm button')].find(b => b.textContent === 'Start the run');
+              if (b) b.click(); return !!b; },
+    reds() { const p = document.createElement('span'); p.style.color = 'var(--bad)'; document.body.appendChild(p);
+             const red = getComputedStyle(p).color; p.remove(); const out = [];
+             const walk = n => { for (const c of n.childNodes) {
+               if (c.nodeType === 3 && c.textContent.trim()) { const e = c.parentElement;
+                 if (e && e.getClientRects().length && getComputedStyle(e).color === red)
+                   out.push(c.textContent.trim()); }
+               else if (c.nodeType === 1) walk(c); } };
+             walk(document.body); return out; },
+  };
+  return true;
+})()"""
 
 
 def wait_for(cond, timeout=20):
@@ -1376,7 +1477,8 @@ class TestCheckAndRun(Stubbed):
             self.assertIn(token + ":", L.PAGE_BASE)
             self.assertNotIn(f"var({token}", L.VIEW_V4)
         for words in ('needs = said && said.needs;', 'error.classList.toggle("calm", !!needs);',
-                      "if (needs) error.textContent = needs;", '$("check").disabled = !said || !!needs ||',
+                      "if (needs) error.textContent = needs;",
+                      '$("check").disabled = !said || updating() || !!needs ||', 'updating() ? "updating"',
                       'needs ? said.missing[0] + " first"',
                       'el("b", null, "probatio: "), document.createTextNode(said.error)'):
             self.assertIn(words, U.PAGE)
@@ -1566,6 +1668,82 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual((wrong["needs"], wrong["error"]), (None, "argument --jobs: invalid int value: 'x'"))
         self.assertTrue(self.s.post("/check", {"form": page_form(agent="claude",
                                                                  targets={"individual": "Jane Doe"})})["ok"])
+
+    @unittest.skipUnless(CHROME, "needs a headless Chrome on PATH")
+    def test_an_edit_and_a_click_at_once_never_turn_red(self):
+        """In a real browser: clearing the row and clicking Check in the same moment, and, after a passed Check,
+        clearing the row and clicking Run and Start the run, never show red text. The page acts only on a form the
+        latest /command has answered (Check and Run wait while it is updating), and a refusal that carries what is
+        still needed is drawn calm; nothing is checked or run."""
+        chrome = Chrome(self.tmp / "chrome")
+        try:
+            def settle():
+                self.assertTrue(wait_for(lambda: chrome.js(
+                    "window.__inflight === 0 && Date.now() - window.__last > 400 && !checking"), 60))
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{self.s.port}/?t={self.s.token}")
+            self.assertTrue(wait_for(lambda: chrome.js("typeof said !== 'undefined' && said !== null"), 60))
+            chrome.js(PAGE_HANDS)
+            for step in ("__h.click('claude')", "__h.type('Jane Doe')"):
+                chrome.js(step)
+                settle()
+            self.assertFalse(chrome.js("document.getElementById('check').disabled"))
+            chrome.js("__h.type(''); document.getElementById('check').click()")         # in one moment
+            settle()
+            self.assertEqual(chrome.js("__h.reds()"), [])
+            self.assertEqual(chrome.js("document.getElementById('error').textContent"),
+                             U.NEEDS_LINE.format(U.NEEDS_NAME.format("individual")))
+            self.assertFalse(list((self.tmp / "results").glob("*")) if (self.tmp / "results").exists() else [])
+            chrome.js("__h.type('Jane Doe')")
+            settle()
+            chrome.js("document.getElementById('check').click()")
+            settle()
+            self.assertTrue(chrome.js("plan && plan.ok && !document.getElementById('run').disabled"))
+            chrome.js("__h.type(''); document.getElementById('run').click(); __h.start()")   # in one moment
+            settle()
+            self.assertEqual(chrome.js("__h.reds()"), [])
+            self.assertIsNone(self.s.state()["run"])
+            self.assertFalse((self.tmp / "pid").exists())
+        finally:
+            chrome.close()
+
+    def test_an_emptied_roster_list_is_what_the_run_still_needs(self):
+        """A roster list the form shows, emptied or below its minimum, is a missing piece in plain words, so the
+        page stays calm and Check waits: Check and Run refuse it before any snapshot or dry run. A comparison shows
+        only the controls, so its comparators never count. An over-full list is a wrong value, probatio's, in red,
+        and only then is the list's count drawn red."""
+        spied, real = [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            spied.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+        cases = [(page_form(agent="claude", targets={"individual": "Jane Doe"},
+                            rosters={"individual": {"comparators": "Sam Altman\nElon Musk", "controls": ""}}),
+                  ["add a control to the individual controls"]),
+                 (page_form(agent="claude", targets={"individual": "Jane Doe"},
+                            rosters={"individual": {"comparators": " ", "controls": "Karim Nassar"}}),
+                  ["add 2 comparators to the individual comparators"]),
+                 (page_form(agent="claude", types=["organization"], targets={"organization": "Mozilla"},
+                            rosters={"organization": {"comparators": "Anthropic", "controls": "Thirlbeck Systems"}}),
+                  ["add another comparator to the organization comparators"]),
+                 (page_form(types=["individual", "organization"],
+                            rosters={"organization": {"comparators": "", "controls": ""}}),
+                  ["choose an agent", "add a control to the organization controls"])]
+        for form, missing in cases:
+            with mock.patch.object(U.subprocess, "run", side_effect=spy):
+                said = self.s.post("/command", {"form": form})
+                self.assertEqual(said["missing"], missing, form)
+                checked = self.s.post("/check", {"form": form})
+            self.assertEqual((checked["ok"], checked["error"]), (False, U.needs_line(missing)))
+            run = self.s.post("/run", {"form": form, "confirmed": True})
+            self.assertEqual((run["error"], run["needs"]), (U.needs_line(missing), U.needs_line(missing)))
+        self.assertEqual(spied, [])
+        self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
+        full = self.s.post("/command", {"form": page_form(agent="claude", targets={"individual": "Jane Doe"},
+                                                          rosters={"individual": {"controls": "A B\nC D\nE F\nG H"}})})
+        self.assertEqual(full["missing"], [])
+        self.assertIn("individual controls: 4 given; give 1 to 3", full["error"])
+        page = self.s.request("GET", "/")[1]
+        self.assertIn('counts[part].classList.toggle("bad", n > hi);', page)
 
     def test_a_dry_run_or_a_run_that_cannot_start_is_a_refusal(self):
         """subprocess's ValueError (a NUL in the command line) and OSError (no such program) from Check's dry run or
