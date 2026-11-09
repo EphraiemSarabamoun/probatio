@@ -1107,9 +1107,9 @@ h2 .aside { font-size:12.5px; font-weight:400; color:var(--muted); margin-left:a
 button { font:inherit; color:var(--ink); background:var(--track); border:0; border-radius:8px; padding:7px 14px;
   font-weight:500; cursor:pointer; }
 button:hover:not(:disabled) { background:var(--line); }
-button:disabled { opacity:.4; cursor:default; }
 button.primary { background:var(--accent); color:var(--accent-ink); font-weight:600; }
 button.primary:hover:not(:disabled) { background:var(--accent-text); }
+button:disabled, button.primary:disabled { background:var(--track); color:var(--muted); cursor:default; }
 button.quiet, button.link { background:none; padding:2px 4px; color:var(--muted); font-size:12.5px; }
 button.quiet:hover:not(:disabled), button.link:hover:not(:disabled) { background:none; color:var(--ink); }
 button.link { text-decoration:underline; text-underline-offset:2px; }

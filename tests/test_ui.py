@@ -1344,6 +1344,27 @@ class TestCheckAndRun(Stubbed):
                       "calibration's setting"):
             self.assertIn(words, page)
 
+    def test_a_disabled_run_looks_like_a_disabled_check(self):
+        """Every disabled button, Run included, takes the plain button's fill and the muted ink at full opacity (no
+        accent, no fade), so a disabled Run reads as a disabled Check; the enabled Run stays the one accent button. Its
+        label is still readable: muted on the track, and the accent ink on the accent, reach WCAG AA (4.5:1) in the
+        light and the dark palettes of PAGE_BASE."""
+        self.assertIn("button:disabled, button.primary:disabled { background:var(--track); color:var(--muted); "
+                      "cursor:default; }", U.PAGE)
+        self.assertNotIn("button:disabled { opacity", U.PAGE)
+        self.assertLess(U.PAGE.index("button.primary {"), U.PAGE.index("button.primary:disabled"))   # it wins
+
+        def lum(hexa):
+            rgb = [int(hexa[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            rgb = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+            return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+        light, dark = L.PAGE_BASE.split("@media (prefers-color-scheme: dark)")[:2]
+        for scheme in (light, dark):
+            tokens = dict(re.findall(r"--([a-z0-9-]+):(#[0-9a-f]{6})", scheme))
+            for ink, fill in (("muted", "track"), ("accent-ink", "accent")):
+                hi, lo = sorted((lum(tokens[ink]), lum(tokens[fill])), reverse=True)
+                self.assertGreaterEqual((hi + 0.05) / (lo + 0.05), 4.5, (ink, fill))
+
     def test_the_page_keeps_its_ids_and_the_watch_page_its_palette(self):
         """Every id the tests and scripts read is on the page; the --ui page's tokens are only its own (the watch page
         reads none of them); and while the form still needs a field, the page shows that one calm line (preview's
