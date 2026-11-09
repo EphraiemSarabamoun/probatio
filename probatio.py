@@ -4337,6 +4337,21 @@ def class_list(text):
     return tuple(k for k in V4_CLASSES if k in picked)
 
 
+# --model's rule: a model name is one word the CLI reads as its model and nothing else. A leading "-" could read as an
+# option, whitespace as a second word, and a control or format character (a bidi override, a zero-width space, a NUL)
+# hides or reorders what a terminal and the page show.
+MODEL_RULE = ("a model name is one word: not empty, not starting with -, and with no whitespace, control or format "
+              "characters")
+
+
+def model_name(text):
+    """--model: the name as given, or argparse's refusal with MODEL_RULE (which names the rule, never the value)."""
+    if not text or text.startswith("-") or any(ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf")
+                                               for ch in text):
+        raise argparse.ArgumentTypeError(MODEL_RULE)
+    return text
+
+
 def resolve_classes(tier, classes):
     """The classes a run asks: "all" means every class the tier plans (TIER_CLASSES; quick plans I and II); a list
     naming a class the tier does not plan is refused with the fix."""
@@ -4397,7 +4412,8 @@ def parse_args_v4(argv):
                         "target (demonstration and calibration)")
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=EFFORTS,
                    help=f"reasoning effort, pinned for every call (default {DEFAULT_EFFORT})")
-    p.add_argument("--model", help="model for the CLI (default: the CLI's own; for Codex, your config.toml's)")
+    p.add_argument("--model", type=model_name,
+                   help="model for the CLI, one word (default: the CLI's own; for Codex, your config.toml's)")
     p.add_argument("--workdir", default=str(Path.home()), help="where the agent runs (default: your home)")
     p.add_argument("--jobs", type=int, default=4, help="calls at once (default 4)")
     p.add_argument("--out", help="results folder; the same --out resumes a run")

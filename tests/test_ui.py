@@ -11,6 +11,7 @@ the CLIs are the guard's stubs, which answer --version and refuse anything else,
     python3 -m unittest discover -s tests
 """
 import argparse
+import errno
 import hashlib
 import http.client
 import io
@@ -133,7 +134,7 @@ class Served:
 
     def __init__(self, session):
         self.session = session
-        self.server = L.serve_page(U.PAGE, session.state, actions=session.actions())
+        self.server = U.serve(session)                     # as main serves it: the session gets the server's redactor
         self.port, self.token = self.server.server_address[1], self.server.token
 
     def request(self, method, path, body=None, token=True, header=True, host=None, headers=None):
@@ -184,8 +185,7 @@ class TestDefaults(unittest.TestCase):
     def test_every_choice_is_one_the_parser_takes(self):
         acts, base = parser_actions(), U.defaults()
         self.assertEqual([k for k, _ in base["agents"]], list(acts["--agent"].choices))
-        self.assertEqual(set(base["tiers"]) | set(base["setup"]), set(acts["--tier"].choices))
-        self.assertEqual(base["setup"], ["smoke"])         # smoke only behind the page's setup check
+        self.assertLess(set(base["tiers"]), set(acts["--tier"].choices))   # the user tiers; smoke is a terminal's
         self.assertEqual(base["memory"], list(acts["--memory"].choices))
         self.assertEqual(base["efforts"], list(acts["--effort"].choices))
         self.assertEqual(base["auto_memory"], list(acts["--auto-memory"].choices))
@@ -247,7 +247,7 @@ class TestBuildCommand(unittest.TestCase):
                   tier="full", watch=True)),
             ({"agent": "claude", "types": ["nation", "individual"]}, dict(compare="individual:nation", target=None)),
             ({"agent": "claude", "classes": ["II", "III"]}, dict(classes=("II", "III"), tier="standard")),
-            ({"agent": "claude", "tier": "smoke"}, dict(tier="smoke")),
+            ({"agent": "claude", "tier": "full"}, dict(tier="full")),
         ]
         for form, want in table:
             argv, _ = U.build_command(form)
@@ -317,6 +317,37 @@ class TestBuildCommand(unittest.TestCase):
         self.assertEqual(U.build_command(form), U.build_command(json.loads(json.dumps(form))))
         self.assertEqual(sorted((REPO / "results").iterdir()), before)
 
+    def test_the_page_offers_the_user_tiers_alone(self):
+        """smoke, the calibration's setup plan, is a terminal's (--tier smoke): the page offers quick, standard and
+        full, and build_command refuses any other tier, with no command (on the default type, smoke routed to v3 and
+        could never run). Every tier it writes, on every type, is v4's (wants_v4)."""
+        base = U.defaults()
+        self.assertEqual((base["tiers"], list(base["planned"])), (list(P.USER_TIERS), list(P.USER_TIERS)))
+        self.assertNotIn("setup", base)
+        for words in ("setup plan", "D.setup", "smoke"):
+            self.assertNotIn(words, U.PAGE)
+        for tier in [t for t in P.V4_TIERS if t not in P.USER_TIERS] + ["slim", "bogus"]:
+            for form in (dict(JANE, tier=tier), dict(MOZILLA, tier=tier)):
+                with self.assertRaises(U.FormRefused) as caught:
+                    U.build_command(form)
+                self.assertEqual(str(caught.exception), U.TIER_REFUSED)
+                self.assertEqual(U.preview(form), U.refused(U.TIER_REFUSED))
+        for t in P.TARGET_TYPES:
+            for tier in base["tiers"]:
+                argv = U.build_command({"agent": "claude", "types": [t], "targets": {t: "Jane Doe"}, "tier": tier})[0]
+                self.assertTrue(P.wants_v4(argv), argv)
+
+    def test_a_nul_is_refused_before_any_command(self):
+        """No command line can carry a NUL (subprocess raises ValueError on one), so a target or a model holding one
+        gets a bounded refusal, with no command, and never reaches a dry run."""
+        for form in (dict(JANE, targets={"individual": "Jane\x00Doe"}), dict(JANE, model="x\x00y"),
+                     dict(MOZILLA, targets={"organization": "Moz\x00illa"}),
+                     {"agent": "claude", "types": ["individual", "nation"], "targets": {"nation": "Fr\x00ance"}}):
+            with self.assertRaises(U.FormRefused) as caught:
+                U.build_command(form)
+            self.assertEqual(str(caught.exception), U.NUL_REFUSED)
+            self.assertEqual(U.preview(form), U.refused(U.NUL_REFUSED))
+
 
 class TestOneCommand(unittest.TestCase):
     """The command shown is the one Check checks and the one Run runs, byte for byte, with --watch or without it
@@ -362,10 +393,44 @@ class TestVerbatim(unittest.TestCase):
 
     def test_the_parsers_errors_reach_the_page_verbatim(self):
         for form in ({"targets": {"individual": "Jane Doe"}}, dict(MOZILLA, classes=["I", "III"]),
-                     dict(JANE, jobs="x"), dict(JANE, classes=[]), dict(JANE, tier="bogus")):
+                     dict(JANE, jobs="x"), dict(JANE, classes=[]), dict(JANE, model="-x y")):
             argv, _ = U.build_command(form)
             self.assertEqual(U.preview(form)["error"], self.parser_says(argv), form)
         self.assertEqual(U.preview(dict(MOZILLA, classes=["I", "III"]))["error"], P.QUICK_NO_III)
+
+    def test_a_model_is_one_word_in_a_terminal_and_on_the_page(self):
+        """--model takes one word, in parse_args_v4, so a terminal's command line is held to it as the page's is: not
+        empty, no leading "-" (an option to the CLI), no whitespace and no control or format character, with one
+        message naming the rule and never the value. Every model the page lists passes."""
+        rule = "argument --model: " + P.MODEL_RULE
+        for model in ("-x y", "-s danger-full-access", "--demo=x y", "a\nb", "a b", "\u202eabc", "x\x00y", "a\u200bb",
+                      ""):
+            self.assertEqual(self.parser_says(["--agent", "codex", "--model", model]), rule, repr(model))
+        for model in ("-x y", "-s danger-full-access", "a\nb", "\u202eabc"):
+            self.assertEqual(U.preview(dict(JANE, model=model))["error"], rule, repr(model))
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err), self.assertRaises(SystemExit) as caught:
+            P.main(["--agent", "codex", "--model", "-s danger-full-access", "--dry-run"])     # a terminal's
+        self.assertEqual((caught.exception.code, err.getvalue().strip().splitlines()[-1].split(": error: ")[1]),
+                         (2, rule))
+        for agent, models in U.MODELS.items():
+            for model in models:
+                self.assertEqual(P.parse_args_v4(["--agent", agent, "--model", model]).model, model)
+                self.assertIsNone(U.preview({"agent": agent, "model": model, "targets": JANE["targets"]})["error"])
+
+    def test_a_command_the_reply_would_change_is_refused(self):
+        """Every reply passes the server's redactor, which drops control and format characters and writes secrets,
+        key shapes and the page's token as <redacted>; a value it would change is refused, naming its option, so the
+        command shown is always byte for byte what runs."""
+        token = secrets.token_urlsafe(24)
+        redactor = L.ViewRedactor(extra=(token,))
+        key = "sk-ant-" + secrets.token_hex(12)                                  # a fake key, built at run time
+        for name in ("Jane\u202eDoe", "Jane\u200bDoe", token, key, "Jane " + key):
+            form = dict(JANE, targets={"individual": name})
+            self.assertIsNone(U.parser_error(U.build_command(form)[0]))
+            self.assertEqual(U.preview(form, redactor=redactor)["error"], U.UNSHOWN.format("the value of --target"))
+        self.assertIsNone(U.preview(JANE, redactor=redactor)["error"])
+        self.assertIsNone(U.unshown(U.build_command(JANE)[0], redactor))
 
     def test_a_refused_roster_gives_load_entities_message(self):
         form = dict(JANE, rosters={"individual": {"controls": ""}})
@@ -393,6 +458,33 @@ class TestVerbatim(unittest.TestCase):
         self.assertTrue(U.plan_summary(several)["hint"].startswith("about 69 minutes; to shorten"))
         self.assertEqual((U.plan_summary(cross)["calls"], U.plan_summary(cross)["time"]), (728, "about 33 min"))
         self.assertEqual(U.plan_summary("nothing")["calls"], None)
+
+
+class TestTheLiveLink(unittest.TestCase):
+    """Runner takes the live view's link only from probatio's own line, whole, the first time, and only when the
+    run's argv has --watch: a model's name or a CLI's error holding such a URL, before or after that line, never
+    becomes the link, watch on or off."""
+    SAYS = """import sys
+print("probatio v4: claude (2.1 (Claude Code)), model watch it live: http://127.0.0.1:1/?t=spoof, effort medium")
+print("watch it live: http://127.0.0.1:6/?t=unindented")
+print("  watch it live: http://127.0.0.1:7/?t=trailing and more")
+if "--watch" in sys.argv:
+    sys.stderr.write("  watch it live: http://127.0.0.1:5/?t=real\\n")
+print("stopped: 8 calls in a row failed (last: exit 97: watch it live: http://127.0.0.1:2/?t=fromcli)")
+print("  watch it live: http://127.0.0.1:3/?t=second")
+"""
+
+    def link(self, argv):
+        runner = U.Runner([sys.executable, "-c", self.SAYS], argv, [], dict(os.environ, PYTHONUNBUFFERED="1"))
+        runner.wait(60)
+        state = runner.state()
+        self.assertEqual(state["code"], 0)
+        self.assertEqual(len([x for x in state["lines"] if "watch it live" in x]), 6 if U.WATCH in argv else 5)
+        return state["watch"]
+
+    def test_only_probatios_own_line_with_watch(self):
+        self.assertEqual(self.link(U.build_command(JANE)[0]), "http://127.0.0.1:5/?t=real")
+        self.assertIsNone(self.link(U.build_command(dict(JANE, watch="off"))[0]))
 
 
 # ---- the server ------------------------------------------------------------------------------------------------------------
@@ -979,6 +1071,78 @@ class TestCheckAndRun(Stubbed):
         self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
         self.assertEqual(self.s.state()["run"]["status"], "finished")
 
+    def test_the_live_link_is_probatios_own_line_with_watch_only(self):
+        """Over the page: a CLI's error text printed as a whole line that looks like probatio's never becomes the
+        link. With watch off there is no link at all; with watch on, the link is probatio's own, the first."""
+        planted = "  watch it live: http://127.0.0.1:2/?t=fromcli"
+        self.env.update(STUB_SAY=planted, STUB_FINISH="1")
+        form = dict(MOZILLA, watch="off")
+        self.assertTrue(self.s.post("/check", {"form": form})["ok"])
+        self.assertNotIn("error", self.s.post("/run", {"form": form, "confirmed": True}))
+        self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
+        run = self.s.state()["run"]
+        self.assertEqual((run["status"], run["watch"]), ("finished", None))
+        self.assertIn(planted, run["lines"])
+        self.start()
+        self.assertTrue(wait_for(lambda: planted in self.s.state()["run"]["lines"]))
+        self.assertRegex(self.s.state()["run"]["watch"], r"^http://127\.0\.0\.1:45871/\?t=[A-Za-z0-9_-]{32}$")
+        self.s.post("/stop", {})
+        self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
+
+    def test_a_form_the_page_refuses_never_reaches_a_dry_run(self):
+        """A tier the page does not offer, a NUL, and a value the reply's redactor would change (a bidi control, a key
+        shape, the page's own token) are refused by /command, /check and /run with a bounded message: Check writes
+        nothing, starts no dry run and leaves no approval, and Run starts nothing."""
+        key = "sk-ant-" + secrets.token_hex(12)                                  # a fake key, built at run time
+        cases = [(dict(MOZILLA, tier="smoke"), U.TIER_REFUSED), (dict(JANE, tier="smoke"), U.TIER_REFUSED),
+                 (dict(MOZILLA, targets={"organization": "Moz\x00illa"}), U.NUL_REFUSED),
+                 (dict(MOZILLA, model="x\x00y"), U.NUL_REFUSED)]
+        cases += [(dict(MOZILLA, targets={"organization": name}), U.UNSHOWN.format("the value of --target"))
+                  for name in ("Moz\u202eilla", key, self.s.token)]
+        spied, real = [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            spied.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+        for form, error in cases:
+            self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])         # an approval the refusal revokes
+            with mock.patch.object(U.subprocess, "run", side_effect=spy):
+                self.assertEqual(self.s.post("/command", {"form": form})["error"], error, form)
+                reply = self.s.post("/check", {"form": form})
+            self.assertEqual((reply["ok"], reply["error"], reply["plan"]), (False, error, ""), form)
+            self.assertIn(self.s.post("/run", {"form": form, "confirmed": True})["error"],
+                          (error, "check this command first: Run starts only the command the last Check passed"))
+            again = self.s.post("/run", {"form": MOZILLA, "confirmed": True})
+            self.assertIn("check this command first", again["error"])
+        self.assertEqual(spied, [])
+        self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
+        self.assertIsNone(self.s.state()["run"])
+
+    def test_a_dry_run_or_a_run_that_cannot_start_is_a_refusal(self):
+        """subprocess's ValueError (a NUL in the command line) and OSError (no such program) from Check's dry run or
+        Run's process are replies with ok false and a bounded message, never a dropped connection."""
+        session, program = self.s.session, self.s.session.program
+        missing = [str(self.tmp / "no-such-probatio")]
+        try:
+            for broken, why in ((missing, os.strerror(errno.ENOENT)),
+                                ([sys.executable + "\x00"], "its command line holds what no program can take")):
+                session.program = broken
+                reply = self.s.post("/check", {"form": MOZILLA})
+                self.assertEqual((reply["ok"], reply["error"]), (False, f"the dry run could not start ({why})"))
+                again = self.s.post("/run", {"form": MOZILLA, "confirmed": True})
+                self.assertIn("check this command first", again["error"])
+            for broken, why in ((missing, os.strerror(errno.ENOENT)),
+                                ([sys.executable + "\x00"], "its command line holds what no program can take")):
+                session.program = program
+                self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])
+                session.program = broken
+                self.assertEqual(self.s.post("/run", {"form": MOZILLA, "confirmed": True}),
+                                 {"ok": False, "error": f"the run could not start ({why})"})
+                self.assertIsNone(self.s.state()["run"])
+        finally:
+            session.program = program
+        self.assertEqual(self.s.state()["run"], None)
+
     def test_closing_the_page_stops_its_run(self):
         _, pid = self.start()
         out = io.StringIO()
@@ -1047,6 +1211,23 @@ class TestPrivacy(Stubbed):
                 self.assertIn(f"leak {L.MARK} {L.MARK}", text)
                 self.assertNotIn(value, text)
                 self.assertNotIn(key, text)
+            finally:
+                s.close()
+
+    def test_a_secret_in_a_field_is_refused_never_shown_as_something_else(self):
+        """A target holding the value of a secret-named variable is refused, not shown as <redacted> while the run
+        would carry the value: the page's command is always the one that runs."""
+        value = "v" + secrets.token_hex(16)
+        with mock.patch.dict(os.environ, {"PROBATIO_TEST_API_KEY": value}):
+            s = Served(U.Session(program=self.program, env=self.env))
+            try:
+                form = dict(MOZILLA, targets={"organization": "Moz " + value})
+                unshown = U.UNSHOWN.format("the value of --target")
+                self.assertEqual(s.post("/command", {"form": form})["error"], unshown)
+                reply = s.post("/check", {"form": form})
+                self.assertEqual((reply["ok"], reply["error"], reply["plan"]), (False, unshown, ""))
+                self.assertNotIn(value, json.dumps(reply))
+                self.assertTrue(s.post("/check", {"form": MOZILLA})["ok"])
             finally:
                 s.close()
 
