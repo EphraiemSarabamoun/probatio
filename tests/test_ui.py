@@ -257,6 +257,19 @@ class TestBuildCommand(unittest.TestCase):
             self.assertEqual(shlex.split(U.command_text(argv)), ["python3", "probatio.py", *argv])
             self.assertEqual(argv[-1], U.WATCH)
 
+    def test_readme_says_only_the_default_folder_is_shared(self):
+        """The page writes no --out, so README says only the default results folder is shared with a terminal, that
+        Check names a folder an earlier run holds, and how a row's names are written."""
+        text = README.read_text(encoding="utf-8")
+        for words in ("The page writes no `--out`, so only the default results folder is shared",
+                      "a terminal run with `--out` is not reachable from the page",
+                      "Check names that folder and approves nothing", "written `--target=-NAME`, as one word",
+                      'a "=" in a name, since the type buttons choose the type'):
+            self.assertIn(words, text)
+        for form in (JANE, MOZILLA, dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia"}),
+                     {"agent": "claude", "types": list(P.TARGET_TYPES)}):
+            self.assertFalse([w for w in U.build_command(form)[0] if w.partition("=")[0] == "--out"], form)
+
     def test_a_single_type_run_is_the_command_readme_teaches(self):
         """A single-type run is written as README writes it in a terminal (--target-type for an organization or a
         nation, plain --target NAME), so it takes v4's own path; --compare and TYPE=NAME appear only when two or three
@@ -336,6 +349,39 @@ class TestBuildCommand(unittest.TestCase):
             for tier in base["tiers"]:
                 argv = U.build_command({"agent": "claude", "types": [t], "targets": {t: "Jane Doe"}, "tier": tier})[0]
                 self.assertTrue(P.wants_v4(argv), argv)
+
+    def test_row_names_pass_probatios_name_guard(self):
+        """Each row line goes through probatio's own name guard before it is written: a "=" is refused in the page's
+        words (the type is the type buttons', never TYPE=NAME in a row), anything else the guard refuses gets the
+        guard's own message under the row's label, a name is written in the guard's form, and a name the guard
+        allows that starts with "-" is written --target=NAME, one word, so argparse reads it as the value."""
+        rows = [("individual", JANE), ("organization", MOZILLA),
+                ("nation", {"agent": "claude", "types": ["individual", "nation"]})]
+        for t, base in rows:
+            for line in ("Jane=Doe", f"{t}=Jane Doe", "organization=Mozilla", "a=b"):
+                form = dict(base, targets={t: "Fine Name\n" + line})
+                with self.assertRaises(U.FormRefused) as caught:
+                    U.build_command(form)
+                self.assertEqual(str(caught.exception), U.NAME_EQUALS.format(t), (t, line))
+                self.assertEqual(U.preview(form), U.refused(U.NAME_EQUALS.format(t)))
+            for line in ("Moz{illa", "Real", "A) Foo", "x" * 61):
+                with self.assertRaises(P.NameRefused) as guard:
+                    P.check_name(line, U.ROW_LABEL.format(t))
+                with self.assertRaises(U.FormRefused) as caught:
+                    U.build_command(dict(base, targets={t: line}))
+                self.assertEqual(str(caught.exception), str(guard.exception), (t, line))
+        argv = U.build_command(dict(JANE, targets={"individual": "Jane   Doe\nZoe\u0308 Smith"}))[0]
+        self.assertEqual(argv[2:6], ["--target", "Jane Doe", "--target", "Zo\u00eb Smith"])
+        argv = U.build_command(dict(JANE, targets={"individual": "-Jane"}))[0]
+        self.assertEqual(argv, ["--agent", "claude", "--target=-Jane", "--watch"])
+        a = P.parse_args_v4(argv)
+        self.assertEqual((a.target, P.uses_options(a)), (["-Jane"], False))
+        self.assertIsNone(U.preview(dict(JANE, targets={"individual": "-Jane"}))["error"])
+        self.assertEqual(U.prepared(argv), U.prepared(["--agent", "claude", "--target=-Jane"]))
+        cross = U.build_command({"agent": "claude", "types": ["individual", "nation"],
+                                 "targets": {"individual": "-Jane"}})[0]
+        self.assertEqual(cross[4:6], ["--target", "individual=-Jane"])
+        self.assertIsNone(U.parser_error(cross))
 
     def test_a_nul_is_refused_before_any_command(self):
         """No command line can carry a NUL (subprocess raises ValueError on one), so a target or a model holding one
@@ -435,14 +481,18 @@ class TestVerbatim(unittest.TestCase):
     def test_a_command_the_reply_would_change_is_refused(self):
         """Every reply passes the server's redactor, which drops control and format characters and writes secrets,
         key shapes and the page's token as <redacted>; a value it would change is refused, naming its option, so the
-        command shown is always byte for byte what runs."""
-        token = secrets.token_urlsafe(24)
+        command shown is always byte for byte what runs. A row's name with a control or format character never gets
+        that far: the name guard refuses it first (test_row_names_pass_probatios_name_guard)."""
+        token = "t" + secrets.token_hex(16)              # a name the guard lets through, as a token could be one
         redactor = L.ViewRedactor(extra=(token,))
         key = "sk-ant-" + secrets.token_hex(12)                                  # a fake key, built at run time
-        for name in ("Jane\u202eDoe", "Jane\u200bDoe", token, key, "Jane " + key):
+        for name in (token, key, "Jane " + key, "-" + key):
             form = dict(JANE, targets={"individual": name})
             self.assertIsNone(U.parser_error(U.build_command(form)[0]))
             self.assertEqual(U.preview(form, redactor=redactor)["error"], U.UNSHOWN.format("the value of --target"))
+        for name in ("Jane\u202eDoe", "Jane\u200bDoe"):
+            with self.assertRaises(U.FormRefused):
+                U.build_command(dict(JANE, targets={"individual": name}))
         self.assertIsNone(U.preview(JANE, redactor=redactor)["error"])
         self.assertIsNone(U.unshown(U.build_command(JANE)[0], redactor))
 
@@ -460,6 +510,34 @@ class TestVerbatim(unittest.TestCase):
         secret = L.ViewRedactor({"PROBATIO_TEST_API_KEY": "Jane Doe"})
         self.assertEqual(U.preview(JANE, redactor=secret)["error"], U.UNSHOWN.format("the value of --target"))
         self.assertEqual(secret.matched_names("--target Jane Doe"), ["PROBATIO_TEST_API_KEY"])     # the page can say why
+
+    def test_refusals_the_page_cannot_follow_are_in_its_words(self):
+        """probatio's refusals whose advice names what the page does not show get the page's words, from probatio's
+        own messages: two names sharing a key (run them separately, or rename one), two runs on one folder, and a
+        type the run does not compare (pick the type). A message the page can follow is shown as it is (None)."""
+        def said(call, *args):
+            with self.assertRaises(SystemExit) as caught:
+                call(*args)
+            return caught.exception.code
+        a = P.parse_args_v4(["--agent", "claude", "--target", "Jane Doe", "--target", "Jane Do\u00e9"])
+        key = said(P.prepare_runs, a, False)
+        self.assertIn("--entities file", key)
+        self.assertEqual(U.page_words(key), 'the individual targets "Jane Doe" and "Jane Do\u00e9" both have the key '
+                         '"janedoe", which names a run\'s results folder, so they cannot run together: run them '
+                         "separately (the second once the first's folder is moved or renamed), or rename one")
+        runs = [{"kind": "single", "type": "individual", "name": "v4-x", "roster": {"T": {"full": n}}}
+                for n in ("Jane Doe", "Jane Roe")]
+        folders = said(P.check_run_folders, SimpleNamespace(out=None), runs)
+        self.assertEqual(U.page_words(folders), 'the individual run for "Jane Doe" and the individual run for '
+                         '"Jane Roe" would both write to results/v4-x, so they cannot run together: run them '
+                         "separately, or rename one")
+        compare = said(P.parse_targets, ["organization=Mozilla"], ["individual"], U.bank())
+        self.assertIn("add organization to --compare", compare)
+        self.assertEqual(U.page_words(compare), "a name in a row names an organization, which this run does not "
+                         "measure: pick organization with the type buttons and type the name in its row")
+        for message in ("--target is needed for an organization or a nation (and --name or --target for an "
+                        "individual).", P.QUICK_NO_III, "", None):
+            self.assertIsNone(U.page_words(message))
 
     def test_a_refused_roster_gives_load_entities_message(self):
         form = dict(JANE, rosters={"individual": {"controls": ""}})
@@ -757,7 +835,11 @@ class TestCheckAndRun(Stubbed):
         self.assertIn("target Jane Doe (individual)", reply["plan"])
 
     def test_a_refused_check_shows_probatios_message_verbatim(self):
-        for form in (dict(MOZILLA, targets={"organization": "Moz{illa"}), {"agent": "claude", "types": ["nation"]}):
+        """A refusal only the dry run makes, whose advice the page can follow (its lengths and classes are on the
+        page), is probatio's message, verbatim."""
+        named_at_quick = {"agent": "claude", "types": ["individual", "organization"],
+                          "targets": {"organization": "Mozilla"}, "tier": "quick", "classes": ["II"]}
+        for form in (named_at_quick, {"agent": "claude", "types": ["nation"]}):
             reply = self.s.post("/check", {"form": form})
             argv = U.build_command(form)[0]
             direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), *argv, "--dry-run"], cwd=REPO,
@@ -765,6 +847,78 @@ class TestCheckAndRun(Stubbed):
             self.assertFalse(reply["ok"])
             self.assertEqual(reply["error"], direct.stderr.strip())
         self.assertIn("--target is needed for an organization or a nation", reply["error"])
+
+    def test_a_key_collision_is_worded_for_the_page_with_probatios_own_in_the_preflight(self):
+        form = dict(JANE, targets={"individual": "Jane Doe\nJane Do\u00e9"})
+        reply = self.s.post("/check", {"form": form})
+        direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), *reply["argv"], "--dry-run"],
+                                cwd=REPO, env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"], U.page_words(direct.stderr.strip()))
+        self.assertNotIn("--entities", reply["error"])
+        self.assertEqual(reply["plan"], direct.stdout + direct.stderr.strip() + "\n")       # probatio's own, verbatim
+        page = self.s.request("GET", "/")[1]
+        self.assertIn("if (plan.plan) box.appendChild(preflight(plan.plan));", page)      # shown under a refusal
+
+    def earlier_run(self, argv):
+        """A folder an earlier run of argv holds: run.json written by probatio's own check_resume, with the record the
+        run writes, built in the run's environment (the stub CLIs), as the run's first step does."""
+        code = f"import json, sys; sys.path.insert(0, {str(REPO)!r}); import ui; print(json.dumps(ui.would_be_metas(" \
+               f"{U.absolute(argv)!r})))"
+        metas = json.loads(subprocess.run([sys.executable, "-I", "-B", "-c", code], cwd=self.tmp, env=self.env,
+                                          capture_output=True, text=True, check=True, timeout=120).stdout)
+        folders = [folder for folder, _ in U.prepared(argv)]
+        for folder, meta in zip(folders, metas):
+            folder.mkdir(parents=True)
+            P.check_resume(folder, meta)
+        return folders
+
+    def test_check_names_a_folder_an_earlier_run_holds(self):
+        """A folder that already holds a run with other settings is named at Check, with what to do from the page,
+        and nothing is approved: Run would stop on it at once. probatio's own words follow the preflight; the folder
+        is only read. The same run resumes whatever the form, a row of several targets included (one resume identity
+        for one plan); an edited roster and the baseline refuse each other, as another effort does; a moved folder
+        starts fresh."""
+        terminal = ["--agent", "claude", "--target-type", "organization", "--target", "Mozilla", "--tier", "quick"]
+        [folder] = self.earlier_run(terminal)
+        held = sorted((p.name, p.read_bytes()) for p in folder.iterdir())
+        self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])             # the same run: it resumes
+        row = dict(MOZILLA, targets={"organization": "Wikimedia Foundation\nMozilla"})
+        self.assertTrue(self.s.post("/check", {"form": row})["ok"])                 # a row holding it: it resumes too
+        edited = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nKelthorne Labs"}})
+        for form, what in ((dict(MOZILLA, effort="high"), "effort"), (edited, "fixtures_sha256"),
+                           (dict(MOZILLA, memory="off"), None)):
+            reply = self.s.post("/check", {"form": form})
+            if what is None:                                 # another folder (memory names it): nothing to compare
+                self.assertTrue(reply["ok"], reply["error"])
+                continue
+            self.assertFalse(reply["ok"])
+            self.assertEqual(reply["error"], U.BLOCKED.format(folder=U.shown(folder),
+                                                              changed=f" with other settings ({what} changed)"))
+            self.assertTrue(reply["plan"].endswith(f"{folder} holds a run with other settings ({what} changed). Pass "
+                                                   "another --out to start a new run, or undo the change to resume "
+                                                   "this one.\n"), reply["plan"][-300:])
+            self.assertIn("check this command first", self.s.post("/run", {"form": form, "confirmed": True})["error"])
+        two = dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia Foundation"}, effort="high")
+        reply = self.s.post("/check", {"form": two})                    # the options path: two runs, one folder held
+        self.assertFalse(reply["ok"])
+        self.assertTrue(reply["error"].startswith(f"{U.shown(folder)} holds an earlier run with other settings ("))
+        self.assertIn("effort", reply["error"])
+        self.assertNotIn("wikimedia", reply["error"])
+        self.assertEqual(sorted((p.name, p.read_bytes()) for p in folder.iterdir()), held)        # only read
+        folder.rename(folder.with_name(folder.name + "-moved"))
+        self.assertTrue(self.s.post("/check", {"form": dict(MOZILLA, effort="high")})["ok"])
+
+    def test_a_run_record_check_cannot_read_blocks_the_run(self):
+        """A run.json the run could not read blocks the run too, named, and is left as it was."""
+        [folder] = self.earlier_run(["--agent", "claude", "--target-type", "organization", "--target", "Mozilla",
+                                     "--tier", "quick"])
+        (folder / "run.json").write_text("{", encoding="utf-8")
+        reply = self.s.post("/check", {"form": MOZILLA})
+        self.assertEqual((reply["ok"], reply["error"]), (False, U.BLOCKED.format(folder=U.shown(folder), changed="")))
+        self.assertTrue(reply["plan"].endswith(f"{folder / 'run.json'} is not a run record probatio can read "
+                                               "(JSONDecodeError)\n"))
+        self.assertEqual((folder / "run.json").read_text(encoding="utf-8"), "{")
 
     def test_check_writes_the_entities_file_it_names(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
@@ -1131,15 +1285,18 @@ class TestCheckAndRun(Stubbed):
         self.assertTrue(wait_for(lambda: self.s.state()["run"]["code"] is not None))
 
     def test_a_form_the_page_refuses_never_reaches_a_dry_run(self):
-        """A tier the page does not offer, a NUL, and a value the reply's redactor would change (a bidi control, a key
-        shape, the page's own token) are refused by /command, /check and /run with a bounded message: Check writes
-        nothing, starts no dry run and leaves no approval, and Run starts nothing."""
+        """A tier the page does not offer, a NUL, a name the guard refuses (a bidi control) and a value the reply's
+        redactor would change (a key shape, the page's own token) are refused by /command, /check and /run with a
+        bounded message: Check writes nothing, starts no dry run and leaves no approval, and Run starts nothing."""
         key = "sk-ant-" + secrets.token_hex(12)                                  # a fake key, built at run time
         cases = [(dict(MOZILLA, tier="smoke"), U.TIER_REFUSED), (dict(JANE, tier="smoke"), U.TIER_REFUSED),
                  (dict(MOZILLA, targets={"organization": "Moz\x00illa"}), U.NUL_REFUSED),
                  (dict(MOZILLA, model="x\x00y"), U.NUL_REFUSED)]
-        cases += [(dict(MOZILLA, targets={"organization": name}), U.UNSHOWN.format("the value of --target"))
-                  for name in ("Moz\u202eilla", key, self.s.token)]
+        with self.assertRaises(P.NameRefused) as guard:
+            P.check_name("Moz\u202eilla", U.ROW_LABEL.format("organization"))
+        cases += [(dict(MOZILLA, targets={"organization": "Moz\u202eilla"}), str(guard.exception)),
+                  (dict(MOZILLA, targets={"organization": key}), U.UNSHOWN.format("the value of --target")),
+                  (dict(MOZILLA, model="x" + self.s.token), U.UNSHOWN.format("the value of --model"))]
         spied, real = [], U.subprocess.run
 
         def spy(cmd, *args, **kwargs):
