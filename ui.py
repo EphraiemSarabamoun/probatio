@@ -170,17 +170,20 @@ def entities_path(text):
 
 def build_command(form, base=None):
     """The form as probatio's argv, with only the flags that change something (an option at its parser default is
-    left out), and the entities file its roster edits need, as text, or None. base is defaults(). The comparison is
-    --compare (none for the default type alone; probatio's canonical form for two or three types); typed names become
-    --target TYPE=NAME, a person (you or anyone) included: the individual row is the one place for one, and the page
-    never writes --name, since --target individual=NAME plans the same run, item for item. With no target, a
-    single-type run stops with probatio's own message. Roster edits become
-    --entities results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own
-    default, which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as
-    --class, so a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which
-    probatio compares with standard's I,II), and an empty one so the parser says why. --watch comes last unless the
-    form's watch is off (the page then shows the run's output without a live link); either way the command shown is
-    the one Check checks and Run runs, byte for byte.
+    left out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run is
+    written as README teaches it, so it takes v4's own path and shares its folders with a terminal's runs (run.json
+    alike, so either resumes the other): --target-type TYPE for an organization or a nation (none for the default
+    individual) and each target as --target NAME. Two or three types compared are --compare, probatio's canonical
+    form, with each target as --target TYPE=NAME, which is the only place the type is needed. A person (you or anyone)
+    is a target like any other, typed in the individual row, so the page never writes --name: --target NAME plans
+    the same run, item for item. With no target, a single-type run stops with probatio's own message. Several
+    targets of one type, or roster edits, take probatio's options path whatever the form, and --target-type keeps
+    their comparison. Roster edits become --entities results/ui-entities-<sha256>.json. Classes are left out only
+    when all three are chosen, the form's own default, which is the parser's "all" (each tier then asks its own
+    classes); any other choice is passed on as --class, so a subset stays explicit at every tier, even one equal to
+    the tier's classes (I,II at quick, which probatio compares with standard's I,II), and an empty one so the parser
+    says why. --watch comes last unless the form's watch is off (the page then shows the run's output without a live
+    link); either way the command shown is the one Check checks and Run runs, byte for byte.
     Pure: it reads nothing and writes nothing (Check writes the file)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
@@ -189,12 +192,15 @@ def build_command(form, base=None):
     agent = text_of(form.get("agent"))
     if agent:
         argv += ["--agent", agent]
-    if types != [default["type"]]:
-        argv += ["--compare", types[0] if len(types) == 1 else P.canonical_compare([tuple(types)])["compare"]]
+    single = len(types) == 1
+    if not single:
+        argv += ["--compare", P.canonical_compare([tuple(types)])["compare"]]
+    elif types != [default["type"]]:
+        argv += ["--target-type", types[0]]
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
     for t in types:
         for n in names_of(targets.get(t)):
-            argv += ["--target", f"{t}={n}"]
+            argv += ["--target", n if single else f"{t}={n}"]
     entities = entities_text(form, types, base)
     if entities:
         argv += ["--entities", entities_path(entities)]
@@ -402,7 +408,7 @@ def prepared(argv):
     folder, the run's working directory."""
     absolute = [str(P.HERE / x) if prev == "--entities" else x for prev, x in zip([None, *argv], argv)]
     a = P.parse_args_v4(absolute)
-    runs = P.prepare_runs(a, False)[4]               # the page never writes --target-type
+    runs = P.prepare_runs(a, "--target-type" in argv)[4]     # as main_v4 tells it; the page writes it as one word
     return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
 
 
@@ -823,7 +829,8 @@ function measure() {
     const person = t === "individual";
     const place = person ? "your own name, or anyone's" : cross ? "none (optional)" : "the " + t + " to score";
     add(s, row(t, field(F.targets, t, place, true), (cross ? "named targets, optional; " : "the target; ") +
-      (person ? "type your own name to score yourself; " : "") + "one per line, each --target " + t + "=NAME"));
+      (person ? "type your own name to score yourself; " : "") + "one per line, each --target " +
+      (cross ? t + "=NAME" : "NAME")));
   }
 }
 function against() {

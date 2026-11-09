@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -30,6 +31,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
+README = REPO / "README.md"
 sys.path[:0] = [str(REPO), str(REPO / "tests")]
 import live as L  # noqa: E402
 import probatio as P  # noqa: E402
@@ -207,13 +209,14 @@ class TestDefaults(unittest.TestCase):
 # ---- the form as a command line --------------------------------------------------------------------------------------------
 class TestBuildCommand(unittest.TestCase):
     def test_a_person_is_the_individual_rows_target(self):
-        """A person, you or anyone, is typed in the individual row and becomes --target individual=NAME; the page never
-        writes --name, so a "name" field (an older page's) changes nothing, in a single run or a comparison."""
+        """A person, you or anyone, is typed in the individual row and becomes --target NAME, on v4's own path; the page
+        never writes --name, so a "name" field (an older page's) changes nothing, in a single run or a comparison."""
         argv, entities = U.build_command(JANE)
-        self.assertEqual((argv, entities), (["--agent", "claude", "--target", "individual=Jane Doe", "--watch"], None))
+        self.assertEqual((argv, entities), (["--agent", "claude", "--target", "Jane Doe", "--watch"], None))
         a = P.parse_args_v4(argv)
         self.assertEqual((a.target, a.name, a.tier, a.memory, a.effort, a.jobs),
-                         (["individual=Jane Doe"], None, "standard", "on", "medium", 4))
+                         (["Jane Doe"], None, "standard", "on", "medium", 4))
+        self.assertFalse(P.uses_options(a))
         for form in (dict(JANE, watch="on"), dict(JANE, name="Someone Else")):
             self.assertEqual(U.build_command(form), (argv, None))
         for form in ({"agent": "claude", "name": "Jane Doe"}, dict(MOZILLA, name="Jane Doe"),
@@ -231,11 +234,11 @@ class TestBuildCommand(unittest.TestCase):
 
     def test_forms_parse_to_the_options_they_chose(self):
         table = [
-            (MOZILLA, dict(compare="organization", target=["organization=Mozilla"], tier="quick",
+            (MOZILLA, dict(compare=None, target_type="organization", target=["Mozilla"], tier="quick",
                            classes=("I", "II"))),
             (dict(MOZILLA, classes=["I", "II"]), dict(tier="quick", classes=("I", "II"))),
             (dict(JANE, targets={"individual": "Ada Lovelace\n\nGrace Hopper\n"}),
-             dict(compare=None, target=["individual=Ada Lovelace", "individual=Grace Hopper"], name=None)),
+             dict(compare=None, target_type="individual", target=["Ada Lovelace", "Grace Hopper"], name=None)),
             ({"agent": "codex", "types": ["nation", "individual", "organization"],
               "targets": {"nation": "France", "organization": ""}, "memory": "both", "effort": "high",
               "model": "gpt-x", "jobs": 2, "auto_memory": "off", "classes": ["I"], "tier": "full"},
@@ -253,6 +256,34 @@ class TestBuildCommand(unittest.TestCase):
                 self.assertEqual(getattr(a, key), value, (form, argv, key))
             self.assertEqual(shlex.split(U.command_text(argv)), ["python3", "probatio.py", *argv])
             self.assertEqual(argv[-1], U.WATCH)
+
+    def test_a_single_type_run_is_the_command_readme_teaches(self):
+        """A single-type run is written as README writes it in a terminal (--target-type for an organization or a
+        nation, plain --target NAME), so it takes v4's own path; --compare and TYPE=NAME appear only when two or three
+        types are compared. Several targets of one type, or a roster edit, take the options path whatever the form,
+        and keep --target-type."""
+        block = README.read_text(encoding="utf-8").split("cd probatio\n", 1)[1].split("```", 1)[0]
+        taught = [shlex.split(line)[2:] for line in block.splitlines() if "--target-type" in line]
+        self.assertEqual(len(taught), 2)
+        for words in taught:
+            a = P.parse_args_v4(words)
+            form = {"agent": a.agent, "types": [a.target_type], "targets": {a.target_type: a.target[0]},
+                    "memory": a.memory}
+            self.assertEqual(U.build_command(form)[0], [*words, U.WATCH])
+            self.assertFalse(P.uses_options(a))
+        self.assertEqual(U.build_command(JANE)[0][2:4], ["--target", "Jane Doe"])
+        two = dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia"})
+        argv = U.build_command(two)[0]
+        self.assertEqual(argv[2:8], ["--target-type", "organization", "--target", "Mozilla", "--target", "Wikimedia"])
+        self.assertTrue(P.uses_options(P.parse_args_v4(argv)))
+        edited = U.build_command(dict(MOZILLA, rosters={"organization": {"controls": "Varrow Analytics"}}))[0]
+        self.assertEqual(edited[2:6], ["--target-type", "organization", "--target", "Mozilla"])
+        for form in (MOZILLA, two, JANE, {"agent": "claude", "types": ["nation"]}):
+            self.assertNotIn("--compare", U.build_command(form)[0])
+            self.assertFalse([w for w in U.build_command(form)[0] if "=" in w], form)
+        cross = U.build_command({"agent": "claude", "types": ["organization", "nation"],
+                                 "targets": {"organization": "Mozilla"}})[0]
+        self.assertEqual(cross[2:6], ["--compare", "organization:nation", "--target", "organization=Mozilla"])
 
     def test_an_edited_roster_is_an_entities_file_that_round_trips(self):
         form = dict(MOZILLA, rosters={"organization": {"comparators": "Anthropic\nOpenAI\nMozilla Foundation",
@@ -588,7 +619,8 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(reply["plan"], direct.stdout)
         self.assertEqual(reply["summary"]["calls"], int(re.search(r"(\d+) calls\s+about", re.findall(
             r"\n\s+all .*", direct.stdout)[0]).group(1)))
-        self.assertIn('organization "Mozilla": Mozilla', reply["plan"])          # the names as the items write them
+        self.assertIn("target Mozilla (organization)", reply["plan"])           # v4's own preflight, as a terminal's
+        self.assertIn("pairwise option:  A) Mozilla", reply["plan"])          # the names as the items write them
         self.assertEqual(reply["command"], U.command_text(argv))
 
     def test_a_refused_check_shows_probatios_message_verbatim(self):
@@ -728,18 +760,22 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(said, {t: direct.stderr.strip() for t in P.TARGET_TYPES})
         self.assertIn("--target is needed", said["individual"])
 
-    def planned(self, argv, out):
+    def planned(self, argv, out, metas=None):
         """argv's real --dry-run in this process (main_v4, with the stub CLIs first on PATH), writing rendered.jsonl to
-        out: the plan fingerprint of each run, as its preflight is handed the run, and rendered.jsonl's bytes."""
+        out: the plan fingerprint of each run, as its preflight is handed the run, and rendered.jsonl's bytes; with
+        metas, a list, also each run's meta, the record check_resume compares."""
         seen, single, several = [], P.preflight_v4, P.preflight_runs
+        metas = [] if metas is None else metas
 
         def one(a, opts, bank, roster, calls):
             seen.append(P.plan_fingerprint(calls))
-            return single(a, opts, bank, roster, calls)
+            metas.append(single(a, opts, bank, roster, calls))
+            return metas[-1]
 
         def each(a, opts, bank, ordo_bank, selection, spec, runs):
             seen.extend(P.plan_fingerprint(run["calls"]) for run in runs)
-            return several(a, opts, bank, ordo_bank, selection, spec, runs)
+            metas.extend(several(a, opts, bank, ordo_bank, selection, spec, runs))
+            return metas[-len(runs):]
         with mock.patch.object(P, "preflight_v4", one), mock.patch.object(P, "preflight_runs", each), \
                 mock.patch.dict(os.environ, self.env, clear=True), mock.patch("sys.stdout", io.StringIO()):
             P.main_v4([*argv, "--dry-run", "--out", str(out)])
@@ -747,14 +783,14 @@ class TestCheckAndRun(Stubbed):
 
     def test_a_typed_person_plans_what_name_plans(self):
         """--name's one job, an individual run's target when none is given, is the individual row's now: the page's
-        --target individual=NAME (probatio's compare path) and --name NAME (v4's own path) plan one run, with the
-        same plan fingerprint and byte-identical rendered.jsonl, and Check's approval binds that fingerprint. Both
-        tiers, all three memory settings and both CLIs were compared the same way when the your-name field went."""
+        --target NAME and --name NAME (both v4's own path) plan one run, with the same plan fingerprint and
+        byte-identical rendered.jsonl, and Check's approval binds that fingerprint. Both tiers, all three memory
+        settings and both CLIs were compared the same way when the your-name field went."""
         for memory in ("both", "off"):
             form = dict(JANE, tier="quick", memory=memory)
             argv = [x for x in self.s.post("/command", {"form": form})["argv"] if x != U.WATCH]
             at = argv.index("--target")
-            self.assertEqual(argv[at + 1], "individual=Jane Doe")
+            self.assertEqual(argv[at + 1], "Jane Doe")
             named = argv[:at] + ["--name", "Jane Doe"] + argv[at + 2:]
             page, typed = self.planned(argv, self.tmp / f"page-{memory}")
             plain, given = self.planned(named, self.tmp / f"name-{memory}")
@@ -764,6 +800,32 @@ class TestCheckAndRun(Stubbed):
             checked = self.s.post("/check", {"form": form})
             self.assertTrue(checked["ok"], checked["error"])
             self.assertEqual(self.s.session.checked.fingerprints, tuple(plain), memory)
+
+    def test_page_and_terminal_folders_resume_each_other(self):
+        """A folder a terminal started with README's command resumes from the page's command, and the reverse, for each
+        type (probatio's own check_resume on the real dry runs' metas and folders); so does a folder the earlier page
+        started with --compare TYPE --target TYPE=NAME. All three plan the same calls, item for item. (Codex was
+        checked the same way by hand: the guard's stub refuses Codex's feature probe.)"""
+        readme = {"individual": ["--name", "Jane Doe"], "organization": ["--target-type", "organization", "--target",
+                  "Mozilla"], "nation": ["--target-type", "nation", "--target", "France"]}
+        for t, words in readme.items():
+            name = words[-1]
+            page = self.s.post("/command", {"form": {"agent": "claude", "types": [t], "targets": {t: name},
+                                                     "tier": "quick", "watch": "off"}})["argv"]
+            earlier = ["--agent", "claude", "--compare", t, "--target", f"{t}={name}", "--tier", "quick"]
+            forms = {"readme": ["--agent", "claude", *words, "--tier", "quick"], "page": page, "earlier page": earlier}
+            got = {}
+            for key, argv in forms.items():
+                metas = []
+                fingerprints, items = self.planned(argv, self.tmp / t / key, metas)
+                got[key] = (fingerprints, items, metas[0], self.tmp / t / key)
+            self.assertEqual(len({(tuple(f), i) for f, i, _, _ in got.values()}), 1, t)
+            for first, then in (("readme", "page"), ("page", "readme"), ("earlier page", "page")):
+                folder = self.tmp / t / f"{first} then {then}"
+                shutil.copytree(got[first][3], folder)
+                P.check_resume(folder, got[first][2])                       # run.json, as the first run writes it
+                P.check_resume(folder, got[then][2])                        # refuses with SystemExit if they differ
+                self.assertTrue((folder / "run.json").exists(), (t, first, then))
 
     def test_the_model_is_a_choice_per_cli(self):
         """The model is the CLI's default, one of its models in MODELS (as of 2026-11-09), or any other name: the page
@@ -934,7 +996,7 @@ class TestRunFolders(unittest.TestCase):
         return made
 
     def test_a_typed_person_gets_the_folder_name_gets(self):
-        """The page's --target individual=NAME runs in the folder --name NAME runs in."""
+        """The page's --target NAME runs in the folder --name NAME runs in."""
         folders, page = [], [x for x in U.build_command(JANE)[0] if x != U.WATCH]
         for argv in (page, ["--agent", "claude", "--name", "Jane Doe"]):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(P, "HERE", Path(d)):
