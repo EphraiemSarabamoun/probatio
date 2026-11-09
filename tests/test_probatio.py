@@ -932,5 +932,20 @@ class TestMainWritesTheResults(unittest.TestCase):
                       (out / "report.md").read_text())
 
 
+class TestPythonVersion(unittest.TestCase):
+    def test_an_older_python_gets_a_plain_message(self):
+        """Below MIN_PYTHON, probatio stops at once with a plain message naming both versions, before it imports
+        anything else; the oldest tested version runs."""
+        script = str(REPO / "probatio.py")
+        code = ("import runpy, sys; sys.version_info = (3, 8, 18, 'final', 0); sys.version = '3.8.18 (test)'; "
+                f"runpy.run_path({script!r}, run_name='__main__')")
+        proc = subprocess.run([sys.executable, "-B", "-c", code, "--help"], capture_output=True, text=True,
+                              timeout=60)
+        self.assertEqual((proc.returncode, proc.stdout), (1, ""))
+        self.assertEqual(proc.stderr.strip(), "probatio needs Python 3.9 or later; this is Python 3.8.18. Run it with "
+                                              "a newer python3.")
+        self.assertGreaterEqual(sys.version_info[:2], P.MIN_PYTHON)
+
+
 if __name__ == "__main__":
     unittest.main()

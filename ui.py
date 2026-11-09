@@ -81,6 +81,12 @@ CROSS_TOTAL = re.compile(r"^\s+\d+ units, (\d+) calls\s+(.+?)(?: \((.+)\))?$")
 ALL_RUNS = re.compile(r"^\s+all \d+ comparisons: (.+?)(?: \((.+)\))?$")
 TIME_HINT = re.compile(r"^\s+(about [\d.]+ minutes; to shorten: .+)$")
 PARSE_LOCK = threading.Lock()         # the in-process parser borrows sys.stderr, one request at a time
+# What a run needs before it can be checked (required): each piece a field the form leaves empty, in plain words, in
+# the page's order, shown together as one calm line (NEEDS_LINE). A value given but wrong is probatio's to refuse.
+NEEDS_AGENT = "choose an agent"
+NEEDS_NAME = "type a name in the {} row"
+NEEDS_CLASS = "choose at least one class"
+NEEDS_LINE = "To check a run: {}"            # the pieces, joined by " · "
 # What the page refuses before probatio sees the command, each bounded (it never repeats a value): a length it does not
 # offer (smoke is the calibration's setup plan, for a terminal), a NUL, which no command line can carry, a "=" in a
 # row's name (the type is the type buttons', never TYPE=NAME in a row; any other name the guard refuses gets the
@@ -231,6 +237,30 @@ def not_text(form):
     return None
 
 
+def required(form, base=None):
+    """What the form still needs before a run can be checked, in plain words and in the page's order (NEEDS_*): an
+    agent, the parser's one required option; for a single-type run, a name in that type's row, since probatio needs a
+    target (checked_names, plan_runs) and the page never writes --name; and at least one class, since an empty
+    --class is refused. A comparison's named targets are optional. Only fields left empty count: a value given but
+    wrong is probatio's to refuse, in its own words. Pure; base is defaults()."""
+    base = base or defaults()
+    form = form if isinstance(form, dict) else {}
+    needs = [] if text_of(form.get("agent")) else [NEEDS_AGENT]
+    types = types_of(form, base)
+    targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
+    if len(types) == 1 and not names_of(targets.get(types[0])):
+        needs.append(NEEDS_NAME.format(types[0]))
+    picked = form.get("classes")
+    if isinstance(picked, list) and not [k for k in P.V4_CLASSES if k in picked]:
+        needs.append(NEEDS_CLASS)
+    return needs
+
+
+def needs_line(needs):
+    """required's pieces as the page shows them: one calm line, or None when nothing is missing."""
+    return NEEDS_LINE.format(" · ".join(needs)) if needs else None
+
+
 class FormRefused(ValueError):
     """A form the page writes no command for; the message, shown on the page, says why (TIER_REFUSED, NUL_REFUSED,
     NAME_EQUALS, or the name guard's own words)."""
@@ -368,9 +398,11 @@ def unshown_words(where, text, redactor):
     return UNSHOWN_VARIABLE.format(where, P.in_words(names)) if names else UNSHOWN.format(where)
 
 
-def refused(error):
-    """preview's reply to a form FormRefused: no command, only why."""
-    return {"argv": [], "command": "", "words": [], "entities": None, "error": error, "labels": [], "roster": None}
+def refused(error, missing=()):
+    """A reply with no command, only why (preview's to a form FormRefused, Check's to one that is refused before
+    anything is run), with what the form still needs (required), as preview gives it."""
+    return {"argv": [], "command": "", "words": [], "entities": None, "error": error, "labels": [], "roster": None,
+            "missing": list(missing), "needs": needs_line(missing)}
 
 
 def command_words(argv):
@@ -460,17 +492,20 @@ def preview(form, base=None, redactor=None):
     lists differ from the defaults. A roster that load_entities refuses gives its message instead. A form
     build_command refuses has no command, only why; a command the reply's redactor (the server's; None: one built
     from this process's environment) would change gets unshown's message once the parser accepts it, and a roster
-    file it would change roster_unshown's once probatio accepts the file."""
+    file it would change roster_unshown's once probatio accepts the file. What the form still needs (required) comes
+    as "missing" and "needs", its line; the page shows that line, calm, instead of any error until nothing is
+    missing, and the command so far all the while."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
+    missing = required(form, base)
     try:
         argv, entities = build_command(form, base)
     except FormRefused as e:
-        return refused(str(e))
+        return refused(str(e), missing)
     types, redactor = types_of(form, base), redactor or live.ViewRedactor()
     reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
-             "entities": entities_view(entities), "labels": [], "roster": None,
-             "error": parser_error(argv) or unshown(argv, redactor)}
+             "entities": entities_view(entities), "labels": [], "roster": None, "missing": missing,
+             "needs": needs_line(missing), "error": parser_error(argv) or unshown(argv, redactor)}
     if len(types) > 1:
         reply["labels"].append(P.CROSS_LABEL)
         if not P.canonical_compare([tuple(types)])["registered"]:
@@ -863,13 +898,17 @@ class Session:
         or probatio's message verbatim. Its roster snapshot is written first (write_snapshot) and must hold the same
         bytes after the dry run; then the plan is prepared in this process from the same argv and snapshot, and the
         approval binds the argv, those bytes and each run's plan fingerprint. Only the last Check can approve, and
-        only if it passed. A form build_command refuses, a command the reply's redactor would change (unshown) and a
+        only if it passed. A form that still needs a field (required) is refused first, with nothing written and no
+        dry run. A form build_command refuses, a command the reply's redactor would change (unshown) and a
         dry run that cannot start are refusals too, before anything is written or after nothing ran. A refusal whose
         advice the page cannot follow is in the page's words, probatio's own kept in the whole preflight (refusal).
         A results folder that already holds a run this command would refuse to continue (resume_refusals) is named,
         with the page's fix, and approves nothing, since the run would stop on it at once."""
         with self.gate:
             self.checked = None
+            missing = required(request.get("form"))
+            if missing:                     # nothing written, no dry run: the page's own line, as preview gives it
+                return dict(refused(needs_line(missing), missing), ok=False, plan="", summary=None)
             try:
                 argv, entities = build_command(request.get("form"))
             except FormRefused as e:
@@ -919,6 +958,9 @@ class Session:
         before the run starts, refused as Check refuses it, with probatio's own words after the Check's preflight."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
+        missing = required(request.get("form"))
+        if missing:
+            return {"error": needs_line(missing), "missing": missing}
         try:
             argv, entities = build_command(request.get("form"))
         except FormRefused as e:
@@ -1032,8 +1074,9 @@ def main(argv, stream=None):
 # location.search (it is never embedded), and sends every action as a POST with the token in the X-Probatio-Token
 # header. The defaults arrive with the first /state; nothing on the page is a default of its own (watch's, on, arrives
 # with them, its choices default first). A model is the CLI's default, one of MODELS for the chosen CLI, or any other
-# name; choosing another CLI resets it to the default. On an untouched page with no agent yet, the missing agent is a
-# calm first step; once anything changes, probatio's own message shows, in red, word for word.
+# name; choosing another CLI resets it to the default. While the form still needs a field (preview's "needs", from
+# required), that one line shows, calm, and Check and Run wait; red is only probatio's own refusal of a complete form,
+# word for word.
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>probatio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
@@ -1175,7 +1218,7 @@ const OTHER = "(other)";                                 // the model menu's las
 const DEFAULT_MODEL = {codex: "default (config.toml)"};  // a CLI's default model, where "default" says too little
 const TIME_NOTE = {codex: "the time estimate for Codex is assumed, not measured."};    // else the Sonnet line below
 let D = null, F = null, said = null, plan = null, run = null, asked = 0, timer = null, confirming = false;
-let checking = false, marks = [], otherModel = false, touched = false;    // touched: the user has changed something
+let checking = false, marks = [], otherModel = false;
 const opened = {roster: false, more: false, preflight: true};   // folds stay as left when the form is rebuilt
 const $ = id => document.getElementById(id);
 function el(tag, cls, text) {
@@ -1395,7 +1438,7 @@ function moreSummary() {                   // More options' closed line: what di
 function build() { marks = []; measure(); against(); how(); }
 // ---- the answer
 function changed() {
-  confirming = false; touched = true;
+  confirming = false;
   clearTimeout(timer); timer = setTimeout(refresh, 150);
   render();
 }
@@ -1424,16 +1467,15 @@ function render() {
   }
   const custom = $("custom");
   if (custom) { custom.hidden = !(said && said.entities); custom.firstChild.textContent = said && said.roster || ""; }
-  const error = $("error"), calm = !touched && F && !F.agent;   // untouched, no agent yet: a first step, not an error
-  error.replaceChildren(); error.classList.toggle("calm", !!(said && said.error && calm));
-  if (said && said.error && calm)
-    error.textContent = "Choose an agent to begin: " + D.agents.map(a => a[1]).join(" or ") + ".";
+  const error = $("error"), needs = said && said.needs;    // a field still empty: one calm line, never an error
+  error.replaceChildren(); error.classList.toggle("calm", !!needs);
+  if (needs) error.textContent = needs;
   else if (said && said.error) add(error, el("b", null, "probatio: "), document.createTextNode(said.error));
   const stale = plan && plan.ok && keyOf(plan) !== keyOf(said);
-  $("check").disabled = !said || !!said.error || checking;
+  $("check").disabled = !said || !!needs || !!said.error || checking;
   const ready = plan && plan.ok && !stale && !going() && !checking;     // not while a Check is in flight
   $("run").disabled = !ready;
-  $("why").textContent = going() ? "a run is going" : F && !F.agent ? "choose an agent first" :
+  $("why").textContent = going() ? "a run is going" : needs ? said.missing[0] + " first" :
     !plan || !plan.ok ? "check first" : stale ?
     "the command changed: check it again" : "";
   $("actions").hidden = confirming && ready;                 // while confirming, Start the run is the one primary

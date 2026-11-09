@@ -88,6 +88,21 @@ sys.addaudithook(record_opens)
 MOZILLA = {"agent": "claude", "types": ["organization"], "targets": {"organization": "Mozilla"}, "tier": "quick"}
 
 
+def page_form(**changes):
+    """The form the page sends before anything is chosen (its fresh()): every default, no agent, the rows empty,
+    the rosters the defaults; changes applied on top."""
+    d = U.defaults()
+    form = {"types": [d["default"]["type"]], "targets": {t: "" for t in d["types"]},
+            "rosters": {t: {p: "\n".join(U.entry_name(e) for e in d["rosters"][t][p]) for p in U.LISTS}
+                        for t in d["types"]},
+            "agent": d["default"]["agent"], "tier": d["default"]["tier"], "classes": list(d["default"]["classes"]),
+            "memory": d["default"]["memory"], "auto_memory": d["default"]["auto_memory"],
+            "effort": d["default"]["effort"], "model": "", "watch": d["watch"][0], "jobs": str(d["default"]["jobs"])}
+    for key, value in changes.items():
+        form[key] = dict(form[key], **value) if isinstance(value, dict) and key in ("targets", "rosters") else value
+    return form
+
+
 def wait_for(cond, timeout=20):
     end = time.time() + timeout
     while time.time() < end:
@@ -350,7 +365,7 @@ class TestBuildCommand(unittest.TestCase):
                 with self.assertRaises(U.FormRefused) as caught:
                     U.build_command(form)
                 self.assertEqual(str(caught.exception), U.TIER_REFUSED)
-                self.assertEqual(U.preview(form), U.refused(U.TIER_REFUSED))
+                self.assertEqual(U.preview(form), U.refused(U.TIER_REFUSED, U.required(form)))
         for t in P.TARGET_TYPES:
             for tier in base["tiers"]:
                 argv = U.build_command({"agent": "claude", "types": [t], "targets": {t: "Jane Doe"}, "tier": tier})[0]
@@ -369,7 +384,7 @@ class TestBuildCommand(unittest.TestCase):
                 with self.assertRaises(U.FormRefused) as caught:
                     U.build_command(form)
                 self.assertEqual(str(caught.exception), U.NAME_EQUALS.format(t), (t, line))
-                self.assertEqual(U.preview(form), U.refused(U.NAME_EQUALS.format(t)))
+                self.assertEqual(U.preview(form), U.refused(U.NAME_EQUALS.format(t), U.required(form)))
             for line in ("Moz{illa", "Real", "A) Foo", "x" * 61):
                 with self.assertRaises(P.NameRefused) as guard:
                     P.check_name(line, U.ROW_LABEL.format(t))
@@ -405,7 +420,7 @@ class TestBuildCommand(unittest.TestCase):
             with self.assertRaises(U.FormRefused) as caught:
                 U.build_command(form)
             self.assertEqual(str(caught.exception), U.TEXT_REFUSED.format(field), field)
-            self.assertEqual(U.preview(form), U.refused(U.TEXT_REFUSED.format(field)))
+            self.assertEqual(U.preview(form), U.refused(U.TEXT_REFUSED.format(field), U.required(form)))
         self.assertNotIn("bogus", U.TEXT_REFUSED.format("a row"))
 
     def test_a_roster_name_the_reply_would_change_is_refused(self):
@@ -435,7 +450,7 @@ class TestBuildCommand(unittest.TestCase):
             with self.assertRaises(U.FormRefused) as caught:
                 U.build_command(form)
             self.assertEqual(str(caught.exception), U.NUL_REFUSED)
-            self.assertEqual(U.preview(form), U.refused(U.NUL_REFUSED))
+            self.assertEqual(U.preview(form), U.refused(U.NUL_REFUSED, U.required(form)))
 
 
 class TestOneCommand(unittest.TestCase):
@@ -453,7 +468,8 @@ class TestOneCommand(unittest.TestCase):
             def state(self):
                 return {"argv": self.argv}
         dry = SimpleNamespace(returncode=0, stdout="    all   1 items   1 calls   under a minute (r)\n", stderr="")
-        for form in (JANE, dict(JANE, watch="off"), {"agent": "claude"}, dict(MOZILLA, watch=False),
+        for form in (JANE, dict(JANE, watch="off"), {"agent": "claude", "targets": {"individual": "Ada Lovelace"}},
+                     dict(MOZILLA, watch=False),
                      {"agent": "claude", "types": ["organization", "nation"], "watch": "on"}):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(P, "HERE", Path(d)), \
                     mock.patch.object(U.subprocess, "run", return_value=dry) as checked, \
@@ -928,14 +944,13 @@ class TestCheckAndRun(Stubbed):
         page), is probatio's message, verbatim."""
         named_at_quick = {"agent": "claude", "types": ["individual", "organization"],
                           "targets": {"organization": "Mozilla"}, "tier": "quick", "classes": ["II"]}
-        for form in (named_at_quick, {"agent": "claude", "types": ["nation"]}):
-            reply = self.s.post("/check", {"form": form})
-            argv = U.build_command(form)[0]
-            direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), *argv, "--dry-run"], cwd=REPO,
-                                    env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-            self.assertFalse(reply["ok"])
-            self.assertEqual(reply["error"], direct.stderr.strip())
-        self.assertIn("--target is needed for an organization or a nation", reply["error"])
+        reply = self.s.post("/check", {"form": named_at_quick})
+        argv = U.build_command(named_at_quick)[0]
+        direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), *argv, "--dry-run"], cwd=REPO,
+                                env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"], direct.stderr.strip())
+        self.assertIn("at --tier quick a named target is measured in Class I only", reply["error"])
 
     def test_a_key_collision_is_worded_for_the_page_with_probatios_own_in_the_preflight(self):
         form = dict(JANE, targets={"individual": "Jane Doe\nJane Do\u00e9"})
@@ -1174,23 +1189,23 @@ class TestCheckAndRun(Stubbed):
         self.assertIn("individual=Jane Doe", named["argv"])
         self.assertIn("named targets: individual Jane Doe", named["plan"])
 
-    def test_an_empty_target_row_gets_probatios_own_message(self):
-        """A single-type run with its row empty passes the parser and stops at Check with probatio's own message,
-        word for word, the individual's the same as every other type's: the page adds no --name and no words of its
-        own."""
-        said = {}
+    def test_an_empty_target_row_is_what_the_run_still_needs(self):
+        """A single-type run with its row empty passes the parser, and probatio would stop it for want of a target
+        (its own dry run says so, the individual's as every other type's); the page names that row as what the run
+        still needs, the same for every type, writes no --name (an older page's name field is ignored), and Check
+        refuses it before any dry run."""
         for t in P.TARGET_TYPES:
             form = {"agent": "claude", "types": [t], "tier": "quick", "name": "Jane Doe"}
-            self.assertIsNone(self.s.post("/command", {"form": form})["error"])
+            said = self.s.post("/command", {"form": form})
+            line = U.NEEDS_LINE.format(U.NEEDS_NAME.format(t))
+            self.assertEqual((said["error"], said["needs"]), (None, line), t)
+            self.assertNotIn("--name", said["argv"])
             reply = self.s.post("/check", {"form": form})
-            self.assertFalse(reply["ok"], t)
-            self.assertNotIn("--name", reply["argv"])
-            said[t] = reply["error"]
-        direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), "--agent", "claude", "--tier",
-                                 "quick", "--dry-run"], cwd=REPO, env=self.env, capture_output=True, text=True,
-                                stdin=subprocess.DEVNULL, timeout=120)
-        self.assertEqual(said, {t: direct.stderr.strip() for t in P.TARGET_TYPES})
-        self.assertIn("--target is needed", said["individual"])
+            self.assertEqual((reply["ok"], reply["error"]), (False, line), t)
+            direct = subprocess.run([sys.executable, "-B", str(REPO / "probatio.py"), *said["argv"], "--dry-run"],
+                                    cwd=REPO, env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                    timeout=120)
+            self.assertIn("--target is needed", direct.stderr, t)
 
     def planned(self, argv, out, metas=None):
         """argv's real --dry-run in this process (main_v4, with the stub CLIs first on PATH), writing rendered.jsonl to
@@ -1331,17 +1346,20 @@ class TestCheckAndRun(Stubbed):
 
     def test_the_page_keeps_its_ids_and_the_watch_page_its_palette(self):
         """Every id the tests and scripts read is on the page; the --ui page's tokens are only its own (the watch page
-        reads none of them); and an untouched page with no agent chosen asks for one calmly, keeping probatio's own
-        message, in red, for after a change."""
+        reads none of them); and while the form still needs a field, the page shows that one calm line (preview's
+        "needs") and waits, keeping probatio's own message, in red, for a complete form; no "touched" rule."""
         for i in ("pill", "form", "measure", "against", "how", "cmd", "where", "copy", "labels", "error", "files",
                   "check", "run", "why", "confirm", "runsec", "runbox", "plan", "foot", "custom", "modelnote"):
             self.assertTrue(f'id="{i}"' in U.PAGE or f'.id = "{i}"' in U.PAGE, i)
         for token in ("--field", "--track", "--accent"):
             self.assertIn(token + ":", L.PAGE_BASE)
             self.assertNotIn(f"var({token}", L.VIEW_V4)
-        for words in ("calm = !touched && F && !F.agent", "Choose an agent to begin: ", "touched = true;",
+        for words in ('needs = said && said.needs;', 'error.classList.toggle("calm", !!needs);',
+                      "if (needs) error.textContent = needs;", '$("check").disabled = !said || !!needs ||',
+                      'needs ? said.missing[0] + " first"',
                       'el("b", null, "probatio: "), document.createTextNode(said.error)'):
             self.assertIn(words, U.PAGE)
+        self.assertNotIn("touched", U.PAGE)
 
     def test_run_refuses_what_check_did_not_approve(self):
         form = dict(MOZILLA, rosters={"organization": {"controls": "Thirlbeck Systems\nVarrow Analytics"}})
@@ -1483,6 +1501,50 @@ class TestCheckAndRun(Stubbed):
                           (error, "check this command first: Run starts only the command the last Check passed"))
         self.assertEqual(spied, [])
         self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
+
+    def test_what_a_run_still_needs_is_one_calm_line_and_nothing_runs(self):
+        """Through the page's own actions: an untouched page, a name typed before an agent, an agent with an empty row,
+        empty organization and nation rows, and no class each get required's pieces in the page's order as "missing"
+        and one calm line as "needs", with the command so far; Check and Run refuse such a form with that line, before
+        anything is written or run. A comparison's names are optional, so it needs nothing; a complete form needs
+        nothing, and a wrong value in it is probatio's to refuse, in red."""
+        agent, name = U.NEEDS_AGENT, U.NEEDS_NAME.format
+        cases = [(page_form(), [agent, name("individual")]),
+                 (page_form(targets={"individual": "Jane Doe"}), [agent]),
+                 (page_form(agent="claude"), [name("individual")]),
+                 (page_form(agent="claude", targets={"individual": " \n "}), [name("individual")]),
+                 (page_form(agent="claude", types=["organization"]), [name("organization")]),
+                 (page_form(agent="codex", types=["nation"], targets={"individual": "Jane Doe"}), [name("nation")]),
+                 (page_form(types=["nation"]), [agent, name("nation")]),
+                 (page_form(agent="claude", targets={"individual": "Jane Doe"}, classes=[]), [U.NEEDS_CLASS])]
+        spied, real = [], U.subprocess.run
+
+        def spy(cmd, *args, **kwargs):
+            spied.append(list(cmd))
+            return real(cmd, *args, **kwargs)
+        for form, missing in cases:
+            line = "To check a run: " + " · ".join(missing)
+            with mock.patch.object(U.subprocess, "run", side_effect=spy):
+                said = self.s.post("/command", {"form": form})
+                self.assertEqual((said["missing"], said["needs"]), (missing, line), form)
+                self.assertTrue(said["command"].startswith("python3 probatio.py"))          # the command so far
+                checked = self.s.post("/check", {"form": form})
+            self.assertEqual((checked["ok"], checked["error"], checked["plan"], checked["missing"]),
+                             (False, line, "", missing))
+            self.assertEqual(self.s.post("/run", {"form": form, "confirmed": True})["error"], line)
+        self.assertEqual(spied, [])                                          # no dry run, no resume check
+        self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
+        self.assertIsNone(self.s.state()["run"])
+        for form in (page_form(agent="claude", types=["individual", "organization"]),
+                     page_form(agent="claude", types=["individual", "organization", "nation"]),
+                     page_form(agent="claude", targets={"individual": "Jane Doe"})):
+            said = self.s.post("/command", {"form": form})
+            self.assertEqual((said["missing"], said["needs"], said["error"]), ([], None, None), form)
+        wrong = self.s.post("/command", {"form": page_form(agent="claude", targets={"individual": "Jane Doe"},
+                                                           jobs="x")})
+        self.assertEqual((wrong["needs"], wrong["error"]), (None, "argument --jobs: invalid int value: 'x'"))
+        self.assertTrue(self.s.post("/check", {"form": page_form(agent="claude",
+                                                                 targets={"individual": "Jane Doe"})})["ok"])
 
     def test_a_dry_run_or_a_run_that_cannot_start_is_a_refusal(self):
         """subprocess's ValueError (a NUL in the command line) and OSError (no such program) from Check's dry run or

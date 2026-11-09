@@ -13,6 +13,12 @@ you" is the question. --watch (or --demo) shows the errands live in your browser
 Standard library only, Python 3.9 or later, macOS or Linux. Human.md walks through the flow; README.md says exactly
 what each condition switches off.
 """
+import sys
+
+MIN_PYTHON = (3, 9)                # the oldest Python probatio is tested on; README names every version tested
+if sys.version_info < MIN_PYTHON:  # before anything else, so an older python3 gets a plain message, not a traceback
+    raise SystemExit(f"probatio needs Python {'.'.join(map(str, MIN_PYTHON))} or later; this is Python "
+                     f"{sys.version.split()[0]}. Run it with a newer python3.")
 import argparse
 import csv
 import fcntl
@@ -29,7 +35,6 @@ import secrets
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
