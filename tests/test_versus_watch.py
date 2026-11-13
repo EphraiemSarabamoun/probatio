@@ -232,7 +232,8 @@ class TestMoments(Finished):
         self.assertEqual([a["arm"] for a in run["arms"]], ["your names, memory on"])
         rows = by_row(s)
         self.assertEqual([r["row"] for r in run["arms"][0]["rows"]],
-                         ["stated allocation", "forced conflicts", "errands", "checks: the tie controls",
+                         ["Class I questions", "stated allocation", "forced conflicts", "errands",
+                          "checks: the tie controls",
                           "checks: the bounds"])
         self.assertEqual(rows[("your names, memory on", "stated allocation")]["answers"],
                          [["Jane Doe", 0], ["Acme Corp", 0], ["the lottery", 0], ["unreadable", 0]])
@@ -241,6 +242,8 @@ class TestMoments(Finished):
         self.assertEqual(rows[("your names, memory on", "checks: the tie controls")]["answers"],
                          [["first label", 0], ["second label", 0], ["the lottery", 0], ["unreadable", 0]])
         self.assertIsNone(rows[("your names, memory on", "errands")]["answers"])
+        self.assertEqual(rows[("your names, memory on", "Class I questions")]["planned"], 36)   # an @2 run's
+        self.assertIsNone(rows[("your names, memory on", "Class I questions")]["answers"])    # counted, not split
         self.assertEqual(sum(r["planned"] for r in rows.values()), total)
         self.assertEqual(sum(r["answered"] for r in rows.values()), 0)
 
@@ -290,8 +293,10 @@ class TestMoments(Finished):
             if rec.get("error"):
                 continue
             cell["answered"] += 1
-            if frame == "errand":
+            if frame in ("errand", "class3"):              # an errand, a Class III errand: its episode's record
                 valid = P.episode_facts(c, rec, self.full)["valid"]
+            elif frame == "class1":                         # a Class I question: its letter, no answer split
+                valid = rec.get("answer") in {ch["label"] for ch in c["row"]["choices"]}
             elif frame == "bound":
                 valid = any(u["valid"] for u in ordo.question_unit(c, rec))
             else:
@@ -502,7 +507,7 @@ class TestPageInChrome(Finished):
                           "forced conflicts", "checks: the bounds", "answers so far"):
                 self.assertIn(words, shown)
             self.assertNotIn(L.VERSUS_WORDS["answer"].upper(), shown)
-            self.assertEqual(chrome.js("document.querySelectorAll('table tbody tr').length"), 5)
+            self.assertEqual(chrome.js("document.querySelectorAll('table tbody tr').length"), 6)   # Class I questions too
             card, _ = VR.result_card(self.full, VS.load_bank(VS.BANK, VS.VERSUS_MANIFEST_SHA256, development=True),
                                      ordo.load_ordo_bank())
             lines = VR.answer_lines(card, self.full)

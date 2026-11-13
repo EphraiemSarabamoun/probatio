@@ -81,13 +81,16 @@ QUESTION_FRAMES = ("allocation", "conflict", "triad", "tie")
 SCORED_FRAMES = ("allocation", "conflict", "triad")      # the rows the estimator takes; ties are diagnostics only
 ANSWER_FORMAT = {"allocation": "final_answer_line_abc", "conflict": "final_answer_line",
                  "triad": "final_answer_line_abc", "tie": "final_answer_line_abc"}
-LABELS = {"allocation": "ABC", "conflict": "AB", "triad": "ABC", "tie": "ABC"}
+LABELS = {"allocation": "ABC", "conflict": "AB", "triad": "ABC", "tie": "ABC", "class1": "AB"}  # class1: C2
 ROWS_PER_SCENARIO = {"allocation": 6, "conflict": 24, "triad": 6, "tie": 6}
 ROW_KEYS = ("template_id", "frame", "scenario", "family", "pair", "listing", "design", "labels", "slots",
             "answer_format", "system", "text", "choices", "fixed_text", "render_run")
 FORM_FIELDS = ("full", "Full", "short", "Short", "group", "Group", "requester", "Requester", "to", "To")
 TIERS = ("quick", "standard")
 RECIPES = {"quick": "versus-quick@1", "standard": "versus-standard@1"}
+# @2 (the class rows, rulings C2 to C6): the @1 rows exactly as they are, plus the Class I items of every pair and, at
+# standard, the Class III errands (versus_classes). New runs plan @2; a folder made with @1 resumes and rescores as @1.
+CLASS_RECIPES = {"quick": "versus-quick@2", "standard": "versus-standard@2"}
 MEMORY_ARMS = {"on": ("with",), "off": ("without",), "both": ("with", "without")}
 MEMORY_WORD = {"with": "on", "without": "off"}
 ROSTERS = ("names", "unfamiliar")
@@ -643,8 +646,12 @@ def arm_rosters(bank, parties, strangers):
     return rosters
 
 
-def plan(bank, names, tier, arms=None, ordo_bank=None):
-    """The calls of a versus run and its identity, as SimpleNamespace(calls, identity). calls are in v4's shape, so
+def plan(bank, names, tier, arms=None, ordo_bank=None, recipe=None, class_bank=None):
+    """The calls of a versus run and its identity, as SimpleNamespace(calls, identity). recipe is the tier's @2
+    (CLASS_RECIPES: the default, every new run) or its @1 (RECIPES: a folder made with @1, rebuilt from its saved
+    identity, plans exactly as @1 did). @2 is @1's calls exactly as they are plus, for each roster arm, the Class I
+    items of every pair (versus_classes.class_items, from the pinned class bank, class_bank when given) and at the
+    standard tier the Class III errands (versus_classes.class3_items). calls are in v4's shape, so
     probatio's run_calls, the agent calls, resume, the lock and the live line take them unchanged: for each roster arm
     (the names; the unfamiliar roster when strangers is asked) the tier's allocation, conflict, triad (three names
     only) and tie rows, the errands and the bounds, each asked once per memory condition. Every call's id carries the
@@ -656,6 +663,14 @@ def plan(bank, names, tier, arms=None, ordo_bank=None):
     is measured, and the call path has no slot for another; ordo's items are sent the same way."""
     if tier not in TIERS:
         raise VersusError(f"unknown versus tier {shown(tier)}; the tiers are {' and '.join(TIERS)}")
+    recipe = recipe or CLASS_RECIPES[tier]
+    if recipe not in (RECIPES[tier], CLASS_RECIPES[tier]):
+        raise VersusError(f"unknown versus recipe {shown(recipe)} for the {tier} tier; this probatio plans "
+                          f"{RECIPES[tier]} and {CLASS_RECIPES[tier]}")
+    classes = recipe == CLASS_RECIPES[tier]
+    if classes:
+        import versus_classes as VC                      # builds on this module, so it is imported where it is used
+        class_bank = class_bank or VC.load_class_bank()
     arms = arms_of(arms)
     parties = resolve_names(names)
     types, pairs, triangle = run_types(parties)
@@ -665,9 +680,13 @@ def plan(bank, names, tier, arms=None, ordo_bank=None):
     rosters = arm_rosters(bank, parties, arms["strangers"])
     groups = OrderedDict()
     for arm, recs in rosters.items():
-        for item in (question_items(bank, tier, recs, arm, types, pairs, triangle)
-                     + errand_items(bank, ordo_bank, tier, recs, arm, types)
-                     + bound_items(ordo_bank, tier, recs, arm, types)):
+        items = (question_items(bank, tier, recs, arm, types, pairs, triangle)
+                 + errand_items(bank, ordo_bank, tier, recs, arm, types)
+                 + bound_items(ordo_bank, tier, recs, arm, types))
+        if classes:
+            items += (VC.class_items(class_bank, tier, recs, arm, pairs, recipe)
+                      + VC.class3_items(bank, ordo_bank, tier, recs, arm, types, recipe))
+        for item in items:
             groups.setdefault(item["twin"], []).append(item)
     rng = random.Random(VERSUS_SEED)
     order = list(groups)
@@ -683,22 +702,27 @@ def plan(bank, names, tier, arms=None, ordo_bank=None):
     ids = [(c["condition"], c["id"]) for c in calls]
     if len(ids) != len(set(ids)):
         raise VersusError("two planned calls share an id; the bank holds a duplicate template")
-    return SimpleNamespace(calls=calls, identity=run_identity(bank, ordo_bank, tier, arms, parties, rosters, calls))
+    identity = run_identity(bank, ordo_bank, tier, arms, parties, rosters, calls, recipe)
+    if classes:
+        identity["classes"] = {"bank": VC.bank_record(class_bank), "scorer": VC.SCORER_VERSION,
+                               "class3": VC.class3_record(bank, tier)}
+    return SimpleNamespace(calls=calls, identity=identity)
 
 
-def run_identity(bank, ordo_bank, tier, arms, parties, rosters, calls):
+def run_identity(bank, ordo_bank, tier, arms, parties, rosters, calls, recipe=None):
     """What a versus run is, for its record, its resume and its card: the recipe and tier, the bank's pin and state,
     the ordo bank, the forms, scorer and estimator versions, the fixed-text version, the arms, every resolved
     participant as rendered (the names, the two-name run's fixed partner, the unfamiliar roster when asked, the
     secretariat), probatio's plan_fingerprint (what the runner's resume compares) and versus's own fingerprint
-    (identity_hash: every call whole, so every factor scoring reads). read_run rebuilds a saved run's plan from this
-    record and refuses unless the rebuilt record is equal to it, key for key."""
+    (identity_hash: every call whole, so every factor scoring reads). recipe defaults to the tier's @1, whose identity
+    is byte for byte what @1 always recorded; plan adds an @2 run's "classes" record after it. read_run rebuilds a
+    saved run's plan from this record and refuses unless the rebuilt record is equal to it, key for key."""
     def shown(rec):
         """A participant as the run rendered it: its type, the name as typed, its form, its party key and code."""
         return {"type": rec["type"], "name": rec["name"], "rendered": rec["full"], "party": rec["party"],
                 "code": rec["code"]}
     missing = [t for t in TYPES if t not in parties]
-    return {"instrument": "versus", "recipe": RECIPES[tier], "tier": tier,
+    return {"instrument": "versus", "recipe": recipe or RECIPES[tier], "tier": tier,
             "bank": {"sha256": bank.sha256, "format": bank.manifest["format"], "version": bank.manifest["version"],
                      "development": bank.development, "status": DEVELOPMENT_STATUS if bank.development else
                      "registered"},
@@ -751,14 +775,18 @@ def count_plan(calls, jobs=None):
     the minutes are (ruling 6): an estimate from ordo's rate, until the development pilot measures a versus rate, and
     the preflight says so beside them."""
     jobs = jobs or pricing()["jobs"]
-    by = {}
+    by = {}  # an @2 plan's class rows are counted in their arms and totals, and named again under "classes"
     for c in calls:
         arm = by.setdefault(arm_label(c), Counter())
         arm[c["meta"]["frame"]] += 1
     episodes = sum(1 for c in calls if c.get("episode"))
-    return {"by_arm": {a: dict(sorted(n.items()), total=sum(n.values())) for a, n in sorted(by.items())},
-            "questions": len(calls) - episodes, "episodes": episodes, "calls": len(calls), "jobs": jobs,
-            "minutes": {p: round(plan_minutes(calls, p, jobs), 1) for p in ordo.PROFILES}, "minutes_basis": RATE_BASIS}
+    out = {"by_arm": {a: dict(sorted(n.items()), total=sum(n.values())) for a, n in sorted(by.items())},
+           "questions": len(calls) - episodes, "episodes": episodes, "calls": len(calls), "jobs": jobs,
+           "minutes": {p: round(plan_minutes(calls, p, jobs), 1) for p in ordo.PROFILES}, "minutes_basis": RATE_BASIS}
+    if any(c["meta"].get("recipe") in CLASS_RECIPES.values() for c in calls):
+        import versus_classes as VC                      # builds on this module, so it is imported where it is used
+        out["classes"] = VC.class_counts(calls)          # an @2 plan's class rows per arm (in the totals above too)
+    return out
 
 
 # ---- a run's saved identity (DESIGN.md 9: resume and rescore validate every identity; PREREG.md 3) ------------------
@@ -960,12 +988,27 @@ def write_codes(out, codes):
         lock.close()
 
 
+def folder_recipe(out, tier):
+    """The recipe a folder's saved versus run was planned with (its versus-run.json's identity), so the same command
+    resumes it as it began (an @1 folder as @1); None when the folder holds no versus run, or a run of another tier
+    or a recipe this probatio does not plan (the command then plans the tier's @2, and resume_refusal names the first
+    difference, the tier included, as it always has)."""
+    path = Path(out) / RUN_FILE
+    if not path.is_file():
+        return None
+    try:
+        recipe = (read_json(path).get("identity") or {}).get("recipe")
+    except (VersusError, AttributeError):
+        return None
+    return recipe if recipe in (RECIPES.get(tier), CLASS_RECIPES.get(tier)) else None
+
+
 def replan(identity, bank, ordo_bank=None):
     """The plan a saved identity rebuilds to: plan() with the names, tier and arms the identity records, on the bank
     the caller loaded, refused unless the rebuilt identity equals the saved one key for key. So the bank pin, the
     forms, fixed-text, scorer and estimator versions, the recipe, the participants as rendered and the fixed partner,
     the arms and both fingerprints are each checked, and every call scoring reads comes from the registered bank,
-    never from a saved copy."""
+    never from a saved copy. The plan is rebuilt with the recipe the identity records, so an @1 run stays @1."""
     if not isinstance(identity, dict) or identity.get("instrument") != "versus":
         raise VersusError("the saved run record holds no versus identity, so its plan cannot be rebuilt")
     pin = (identity.get("bank") or {}).get("sha256") if isinstance(identity.get("bank"), dict) else None
@@ -974,7 +1017,7 @@ def replan(identity, bank, ordo_bank=None):
                           f"{bank.folder} ({bank.sha256[:12]}); score it with the bank it ran on")
     try:
         names = {t: p["name"] for t, p in identity["participants"].items()}
-        rebuilt = plan(bank, names, identity["tier"], identity["arms"], ordo_bank)
+        rebuilt = plan(bank, names, identity["tier"], identity["arms"], ordo_bank, recipe=identity["recipe"])
     except (KeyError, TypeError, AttributeError):
         raise VersusError("the saved run identity lacks its participants, tier or arms, so its plan cannot be "
                           "rebuilt")
@@ -1420,10 +1463,21 @@ def score(source, bank, ordo_bank=None, replicates=E.BOOTSTRAPS):
     except ValueError as e:
         card["refused"] = (f"The estimator refused this run's table: {e}. A versus run is scored only on the "
                            "estimator's registered grid, which a development bank does not hold.")
-        return card
+        return with_classes(card, run, replicates)
     card["estimate"] = est
     card["sentences"] = {arm: E.sentences(page, referents(identity)) for arm, page in sorted(est["arms"].items())}
     card["claims"] = {arm: claims(page, referents(identity)) for arm, page in sorted(est["arms"].items())}
+    return with_classes(card, run, replicates)
+
+
+def with_classes(card, run, replicates=E.BOOTSTRAPS):
+    """card, with an @2 run's class block as card["classes"] (versus_classes.class_block: descriptive numbers by
+    class, no decision); an @1 card is returned as it is, with no class block, byte for byte what @1 always gave. The
+    Class III validity rule reads the CLI from the launch record (card["launch"]), when the run has one."""
+    if run.identity["recipe"] not in CLASS_RECIPES.values():
+        return card
+    import versus_classes as VC                          # builds on this module, so it is imported where it is used
+    card["classes"] = VC.class_block(run, card, (card.get("launch") or {}).get("agent"), replicates)
     return card
 
 

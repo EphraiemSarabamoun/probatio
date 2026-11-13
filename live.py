@@ -1197,8 +1197,10 @@ class Watch:
 # errand whose record is whole, a bound that parsed), and what each valid question chose, named as the page names it:
 # the party as rendered in that arm's roster, the lottery, a tie's label by its place; a reply that came back and did
 # not parse is unreadable. When the run ends it shows the lines the command prints, the folder's path among them.
-VERSUS_ROWS = (("allocation", "stated allocation"), ("conflict", "forced conflicts"), ("triad", "the triad"),
+VERSUS_ROWS = (("class1", "Class I questions"), ("class3", "Class III errands"),      # an @2 run's class rows first
+               ("allocation", "stated allocation"), ("conflict", "forced conflicts"), ("triad", "the triad"),
                ("errand", "errands"), ("tie", "checks: the tie controls"), ("bound", "checks: the bounds"))
+EPISODE_FRAMES = ("errand", "class3")                               # rows of errands, valid by their episode_facts
 ANSWERED_FRAMES = ("allocation", "conflict", "triad", "tie")        # the rows whose answers are counted by choice
 TIE_PLACES = {"first_label": "first label", "second_label": "second label"}
 LOTTERY, UNREADABLE = "the lottery", "unreadable"
@@ -1238,12 +1240,12 @@ def answer_word(call, choice, rosters):
 
 def call_valid(call, rec, facts):
     """Whether a committed record counts as valid: a question's reply parsed to one of its own letters
-    (chosen_choice), an errand's record is whole (its captured episode_facts), a bound's reply parsed (ordo's
-    question_unit reads it so)."""
+    (chosen_choice; a Class I question's too), an errand's record is whole (its captured episode_facts; a Class III
+    errand's too), a bound's reply parsed (ordo's question_unit reads it so)."""
     frame = call["meta"].get("frame")
-    if frame == "errand":
+    if frame in EPISODE_FRAMES:
         return bool(facts and facts.get("valid"))
-    if frame in ANSWERED_FRAMES:
+    if frame in ANSWERED_FRAMES or frame == "class1":
         return chosen_choice(call, rec) is not None
     return rec.get("outcome") is not None
 

@@ -271,7 +271,7 @@ class QuickAndArms(Run):
             VS.score(forged, full_bank(), OB)
         self.assertIn("is not what its plan rebuilds to", str(cm.exception))
         card = VS.score(VS.envelope(p, {}), full_bank(), OB)
-        self.assertEqual((card["tier"], card["recipe"]), ("quick", "versus-quick@1"))
+        self.assertEqual((card["tier"], card["recipe"]), ("quick", "versus-quick@2"))   # new runs plan @2
 
     def test_a_missing_reply_is_missing_never_a_choice(self):
         p = VS.plan(full_bank(), TWO, "standard", {}, OB)

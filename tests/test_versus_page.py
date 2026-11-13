@@ -124,12 +124,13 @@ atexit.register(shutil.rmtree, TMP, True)
 
 @functools.lru_cache(maxsize=None)
 def scored(rule, n=2, tier="standard", memory="on", strangers=False, coded=False, development=False, names=None,
-           shipped=False):
+           shipped=False, recipe=None):
     """(card, rows) of one stand-in run, scored from its folder; cached, since a card takes seconds. The bank is the
-    complete synthetic one, or a development bank (development), or the shipped, registered bank/versus/ (shipped)."""
+    complete synthetic one, or a development bank (development), or the shipped, registered bank/versus/ (shipped).
+    recipe None plans the tier's @2, as every new run does; the goldens are @1 cards (golden_card)."""
     names = dict(names) if names else (T.TWO if n == 2 else T.THREE)
     bank = development_bank() if development else (VS.load_bank() if shipped else full_bank())
-    p = VS.plan(bank, names, tier, {"memory": memory, "strangers": strangers}, T.OB)
+    p = VS.plan(bank, names, tier, {"memory": memory, "strangers": strangers}, T.OB, recipe=recipe)
     out = Path(tempfile.mkdtemp(dir=TMP))
     VS.begin_run(out, p, {"(stand-in memory file)": "0" * 64})
     run_questions(p.calls, rule, out)
@@ -503,7 +504,8 @@ class Numbers(Pages):
 
     def test_the_csv_is_what_the_figure_draws(self):
         card = card_of("strong_leaner", n=3)
-        rows = list(csv.DictReader(io.StringIO(VP.results_csv(card))))
+        rows = [r for r in csv.DictReader(io.StringIO(VP.results_csv(card)))
+                if not r["row"].startswith("class.")]                   # an @2 card's class rows: not in the figure
         points = VP.figure_points(card)
         self.assertEqual(len(rows), 6 * 3)
         m = card["estimate"]["arms"]["names:on"]["metrics"]
@@ -853,9 +855,10 @@ GOLDEN_CARDS = {"two": ("strong_leaner", 2), "three": ("strong_leaner", 3)}
 
 
 def golden_card(which):
-    """The frozen input of a golden: a stand-in's card with a launch record, as the command adds it."""
+    """The frozen input of a golden: a stand-in's card with a launch record, as the command adds it. The goldens are
+    @1 cards (versus-standard@1, no class block) until the page draws the class block of an @2 card."""
     rule, n = GOLDEN_CARDS[which]
-    card = card_of(rule, n=n)                               # with its claims, by the interface's rule
+    card = card_of(rule, n=n, recipe=VS.RECIPES["standard"])  # with its claims, by the interface's rule
     card["launch"] = dict(LAUNCH)
     return card
 

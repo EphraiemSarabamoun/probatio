@@ -39,8 +39,8 @@ ARMS = ({"memory": "on"}, {"memory": "off"}, {"memory": "both"}, {"memory": "on"
 ARM_NAMES = {"on": ["on"], "off": ["off"], "both": ["off", "on"]}
 
 
-def plan(names=THREE, tier="standard", arms=None, bank=None):
-    return VS.plan(bank or full_bank(), names, tier, arms or {"memory": "on"}, OB)
+def plan(names=THREE, tier="standard", arms=None, bank=None, recipe=None):
+    return VS.plan(bank or full_bank(), names, tier, arms or {"memory": "on"}, OB, recipe=recipe)
 
 
 class Counts(unittest.TestCase):
@@ -49,7 +49,7 @@ class Counts(unittest.TestCase):
         for (tier, n), want in EXPECTED.items():
             names = THREE if n == 3 else TWO
             for arms in ARMS:
-                c = VS.count_plan(plan(names, tier, arms, bank).calls)
+                c = VS.count_plan(plan(names, tier, arms, bank, recipe=VS.RECIPES[tier]).calls)   # @1's rows
                 rosters = ["names", "unfamiliar"] if arms.get("strangers") else ["names"]
                 labels = sorted(f"{r}:{m}" for r in rosters for m in ARM_NAMES[arms["memory"]])
                 self.assertEqual(sorted(c["by_arm"]), labels, (tier, n, arms))
@@ -163,7 +163,7 @@ class Fingerprints(unittest.TestCase):
 
     def test_identity(self):
         ident = plan(TWO, "quick", {"memory": "both", "strangers": True}).identity
-        self.assertEqual((ident["recipe"], ident["tier"]), ("versus-quick@1", "quick"))
+        self.assertEqual((ident["recipe"], ident["tier"]), ("versus-quick@2", "quick"))     # new runs plan @2
         self.assertEqual(ident["arms"], {"memory": "both", "strangers": True})
         self.assertEqual(ident["partner"]["rendered"], "the government of Arvenia")
         self.assertEqual(ident["unfamiliar"]["organization"]["rendered"], "Thirlbeck Systems")
@@ -263,7 +263,7 @@ class Runner(unittest.TestCase):
             line.close()
         for c in calls:
             self.assertEqual(P.key(c), (c["condition"], c["dataset"], c["id"]))
-            self.assertEqual(P.is_episode(c), c["meta"]["frame"] == "errand")
+            self.assertEqual(P.is_episode(c), c["meta"]["frame"] in ("errand", "class3"))   # class3: U and O
 
     def test_the_lock(self):
         with tempfile.TemporaryDirectory() as d:

@@ -184,6 +184,23 @@ class CommandLine(Base):
 
 # ---- item 4: the preflight and --dry-run -----------------------------------------------------------------------------
 class Preflight(Base):
+    def test_the_class_rows_on_each_arm_and_the_class_iii_note_once(self):
+        """An @2 plan's preflight: under each arm's line, its Class I questions and (at standard) its Class III errand
+        episodes with their minutes, which the arm's counts include; once, that Class III is asked at the standard
+        tier only."""
+        names = {"individual": "Jane Doe", "organization": "Acme Corp", "nation": "Norland"}
+        for tier in ("standard", "quick"):
+            stdout, _ = self.run_ok(*THREE, "--tier", tier, "--memory", "both", "--dry-run", "--bank", fixture_bank())
+            lines = stdout.splitlines()
+            counts = VS.count_plan(VS.plan(full_bank(), names, tier, {"memory": "both"}, OB).calls)["classes"]
+            for label, c in counts.items():
+                at = lines.index(next(x for x in lines if x.startswith("    " + VR.arm_words(label))))
+                cls = lines[at + 1]
+                self.assertTrue(cls.startswith(f"      of which by class: Class I {c['class1']['total']} questions ("),
+                                (tier, cls))
+                self.assertEqual(f"Class III {c['class3']['total']} errand episodes (" in cls, tier == "standard")
+            self.assertEqual(lines.count(VR.CLASS3_NOTE), 1)
+
     def test_dry_run_starts_nothing_but_the_version_probe(self):
         out = self.tmp / "out"
         before = snapshot(REPO / "results")
@@ -223,7 +240,8 @@ class Preflight(Base):
                                .calls)["by_arm"]
         for label, c in counts.items():
             arm = next(x for x in lines if x.startswith("    " + VR.arm_words(label)))
-            self.assertEqual(arm.split()[-7:-3], [str(c["total"] - c["errand"]), "questions", str(c["errand"]),
+            episodes = c["errand"] + c.get("class3", 0)                 # an @2 plan's Class III errands too
+            self.assertEqual(arm.split()[-7:-3], [str(c["total"] - episodes), "questions", str(episodes),
                                                   "episodes"], arm)
         stdout, _ = self.run_ok(*THREE, "--jobs", "2", "--dry-run", "--bank", fixture_bank())
         self.assertIn("or --jobs 4 (-", stdout)

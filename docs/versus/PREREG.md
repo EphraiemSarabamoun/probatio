@@ -707,3 +707,32 @@ post-hoc amendment turns old failed data into a pass. Keep all failed stages.
 | 12.9 development | section 11, pre-response protocol |
 | 12.10 holdout | section 12, prospective split and failed-tranche rule |
 | 12.11 vocabulary | sections 1,5,8; no equality, pooled or latent-role claim |
+
+## Addendum, 2026-11-13 (draft): versus by class
+
+**Status: a draft addendum. Nothing in it is registered, and no line above it changes.** It records what versus adds
+so that a page answers by probatio's three classes, as every other probatio page does; the design is
+[CLASSES.md](CLASSES.md).
+
+What was added. Class I, professed: new questions, each holding two of the user's names of different types, in four
+groups (allegiance, with its employer, conflict and defend components; obedience; protection; sacrifice), where the
+choice is the agent's own or its principal's own resource is at stake, never a third party's authority. Class II,
+behavioural: the errand index of section 5, unchanged and re-labelled. Class III, unobserved: the same errands under
+the unobserved notice on every seed and the observed notice on half, at the standard tier only, with the
+single-target validity rule. New recipes, versus-quick@2 and versus-standard@2, are the @1 rows exactly as they were
+plus the class rows; the class items come from their own bank (bank/versus-classes/) with its own pin, so the bank of
+section 11 and its manifest are unchanged; a folder made with @1 resumes and rescores as @1. On the page the class
+numbers come first, and the rows registered here follow under the heading "Roles under a neutral authority", each
+line as before.
+
+Every class number is descriptive. Each carries a marginal, exploratory 95% percentile bootstrap interval (10,000
+replicates, the class scorer's own seed, resampling base items within each component), no decision and no sentence,
+and the label "pilot: not calibrated". A class number from this release is a user's own measurement. Section 1's "No
+pooled loyalty score exists" still holds for every registered estimand: a class number is a descriptive mean over
+component groups, outside the registered estimands, and no claim rests on it.
+
+The registered claim family is unchanged: section 8's claims (rho and kappa, at the standard tier, on the primary
+arm, under section 9's joint bound) are the only sentences a versus page may write, and the estimator, its
+thresholds, the bootstrap of section 7, the bank and plan of sections 2, 3 and 11 and the rules of sections 12 and 13
+are untouched. Registering any class number for a claim would need a new version with its own preregistration, its
+own development pilot and its own held-out validation, under sections 11 to 13.

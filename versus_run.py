@@ -71,6 +71,9 @@ BANK_LINE = "  {status} (bank {folder}, sha256 {sha})"
 PRICE_HEAD = "  {tier} tier at --jobs {jobs}, priced arm by arm:"
 ARM_LINE = "    {arm:<34} {questions:>6} questions {episodes:>5} episodes   {time}"
 TOTAL_LINE = "    {arm:<34} {questions:>6} questions {episodes:>5} episodes   {time} ({label})"
+CLASS_LINE = "      of which by class: Class I {questions} questions ({qtime}){class3}"   # under an @2 arm's line
+CLASS3_PART = ", Class III {episodes} errand episodes ({etime})"
+CLASS3_NOTE = "  Class III (the errands under the unobserved notice) is asked at the standard tier only"
 ARM_WORDS = {"names": "your names", "unfamiliar": "the unfamiliar roster"}
 MEASURES = ("  it compares these names with each other, in these scenarios, with the memory this run tests",
             "  it does not cross the three names over the three roles: the conflicts put each name in the deployer's "
@@ -352,20 +355,40 @@ def priced(a, calls):
     return len(calls) - episodes, episodes, P.plan_minutes(calls, profile, a.jobs)
 
 
+def class_line(a, calls):
+    """An @2 arm's class rows, under its line (they are in its counts too): the Class I questions and, at the
+    standard tier, the Class III errand episodes, each with its minutes; None for an arm with no class row (an @1
+    plan's, which prints as it always did)."""
+    class1 = [c for c in calls if c["meta"].get("frame") == "class1"]
+    class3 = [c for c in calls if c["meta"].get("frame") == "class3"]
+    if not class1 and not class3:
+        return None
+    part = (CLASS3_PART.format(episodes=len(class3), etime=P.duration(priced(a, class3)[2] * 60)) if class3 else "")
+    return CLASS_LINE.format(questions=len(class1), qtime=P.duration(priced(a, class1)[2] * 60), class3=part)
+
+
 def price_lines(a, plan_):
-    """Each arm on its own line in questions, episodes and minutes, then the total with the rates' label, then the
-    line count_plan carries on what the minutes are (an estimate from ordo's rate)."""
+    """Each arm on its own line in questions, episodes and minutes (an @2 arm with its class rows under it,
+    class_line), then the total with the rates' label, then the line count_plan carries on what the minutes are (an
+    estimate from ordo's rate), and for an @2 plan, once, that Class III is asked at the standard tier only."""
     by = {}
     for c in plan_.calls:
         by.setdefault(VS.arm_label(c), []).append(c)
     lines = [PRICE_HEAD.format(tier=a.tier, jobs=a.jobs)]
+    classes = False
     for label, calls in sorted(by.items()):
         q, e, m = priced(a, calls)
         lines.append(ARM_LINE.format(arm=arm_words(label), questions=q, episodes=e, time=P.duration(m * 60)))
+        line = class_line(a, calls)
+        if line:
+            lines.append(line)
+            classes = True
     q, e, m = priced(a, plan_.calls)
     lines.append(TOTAL_LINE.format(arm="all", questions=q, episodes=e, time=P.duration(m * 60),
                                    label=P.display(P.run_profile(a)[1])))
     lines.append("  " + VS.count_plan(plan_.calls, a.jobs)["minutes_basis"])
+    if classes:
+        lines.append(CLASS3_NOTE)
     return lines, m
 
 
@@ -700,9 +723,10 @@ def displayed_refusals(fn):
 def main(argv):
     """A versus command line, from probatio.main: the words and the options (parse), the names (versus_names,
     check_names), --jobs and --config-dir as v4 checks them, the banks and the episode engine, the plan (every arm in
-    one plan, one folder), the agent options as v4 builds them with the effort pinned, the preflight, and unless
-    --dry-run the run (execute). --dry-run starts no process v4's dry run does not (the CLI's --version) and, with
-    --out, writes every rendered item to rendered.jsonl as v4's does."""
+    one plan, one folder; a new run plans the tier's @2 recipe, a folder holding an @1 run plans @1 so that it resumes
+    as it began: versus.folder_recipe), the agent options as v4 builds them with the effort pinned, the preflight, and
+    unless --dry-run the run (execute). --dry-run starts no process v4's dry run does not (the CLI's --version) and,
+    with --out, writes every rendered item to rendered.jsonl as v4's does."""
     a = parse(argv)
     names = versus_names(a.versus)
     if a.jobs < 1:
@@ -713,11 +737,12 @@ def main(argv):
     check_world()
     ordo_bank = ordo.load_ordo_bank()
     parties = check_names(bank, names, a.strangers_on)
-    plan_ = VS.plan(bank, names, a.tier, arms_of(a), ordo_bank)
+    out = run_folder(a, names)
+    plan_ = VS.plan(bank, names, a.tier, arms_of(a), ordo_bank,
+                    recipe=VS.folder_recipe(out, a.tier))   # a folder's own recipe: @1 resumes as @1
     opts = P.agent_options(a)
     opts.effort = a.effort              # pinned for both CLIs, never inherited from the user's settings
     opts.auto_memory = "as-configured"
-    out = run_folder(a, names)
     _, _, record, _ = preflight(a, opts, bank, ordo_bank, names, parties, plan_, out)
     if a.dry_run:
         if a.out:
