@@ -150,7 +150,8 @@ def stub_ordo():
         return folder
 
     m.load_ordo_bank, m.plan, m.score, m.write_results = load_ordo_bank, plan, score, write_results
-    for name in ("count_plan", "pricing", "baseline_fixtures", "recognition_plan", "recognition_status", "relabel"):
+    for name in ("count_plan", "pricing", "baseline_fixtures", "recognition_plan", "recognition_status", "relabel",
+                 "ROSTER_WORDS", "quick_names_line"):
         setattr(m, name, getattr(REAL_ORDO, name, None))
     return m
 
@@ -532,6 +533,17 @@ class TestRuns(Isolated):
                                                                                             "organization"]))
         self.assertIn("ordo stub scorecard", out)
 
+    def test_a_comparison_with_a_real_control_never_calls_it_invented(self):
+        # A control of the user's own may be a real entity: the preflight names the comparison's entities in ordo's
+        # roster words, and run.json records the custom control that ordo.roster_kind reads.
+        entities = self.tmp / "mine.json"
+        entities.write_text(json.dumps({"organization": {"controls": ["NASA"]}}))
+        out = self.main("--agent", "claude", "--compare", "individual:organization", "--entities", str(entities),
+                        "--dry-run")
+        self.assertIn("individual:organization (cross-type): the roster's entities individual Karim Nassar, Daniel "
+                      "Whitford; organization NASA", out)
+        self.assertNotIn("invented entities", out)
+
     def test_a_custom_single_type_run_records_and_labels_its_roster(self):
         entities = self.tmp / "mine.json"
         entities.write_text(json.dumps({"organization": {"controls": ["Brackwater Mills", "Kelthorne Labs"]}}))
@@ -816,7 +828,7 @@ class TestResumeIdentity(Isolated):
         self.assertEqual(set(options) - set(own), {"compare", "fixtures", "fixtures_sha256", "labels", "roster"})
         self.assertEqual(P.resume_identity(dict(options, date="x")), P.resume_identity(own))
         self.assertEqual(P.resume_identity(own)["fixtures_sha256"], P.baseline_fixtures()["organization"])
-        self.assertEqual(set(P.resume_identity(own)), set(own) - {"date", "tier"} | {"fixtures_sha256"})
+        self.assertEqual(set(P.resume_identity(own)), set(own) - {"date", "tier", "memory_bytes"} | {"fixtures_sha256"})
 
 
 # ---- custom controls' recognition in scoring (Codex's final verification, findings 4 and 5) ------------------------
@@ -975,13 +987,19 @@ def v4_base_available():
 class TestRequirementOne(unittest.TestCase):
     maxDiff = None
     """The dry runs of 86e918c's probatio.py and of this one, each in a fresh process under the design's guard: the
-    same rendered items, byte for byte, and the same preflight but for the bank's folder and its time text, which now
-    reads the measured rates (docs/ordo/timing.json; estimate-watch DESIGN revision 2, 3.5): TIME_TEXT is every change."""
+    same rendered items, byte for byte, and the same preflight but for the bank's folder, its time text, which now
+    reads the measured rates (docs/ordo/timing.json; estimate-watch DESIGN revision 2, 3.5), and its memory section,
+    which now names the config folder (the memory a run tests): TIME_TEXT is every change."""
     TIME_TEXT = (("264 calls   about 9 min\n", "264 calls   about 4 min\n"),
                  ("48 calls   about 6 min\n", "48 calls   about 5 min\n"),
                  ("72 calls   about 9 min\n", "72 calls   about 8 min\n"),
                  ("384 calls   about 24 min\n", "384 calls   about 17 min (Sonnet baseline rates; the CLI's default model "
-                                              "shows in its first reply)\n"))
+                                              "shows in its first reply)\n"),
+                 # the memory section (the memory a run tests): the config folder first, and where none is found,
+                 # which folder was looked in; the list keeps its frozen shape (INTERFACES 4)
+                 ("  memory files for the with-memory run: " + P.NONE_FOUND + "\n",
+                  P.MEMORY_FOLDER_LINE.format(folder="<tmp>/config", source=P.source_words("claude", "env")) + "\n"
+                  + P.MEMORY_HEAD + " " + P.MEMORY_NONE.format(folder="<tmp>/config") + "\n"))
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

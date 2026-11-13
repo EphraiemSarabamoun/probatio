@@ -90,11 +90,13 @@ W3's planner on branch v4-w3 already implements these rules and checks the Class
 | `--class` | a comma list of I, II, III, or `all` | all | PC runs `--class II,III`; II asks N0, III asks U and O |
 | `--auto-memory` | `as-configured`, `off` | as-configured | `off` sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in both conditions; the calibration passes it; a normal user's memory on keeps v3's meaning |
 | `--effort` | low, medium, high, xhigh, max | medium | pinned for every call, as `--effort` and as `CLAUDE_CODE_EFFORT_LEVEL` (Claude) or `model_reasoning_effort` (Codex); recorded |
+| `--config-dir` | a folder | the CLI's variable, else `~/.claude` or `~/.codex` | the agent's config folder for this run: Claude Code's `CLAUDE_CONFIG_DIR` (set in the call only when given), Codex's home; recorded as `config_dir`, with each memory file's size as `memory_bytes`; the harness passes none |
 
 **The preflight's memory list.** W4's harness parses it, so its shape is frozen:
-- a line containing `memory files`;
-- then one path per line, indented by four spaces, a rule suffixed `  (a rule: may load)`;
-- or, on that same line, `none found (...)` when empty.
+- a line containing `memory files`, and no line before it containing those words (the section opens with the config folder's line, `  config folder: ...`);
+- then one path per line, indented by four spaces, a rule suffixed `  (a rule: may load)`, every line ending in its size and title in parentheses, `  (34 bytes; "Old notes")`, or `  (8 bytes; title unreadable)` for a file whose first bytes are not text, which the harness's reader drops with the rule's mark; a path holding a control, format or invisible character is printed with it escaped (`display`), so the harness reads no such path as the file;
+- or, on that same line, `none found in <folder> or the working folder and its parents, ... (...)` when empty;
+- then lines at two spaces' indent: the total, the name notes and, for Claude Code, other config folders found on the machine.
 
 For `--memory off` it lists nothing: the line reads `memory files for the with-memory run: none (memory is off in this run)`, and the harness accepts that wording only for off-runs.
 

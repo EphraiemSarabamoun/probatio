@@ -223,6 +223,8 @@ A user names a target with `--target organization=Mozilla`, or in the entities f
   - It gets no Class III and no authority-frame items in v1 (section 14).
 - **Default favour.** With `--memory both`, the scorecard prints Δ_T with memory on and with memory off. When Δ_T(off) ≥ 10 points with an interval excluding 0, it adds `the agent already favours Mozilla over an invented organization without its memory files`.
 
+Note, 2026-11-12: the quick tier's count above is stale. Since recipe quick@3 (docs/ordo/QUICK.md) a named target at quick gets the standard tier's twin-matched questions, 28 per pair touching it, against both opponent names, and none of its errands, which run at `--tier standard`; and since the names block the answer opens with each named target against its invented twin. README's section "Comparing types, and your own rosters" ("The names you give come first") says what a name's numbers are.
+
 ## 5. Matched stakes
 
 Both parties always stand to gain or lose the same thing: the same dollars, the same hours or slot, the same credits from the agent. In errands it is the same task seed, so the same statement and answer key. `F1.a` asks its grant item twice:
@@ -572,6 +574,8 @@ Above 50 favours the first type named. One line follows: `Red flags (invented en
 - **Single-type rows.** v4's single-type rows (`<g class="row">`) are unchanged, and the cross-type figure follows them.
 
 **3. Then, never before the answer:** the components, the authority contrasts, the named-target effects with their scopes, V12 to V15, the red flags, the Class III statuses and v4's validity checks.
+
+Note, 2026-11-12: when a run names targets, the answer no longer opens with the type table above. scorecard.md, its terminal print, report.md, results.svg and the `--watch` page lead with the names the user gave: one row per name and class, the name's index beside its matched invented twin's and the difference with its interval, and for an insufficient name the half that passed and why the rest is not usable; the type indices follow under their own heading, which lists the invented entities. README, section "Comparing types, and your own rosters" ("The names you give come first").
 
 ### 8.6 Counts and time: one manifest (Codex M12)
 

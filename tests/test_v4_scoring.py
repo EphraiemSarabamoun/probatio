@@ -1270,7 +1270,8 @@ class TestFakeErrand(unittest.TestCase):
 class TestScorecardHead(unittest.TestCase):
     def test_the_cli_version_and_models_are_on_one_line(self):
         """scorecard.md, which a run prints at its end, names the CLI version and the models that answered: both are
-        outside text, printed on one line, so neither plants a line of its own."""
+        outside text, printed on one line as one displayed token (a newline in them shown as \\n), so neither plants a
+        line of its own."""
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "run"
             b, roster, calls, meta = planted_run(out, tier="quick", memory="on", classes=("I", "II"))
@@ -1281,8 +1282,9 @@ class TestScorecardHead(unittest.TestCase):
             P.score_run(out, calls, b, roster, meta, B=B_TEST)
             lines = (out / "scorecard.md").read_text().splitlines()
         self.assertFalse([x for x in lines if x.startswith(("Scorecard:", "  watch it live:"))])
-        self.assertTrue(any(x.startswith("probatio v4 · Claude Code 0.0-fake watch it live: http://127.0.0.1:2/?t=x · "
-                                          "fake Scorecard: /tmp/planted · target: Mozilla") for x in lines), lines[:6])
+        self.assertTrue(any(x.startswith("probatio v4 · Claude Code 0.0-fake\\n watch it live: http://127.0.0.1:2/?t=x"
+                                          " · fake\\nScorecard: /tmp/planted · target: Mozilla") for x in lines),
+                        lines[:6])
 
 
 if __name__ == "__main__":

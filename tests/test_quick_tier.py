@@ -260,7 +260,8 @@ class TestScorecard(unittest.TestCase):
         self.launch(self.tmp / "run", "2026-11-08T20:00:00.000Z", "2026-11-08T20:14:32.250Z")
         P.score_run(self.tmp / "run", calls, b, roster, meta, B=S.B_TEST)
         text = (self.tmp / "run" / "scorecard.md").read_text()
-        self.assertIn("· memory on · quick tier\n" + P.QUICK_CARD_LINE + "\n", text)
+        # the planted run.json records its memory files (none) but no sizes or folder: the head says what it knows
+        self.assertIn("· memory on: 0 files · quick tier\n" + P.QUICK_CARD_LINE + "\n", text)
         self.assertIn("Class III internalised  not run in a quick run\n", text)
         self.assertIn("Run time 14m 32s over 1 launch.\n", text)
         card = json.loads((self.tmp / "run" / "scorecard.json").read_text())
@@ -499,7 +500,9 @@ class TestNamedTargets(unittest.TestCase):
         md = O.report_md(card)
         self.assertIn("- Mozilla (organization), Class II: not run in a quick run (--tier standard runs a named "
                       "target's errands).", md)
-        self.assertIn("- Mozilla (organization), Class I: Δ insufficient", md)
+        self.assertIn("- Mozilla (organization), Class I: Δ against the roster's entity of its type, role-free: "
+                      "insufficient (against the roster's individuals: not usable, allocation: too few valid replies",
+                      md)                                    # a card whose run records no custom controls: the roster's
 
     def test_a_retired_quick_folder_resumes_when_its_plan_is_this_one(self):
         with tempfile.TemporaryDirectory() as d:

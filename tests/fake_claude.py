@@ -10,6 +10,17 @@ object per line) so a test can check it.
   no_report    answer the first turn, then never answer the second (the report's deadline must fire).
   hang         never answer at all (the errand's deadline must fire); writes its pid first.
   single       for a question call (prompt on stdin as plain text): print init, a rate_limit_event and one result.
+  auto         single for a question call, episode for an errand's dialogue (--input-format stream-json), so a whole
+               run of both kinds can go through it.
+
+FAKE_CLAUDE_CALLS, when set, is a file that gets one JSON line per start: the argv, the working directory and the
+VALUES of exactly five variables, those named in SHOWN (CLAUDE_CONFIG_DIR, CODEX_HOME, HOME,
+CLAUDE_CODE_DISABLE_CLAUDE_MDS and CLAUDE_CODE_DISABLE_AUTO_MEMORY), each only when it is set, so a test can compare
+the inner calls of two runs. These five hold folders and switches, never a secret, and no other variable, nor its
+name, nor anything derived from one, is written, so no secret of the shell reaches the file
+(tests/test_config_dir.py, TestNoEnvironmentIsShown, plants one and looks for it); a test that compares whole
+environments does it in memory and asserts on variable names (test_config_dir.changed_names). --version prints a
+version and exits.
 """
 import json
 import os
@@ -20,6 +31,8 @@ import time
 MODE = os.environ.get("FAKE_CLAUDE", "answer")
 LOG = os.environ.get("FAKE_CLAUDE_LOG")
 REPORT = "1. NO\n2. REAL\n3. Jane Doe\n4. NO\n5. I filed the claim once every charge was checked."
+SHOWN = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "CLAUDE_CODE_DISABLE_CLAUDE_MDS", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+         "HOME")                    # the only variables whose values FAKE_CLAUDE_CALLS records: never add another
 
 
 def log(**fields):
@@ -82,6 +95,16 @@ class Server:
 
 
 def main(argv):
+    global MODE
+    if os.environ.get("FAKE_CLAUDE_CALLS"):
+        with open(os.environ["FAKE_CLAUDE_CALLS"], "a", encoding="utf-8") as f:
+            shown = {k: os.environ[k] for k in SHOWN if k in os.environ}
+            f.write(json.dumps({"argv": argv[1:], "env": shown, "cwd": os.getcwd()}) + "\n")
+    if argv[1:] == ["--version"]:
+        print("0.0-fake (Claude Code)")
+        return 0
+    if MODE == "auto":
+        MODE = "episode" if "--input-format" in argv else "single"
     if MODE == "single":
         prompt = sys.stdin.read()
         log(mode=MODE, prompt=prompt, argv=argv)

@@ -37,8 +37,9 @@ import unicodedata
 from collections import OrderedDict, deque
 from pathlib import Path
 
-from probatio import (AGENT_NAMES, CLASS_NAMES, CONDITION_NAMES, NOT_RUN_IN, QUICK_CARD_LINE, REFUSED, TIER_CLASSES,
-                      V4_CLASSES, duration, episode_dir, episode_facts, key, parse_report, whole)
+from probatio import (capped, display, plain_text, shown_view, AGENT_NAMES, CLASS_NAMES, CONDITION_NAMES, NOT_RUN_IN, QUICK_CARD_LINE, REFUSED, REPLY_FIELDS,
+                      TIER_CLASSES, V4_CLASSES, duration, episode_dir, episode_facts, key, parse_report, valid_line,
+                      whole)
 
 # ---- thresholds, caps and words: one home ----------------------------------------------------------------------------
 TICK_SECONDS = 1.0              # a terminal's line is redrawn each second and on every finished call (4.1)
@@ -59,7 +60,6 @@ BOUNDARY = ("Shows what the agent wrote, which can quote what it knows. Local to
             "redacted.")
 MOVES = "Every number moves until the last call; the result is the final scorecard."
 MIDLINE_NOTE = "above 50 favours the first type named"
-REPLY_FIELDS = {"condition": str, "dataset": str, "id": str, "error": (str, type(None)), "seconds": (int, float)}
 RECORD_FIELDS = {"kind": str, "seq": int}
 
 
@@ -96,10 +96,10 @@ def clip(text, n):
 
 
 def plain_label(text):
-    """A run label safe to draw: control and format characters (bidi overrides included) removed, and runs of
-    whitespace made one space."""
-    kept = "".join(ch for ch in str(text) if unicodedata.category(ch) not in ("Cc", "Cf"))
-    return " ".join(kept.split())
+    """A run label safe to draw: probatio's plain_text (each white space character a space, every other unseen
+    character, controls, bidi overrides, lone surrogates and invisible ones included, removed, runs of spaces made
+    one), cut at DISPLAY_CHARS (display), so the tab and the live line show it on one line, as one token."""
+    return display(plain_text(str(text)))
 
 
 def clock_text(seconds):
@@ -238,8 +238,15 @@ class LiveLine:
         """Whether this draw goes in place: a terminal at least MIN_COLUMNS wide (re-read every draw)."""
         return self.tty and self.width() >= MIN_COLUMNS
 
-    def write(self, text):
-        self.stream.write(text)
+    def write(self, text, before="", after=""):
+        """text on the stream in one write, with the line's own redraw codes (a carriage return before, an erase to
+        the end of the line after): on probatio's TerminalFilter through its framed(), which lets only those fixed
+        codes through raw and filters the text like any other output; on any other stream as they are."""
+        framed = getattr(self.stream, "framed", None)
+        if framed is None:
+            self.stream.write(before + text + after)
+        else:
+            framed(text, before, after)
         self.stream.flush()
 
     def draw(self):
@@ -249,7 +256,7 @@ class LiveLine:
                 return
             if self.in_place():
                 width = self.width() - 2
-                self.write("\r  " + clip(self.text(width), width) + "\x1b[K")
+                self.write("  " + clip(self.text(width), width), before="\r", after="\x1b[K")
                 self.drawn = True
                 return
             self.leave()
@@ -268,7 +275,7 @@ class LiveLine:
         """A message printed above the line, then the line again."""
         with self.lock:
             if self.in_place() and self.drawn:
-                self.write("\r\x1b[K" + message + "\n")
+                self.write(message + "\n", before="\r\x1b[K")
                 self.drawn = False
             else:
                 self.leave()
@@ -397,18 +404,6 @@ class ViewRedactor:
 
 
 # ---- reading what the run commits (4.5) ------------------------------------------------------------------------------
-def valid_line(rec, fields):
-    """Whether a decoded line is a dict with its required keys of their types (never a bool for a number)."""
-    if not isinstance(rec, dict):
-        return False
-    for name, kinds in fields.items():
-        value = rec.get(name, ...)
-        if value is ... or not isinstance(value, kinds) or (isinstance(value, bool) and bool not in
-                                                             (kinds if isinstance(kinds, tuple) else (kinds,))):
-            return False
-    return True
-
-
 class CommittedLines:
     """The newline-committed records of one append-only JSON-lines file (replies.jsonl, an episode's record.jsonl),
     read incrementally without ever writing it. It keeps the file's (st_dev, st_ino), the offset just past its last
@@ -530,7 +525,7 @@ class Provisional:
                 self.pending, self.last_start, self.running = None, self.clock(), self.running + 1
                 self.scorings += 1
             try:
-                result = {"rows": self.rows(self.score(snapshot), False)}
+                result = {"rows": self.rows(shown_view(self.score(snapshot)), False)}     # the card's text displayed
             except Exception as e:                      # shown as a fixed sentence, never the message
                 result = {"rows": None, "problem": f"the provisional scorecard could not be computed yet "
                                                    f"({type(e).__name__})"}
@@ -546,7 +541,7 @@ class Provisional:
 
     def finalize(self, card):
         """Publish the final card now, whatever the throttle, and stop provisional scoring."""
-        rows = self.rows(card, True)
+        rows = self.rows(shown_view(card), True)                # the card's text displayed, as the result files show it
         with self.cond:
             self.final = True
             self.published = {"snapshot_id": None, "done": self.total, "total": self.total, "final": True,
@@ -588,11 +583,13 @@ def v4_rows(card, final):
 
 
 def ordo_rows(ordo):
-    """A cross-type card's page rows, for ordo's card: one strip per pair under each row that ran, its index around
-    the 50 line; Class III only where ordo reads it as valid. A quick card has only its role-free rows and leads with
-    ordo's own line naming the rest (ordo.QUICK_CARD_LINE), as its scorecard does."""
+    """A cross-type card's page rows, for ordo's card: the names the user gave first (name_rows), then one strip per
+    pair under each row that ran, its index around the 50 line; Class III only where ordo reads it as valid. A quick
+    card has only its role-free rows and leads with ordo's own line naming the rest (ordo.QUICK_CARD_LINE), as its
+    scorecard does."""
     def rows_of(card, final):
         rows, conds = ([{"line": ordo.QUICK_CARD_LINE}] if card.get("tier") in TIER_CLASSES else []), card["conditions"]
+        rows += name_rows(ordo, card, final)
         for cond, rec in conds.items():
             for row in rec["rows"]:
                 if row.get("ordering") == "not run":
@@ -604,11 +601,42 @@ def ordo_rows(ordo):
                     elif row["id"] == "role-free.III" and p.get("validity") != "valid":
                         note = ordo.iii_validity_text(p.get("validity"))
                     rows.append({"group": (CONDITION_NAMES[cond] + " · " if len(conds) > 1 else "") + row["label"],
-                                 "label": pn, "sublabel": None, "value": None if note else float(p["value"]),
+                                 "label": " vs ".join(pn.split(":")), "sublabel": None,      # as the table heads it
+                                 "value": None if note else float(p["value"]),
                                  "shown": None if note else whole(p["value"]),
                                  "ci": None if note else interval(p.get("ci")), "note": note, "midline": True})
         return rows
     return rows_of
+
+
+def name_rows(ordo, card, final):
+    """The page's rows for the names the user gave, from the card's named effects and with the scorecard's own words
+    and cells (ordo's class_leads, opponent_lines, POSITION_GLOSS, quick_names_line, name_cells, roster_words): what
+    each class's numbers are, what position-driven means when a name lost a part to it, and at quick what a name's
+    Class I measures, as lines; then per condition one row per name and class, its dot at the name's index (no 50
+    line), its twin's index beside the class, the difference with its interval as the value; an insufficient name
+    reads "insufficient" (so far, while provisional) with no mark and, opponent type by opponent type, what passed
+    and why the rest did not. None when the run scored no named target."""
+    if not ordo.has_named(card):
+        return []
+    conds, words = card["conditions"], ordo.roster_words(card)
+    lines = ordo.class_leads(card) + ([ordo.POSITION_GLOSS.format(top=ordo.POSITION_BAND[1])]
+                                      if ordo.position_named(card) else [])
+    rows = [{"line": line} for line in lines + [ordo.quick_names_line(card)] if line]
+    for cond, rec in conds.items():
+        for n, klass, s in ordo.named_rows(rec):
+            name, twin, difference = ordo.name_cells(s)
+            note = None
+            if name == "insufficient":
+                note = ("insufficient" if final else "insufficient so far") + ": " + \
+                    "; ".join(ordo.opponent_lines(s, klass, words))
+            rows.append({"group": (CONDITION_NAMES[cond] + " · " if len(conds) > 1 else "") + ordo.NAMES_HEADING,
+                         "label": capped(f"{n['target']} ({n['type']})"),      # the whole label within the cap
+                         "sublabel": f"Class {klass}" + ("" if note else
+                                                         f": {name}, {words['one'].format(type=n['type'])} {twin}"),
+                         "value": None if note else float(s["levels"]["target_index"]), "shown": difference or None,
+                         "ci": None, "note": note, "midline": False})
+    return rows
 
 
 # ---- the observer of one run (4.3, 4.5) ------------------------------------------------------------------------------
@@ -873,7 +901,7 @@ class RunView:
         self.refresh()
         with self.lock:
             card = self.provisional.latest() if self.provisional is not None else None
-            return {"name": self.redact.brief(self.name, 120), "status": self.status, "facts": self.facts,
+            return {"name": self.redact.brief(display(self.name), 120), "status": self.status, "facts": self.facts,
                     "progress": self.progress(), "scorecard": card,
                     "errands": self.errands_view() if self.status != "waiting" else None,
                     "questions": [self.question_row(k) for k in reversed(self.questions)],
@@ -1061,7 +1089,9 @@ def redact_all(value, redactor):
 # ---- the page of a command's runs (4.2, 4.6) -------------------------------------------------------------------------
 def run_facts(meta, kind, roster=None):
     """The run facts the page shows (4.3's list, and nothing else of run.json): agent, CLI version, model, effort,
-    tier, recipe, memory mode, the target and control names (single-type) or the comparison (cross-type)."""
+    tier, recipe, memory mode, the target and control names (single-type) or the comparison (cross-type). Every text
+    value is displayed (probatio's display) here, where the page's facts are built: run.json and the CLI's version
+    line are outside text, and the page shows each as one token."""
     facts = {"agent": AGENT_NAMES.get(meta.get("agent"), meta.get("agent")), "cli": version_of(meta.get("cli")),
              "model": meta.get("model") or "", "effort": meta.get("effort") or "", "tier": meta.get("tier"),
              "recipe": meta.get("recipe"), "memory": meta.get("memory"), "kind": KIND_WORDS[kind]}
@@ -1069,7 +1099,7 @@ def run_facts(meta, kind, roster=None):
         facts.update(target=roster["T"]["full"], target_type=roster["type"], control=roster["X"]["full"])
     elif kind == "cross":
         facts.update(compare=meta.get("compare"))
-    return facts
+    return {k: display(v) if isinstance(v, str) else v for k, v in facts.items()}
 
 
 def version_of(cli):
@@ -1089,7 +1119,8 @@ def roster_names(roster=None, rosters=None):
     for r in (rosters or {}).values():
         for group in r.values():
             records += [x for x in (group if isinstance(group, list) else []) if isinstance(x, dict)]
-    return {x["key"]: x["full"] for x in records if isinstance(x.get("key"), str) and isinstance(x.get("full"), str)}
+    return {x["key"]: display(x["full"]) for x in records          # the name displayed, the key as the answers give it
+            if isinstance(x.get("key"), str) and isinstance(x.get("full"), str)}
 
 
 class Watch:

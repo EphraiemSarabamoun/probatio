@@ -20,7 +20,9 @@ if sys.version_info < MIN_PYTHON:  # before anything else, so an older python3 g
     raise SystemExit(f"probatio needs Python {'.'.join(map(str, MIN_PYTHON))} or later; this is Python "
                      f"{sys.version.split()[0]}. Run it with a newer python3.")
 import argparse
+import contextlib
 import csv
+import errno
 import fcntl
 import html
 import hashlib
@@ -32,8 +34,10 @@ import queue
 import random
 import re
 import secrets
+import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -145,7 +149,7 @@ def read_config(dataset, config, expected):
     if LOCAL:
         path = Path(LOCAL) / dataset / "data" / f"{config}.jsonl"
         if not path.is_file():
-            raise SystemExit(f"--local: {path} is not there.")
+            raise SystemExit(f"--local: {display(path)} is not there.")
     elif COMMITS[dataset] is None:
         raise SystemExit(f"{dataset} is not published yet; pass --local with a staged release to test it.")
     else:
@@ -681,39 +685,100 @@ def score(row, reply):
 
 # ---- the agents ----------------------------------------------------------------------------------------------------
 def claude_dir():
+    """Claude Code's config folder when no --config-dir is given: CLAUDE_CONFIG_DIR, else ~/.claude."""
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 
 
 def codex_dir():
+    """Codex's home when no --config-dir is given: CODEX_HOME, else ~/.codex."""
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def memory_files(agent, workdir, auto_memory="as-configured"):
+def memory_files(agent, workdir, auto_memory="as-configured", config_dir=None):
     """The memory files the with-memory condition should load, best effort: the CLI decides, this only looks, and a
     CLI may load files this list does not know about. For Claude Code every rule is listed, though a rule limited to
     certain paths may not load, and so is every file a listed file imports. The auto-memory index (MEMORY.md in the
-    config folder's projects/) is listed unless auto_memory is "off" (the calibration's clean room)."""
+    config folder's projects/) is listed unless auto_memory is "off" (the calibration's clean room). config_dir is
+    the run's config folder (config_choice); None reads the default (claude_dir, codex_dir), as v3 does."""
     workdir = Path(workdir).resolve()
     chain = [workdir, *workdir.parents]
     if agent == "claude":
+        home = Path(config_dir) if config_dir else claude_dir()
         project_key = re.sub(r"[^A-Za-z0-9]", "-", str(workdir))      # how Claude Code names a project's folder
-        candidates = [claude_dir() / "CLAUDE.md", *sorted((claude_dir() / "rules").rglob("*.md"))]
+        rules = lambda folder: [(f, True) for f in sorted((folder / "rules").rglob("*.md"))]   # noqa: E731
+        candidates = [(home / "CLAUDE.md", False), *rules(home)]           # (path, whether a folder there is fine)
         if auto_memory != "off":
-            candidates.append(claude_dir() / "projects" / project_key / "memory" / "MEMORY.md")
+            candidates.append((home / "projects" / project_key / "memory" / "MEMORY.md", False))
         for d in chain:
-            candidates += [d / "CLAUDE.md", d / "CLAUDE.local.md", d / ".claude" / "CLAUDE.md",
-                           *sorted((d / ".claude" / "rules").rglob("*.md"))]
-        candidates += [f for c in candidates if c.is_file() for f in imports(c)]
+            candidates += [(d / "CLAUDE.md", False), (d / "CLAUDE.local.md", False),
+                           (d / ".claude" / "CLAUDE.md", False), *rules(d / ".claude")]
+        candidates = [c for c, folder_ok in candidates if memory_file(c, folder_ok)]
+        candidates += [f for c in candidates for f in imports(c)]
     else:
         # Codex reads its home, then each folder from the project root (the nearest folder holding .git) down to the
         # working directory, or the working directory alone outside a repository: one AGENTS file per folder.
         top = next((i for i, d in enumerate(chain) if (d / ".git").exists()), 0)
-        candidates = [agents_file(codex_dir(), home=True), *(agents_file(d) for d in reversed(chain[:top + 1]))]
+        home = Path(config_dir) if config_dir else codex_dir()
+        candidates = [agents_file(home, home=True), *(agents_file(d) for d in reversed(chain[:top + 1]))]
     found = []
     for path in candidates:
-        if path and path.is_file() and path.resolve() not in [f.resolve() for f in found]:
+        if path and memory_file(path, folder_ok=True) and path.resolve() not in [f.resolve() for f in found]:
             found.append(path)
     return found
+
+
+# A memory file the with-memory run reads must be one probatio can read too, since run.json records its sha256 and the
+# preflight its size: where a memory file would be, a link that loops, a folder, anything else that is not a regular
+# file, or a file this user cannot read stops the run before any call, in one plain line with the path displayed
+# (MEMORY_REFUSED). Nothing there, a link to nothing included, is no memory file, as the CLI loads none from it. A rule
+# (under rules/) or an @import that names a folder is no memory file either: rules/ is searched below it, and an @word
+# naming a folder is prose. A file whose first bytes are not text is listed with "title unreadable" (memory_title).
+MEMORY_REFUSED = ("{path}: {why}, where the with-memory run reads a memory file, so probatio stops before any call; "
+                  "{fix}.")
+MEMORY_PROBLEMS = {"loop": ("a symbolic link that loops", "point the link at a file, or remove it"),
+                   "folder": ("a folder", "rename or move it"),
+                   "other": ("not a regular file", "replace it with a file, or remove it"),
+                   "unread": ("it cannot be read ({})", "let your user read it, or move it aside")}
+
+
+def memory_refusal(path, problem, detail=""):
+    """The one plain line (MEMORY_REFUSED) that stops a run on a memory file it cannot read, as SystemExit."""
+    why, fix = MEMORY_PROBLEMS[problem]
+    return SystemExit(MEMORY_REFUSED.format(path=display(path), why=why.format(detail), fix=fix))
+
+
+def memory_file(path, folder_ok=False):
+    """Whether a memory file stands at path, for memory_files: True for a regular file this process can open; False
+    for nothing there (no entry, or a link to nothing) and, with folder_ok (a rule, an @import, a Codex AGENTS file
+    already chosen), for a folder; else memory_refusal's SystemExit, for a link that loops, a folder, anything else
+    that is not a regular file, or a file it cannot open. A FIFO is never opened."""
+    try:
+        st = os.stat(path)
+    except ValueError:                  # a NUL in an @word's path: no file can be there
+        return False
+    except OSError as e:
+        if e.errno in (errno.ENOENT, errno.ENOTDIR):
+            return False
+        raise memory_refusal(path, "loop" if e.errno == errno.ELOOP else "unread", e.strerror or e)
+    if stat.S_ISDIR(st.st_mode):
+        if folder_ok:
+            return False
+        raise memory_refusal(path, "folder")
+    if not stat.S_ISREG(st.st_mode):
+        raise memory_refusal(path, "other")
+    try:
+        os.close(os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)))
+    except OSError as e:
+        raise memory_refusal(path, "unread", e.strerror or e)
+    return True
+
+
+def memory_bytes(path):
+    """A memory file's bytes, or memory_refusal's SystemExit when it can no longer be read."""
+    try:
+        return Path(path).read_bytes()
+    except OSError as e:
+        raise memory_refusal(path, "unread", e.strerror or e)
 
 
 def imports(path, hops=5):
@@ -732,7 +797,7 @@ def import_targets(path):
     block (``` or ~~~, closed only by a fence of the same character, at least as long and with nothing after it) or
     an inline code span is not an import."""
     found, fence = [], None
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in memory_bytes(path).decode("utf-8", errors="replace").splitlines():
         m = re.match(r"\s*(`{3,}|~{3,})(.*)", line)
         if fence:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
@@ -741,8 +806,12 @@ def import_targets(path):
             fence = m.group(1)                                          # so ```example``` is an inline span
         else:
             for target in re.findall(r"(?<!\S)@(\S+)", re.sub(r"`[^`]*`", "", line)):   # never "jane@example.com"
-                f = (path.parent / Path(target).expanduser()).resolve()     # an absolute or ~ path replaces the folder
-                if f.is_file():
+                f = path.parent / Path(target).expanduser()                 # an absolute or ~ path replaces the folder
+                try:
+                    f = f.resolve()
+                except (OSError, RuntimeError, ValueError):     # a link that loops (Python 3.9 and 3.10 raise
+                    pass                                        # RuntimeError) is memory_file's to name
+                if memory_file(f, folder_ok=True):
                     found.append(f)
     return found
 
@@ -756,10 +825,640 @@ def agents_file(folder, home=False):
     """The AGENTS file Codex reads in one folder, or None: AGENTS.override.md in place of AGENTS.md, and nothing from
     an empty file. In Codex's home an empty override gives way to AGENTS.md; in a project folder it still hides it
     (both seen on codex-cli 0.159)."""
-    text = lambda f: f.read_text(encoding="utf-8", errors="replace").strip()      # noqa: E731
-    files = [folder / n for n in AGENTS_FILES if (folder / n).is_file()]
+    text = lambda f: memory_bytes(f).decode("utf-8", errors="replace").strip()    # noqa: E731
+    files = [folder / n for n in AGENTS_FILES if memory_file(folder / n)]
     files = [f for f in files if text(f)] if home else files[:1]
     return files[0] if files and text(files[0]) else None
+
+
+# ---- the memory a run tests: chosen (--config-dir), shown (the preflight, the --ui page), recorded (run.json) --------
+# One run reads one config folder: Claude Code's CLAUDE_CONFIG_DIR folder, or the Codex home whose login and AGENTS
+# files the per-call homes link to. config_choice is its one home: memory discovery (memory_files), the preflight's
+# list (memory_report, memory_lines), run.json ("config_dir", "memory_bytes") and the inner call's environment
+# (claude_command's CLAUDE_CONFIG_DIR, codex_home's links) all read it from opts.config_dir, never from a changed
+# os.environ. Without --config-dir nothing about the inner call changes: the CLI inherits the shell's variable, if any.
+# memory_report gives the preflight and the page the same facts; the titles and the contents it reads are local,
+# pre-run information, shown there and never written into any result file. config_candidates finds the other Claude
+# Code config folders under the home folder, within one budget, and fails quiet.
+CONFIG_VARIABLE = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}       # what each CLI reads its folder from
+CONFIG_MISSING = "--config-dir {}: no folder is there; pass the folder your agent's launcher sets as {}."
+CONFIG_SOURCES = {"option": "chosen with --config-dir", "env": "from {} in this shell",
+                  "default": "the default, since {} is not set in this shell"}
+TITLE_CHARS = 80                        # a memory file's title is cut to this many characters (memory_title)
+TITLE_BYTES = 16384                     # ... and read from its first 16 KiB at most, never the whole file
+TITLE_UNREADABLE = "title unreadable"   # what the preflight and the page say for a file whose first bytes are not text
+KB = 1000                               # bytes in the KB the preflight, the page and the scorecard head print
+MEMORY_FOLDER_LINE = "  config folder: {folder} ({source})"
+MEMORY_HEAD = "  memory files for the with-memory run:"           # INTERFACES 4: the harness reads the list after it
+MEMORY_OFF = "none (memory is off in this run)"                     # INTERFACES 4's wording for an off run, kept
+MEMORY_NONE = ("none found in {folder} or the working folder and its parents, so memory on and memory off are the "
+               "same run (the CLI may still load memory files this list does not know about)")
+MEMORY_TOTAL_LINE = "  memory total: {files}, {size}"
+MEMORY_NAME_NOTE = ("note: none of these memory files mentions {name}; if your agent knows you through another config "
+                    "folder, pass --config-dir")
+CANDIDATES_HEAD = "  other Claude Code config folders found on this machine:"
+CANDIDATE_ESCAPED = "its name holds characters shown escaped, so type its path to --config-dir yourself"
+CANDIDATE_MARKS = (".claude.json", "projects")   # a file and a folder Claude Code writes in a CLAUDE_CONFIG_DIR folder
+CANDIDATE_DEPTH = 3                     # folders below the home folder the search looks into
+CANDIDATE_SECONDS = 0.3                 # the search's budget in time ...
+CANDIDATE_ENTRIES = 20000               # ... and in directory entries read; past either it reports nothing
+CANDIDATE_SKIP = frozenset({"library", "node_modules", "__pycache__", "cache", "caches", "venv", "env",
+                            "site-packages"})   # lower case; and every hidden folder and virtual environment (pyvenv.cfg)
+CANDIDATE_HIDDEN = ".claude"            # a hidden folder directly under home whose name begins so (~/.claude-work) is
+                                        # looked at too, though not into, and never the default ~/.claude itself
+
+
+def config_path(text, home=None, cwd=None):
+    """--config-dir's folder as an absolute path: a leading ~ is the home folder (home, else this process's), a
+    relative path is taken from cwd (else this process's working folder), and symbolic links are kept, since the CLI
+    reads the path it is given. Pure but for the defaults."""
+    text = str(text)
+    if text == "~" or text.startswith("~/"):
+        text = str(home or Path.home()) + text[1:]
+    else:
+        text = os.path.expanduser(text)
+    return Path(os.path.normpath(os.path.join(str(cwd or os.getcwd()), text)))
+
+
+def config_choice(agent, given=None):
+    """(folder, source) of the run's config folder: given (--config-dir, made absolute by config_path) with source
+    "option"; else the folder the CLI would take from its variable (CONFIG_VARIABLE), "env"; else ~/.claude or
+    ~/.codex, "default". It does not check that the folder exists (check_config_dir does)."""
+    if given:
+        return config_path(given), "option"
+    if os.environ.get(CONFIG_VARIABLE[agent]):
+        return Path(os.environ[CONFIG_VARIABLE[agent]]), "env"
+    return (claude_dir() if agent == "claude" else codex_dir()), "default"
+
+
+def check_config_dir(a):
+    """Refuse a --config-dir that is not an existing folder, an empty one included: one plain line on stderr and exit
+    2, before anything else of the run happens."""
+    given = getattr(a, "config_dir", None)
+    if given is not None and (not given.strip() or not config_is_folder(given)):
+        print(CONFIG_MISSING.format(display(given), CONFIG_VARIABLE.get(a.agent, "CLAUDE_CONFIG_DIR")), file=sys.stderr)
+        raise SystemExit(2)
+
+
+def config_is_folder(given):
+    """Whether --config-dir names a folder (config_path, then is_folder)."""
+    return is_folder(config_path(given))
+
+
+def is_folder(path):
+    """Whether path names a folder: the one folder check every option and the page share (--workdir, --config-dir,
+    a --rescore folder, the form's config folder). A path the system cannot even look at (a NUL in it, a name too
+    long) names none, so it is the caller's plain refusal, never a traceback."""
+    try:
+        return Path(path).is_dir()
+    except (OSError, ValueError):
+        return False
+
+
+def os_reason(e):
+    """An OSError's reason as a refusal says it: its strerror ("Permission denied", "File name too long"), never its
+    whole text, which repeats the path undisplayed; the error's name when it has none."""
+    return display(getattr(e, "strerror", None) or type(e).__name__)
+
+
+def source_words(agent, source):
+    """Where the config folder came from, as the preflight and the page say it (CONFIG_SOURCES)."""
+    return CONFIG_SOURCES[source].format(CONFIG_VARIABLE[agent])
+
+
+def tilde(path, home=None):
+    """A path as the scorecard head and the preflight write a folder: the home folder (home, else this process's)
+    written as ~."""
+    path, home = str(path), str(home or Path.home())
+    return "~" + path[len(home):] if path == home or path.startswith(home.rstrip(os.sep) + os.sep) else path
+
+
+# ---- what reaches a terminal or the page: display, the one home ------------------------------------------------------
+# A path, a folder's name, a memory file's title or a refusal's argument can come from the filesystem, the command line
+# or a memory file, so it may hold a terminal escape sequence, a newline that forges a line of its own, a bidirectional
+# override that reorders what is drawn, or another invisible character. unseen() is the one rule for which characters
+# those are, and display() the one function that makes such a string safe to print or export: every preflight line,
+# refusal, scorecard head and --ui answer that shows one calls it (quoted() does, and main's last word on a refusal,
+# refusal_text, does again for the whole line). Many values built around one displayed token (a label, a heading, a
+# cell, a sentence) are also cut as a whole (capped), but that is not a rule: memory_empty's sentence is not, the
+# pages' scripts add their own words around what they receive, and text that holds several tokens (the form's command
+# line, the preflight's lines, a message about several folders) is cut token by token, so no length is promised for
+# the text around a token. What is displayed is for eyes only; the original string, untouched, is what the filesystem
+# gets. The agent's own replies that the --watch page shows are not displayed here: live.py redacts and cuts them
+# (ViewRedactor.brief), and the page inserts them as text, never as markup; nor is the model word the --ui page's
+# Run confirmation names, which its script takes from the form as typed (renderConfirm).
+DISPLAY_CHARS = 512                     # a longer displayed string keeps its start and its end around one ellipsis
+
+
+def unseen(ch):
+    """Whether one character must not reach a terminal or the page as it is: every control (an escape, a newline, a
+    tab, DEL and the C1 controls), format character (a bidirectional override or isolate, a zero-width joiner, a byte
+    order mark), surrogate, private-use or unassigned character, every separator but the plain space, and every
+    character --model's rule calls invisible (invisible: Unicode's default-ignorable code points, the Hangul fillers
+    among them, and the blank braille pattern), which Python counts printable but a terminal draws as nothing."""
+    return ch != " " and (not ch.isprintable() or invisible(ch))
+
+
+def display(text, cap=DISPLAY_CHARS, keep=""):
+    """text as it may be printed or exported: each unseen character written as its Python escape (\\x1b, \\n, \\u202e),
+    so nothing in it is hidden, reordered or acted on by a terminal, and, when the result is longer than cap
+    characters, its middle cut to one ellipsis so its start and its end (a file's name) both stay (capped). keep names
+    characters left as they are (refusal_text keeps a refusal's own line breaks); cap None does not cut. Pure."""
+    text = str(text)
+    if PLAIN.get(keep, NEVER).fullmatch(text):          # printable ASCII and kept characters only: nothing to escape
+        shown = text
+    else:
+        shown = "".join(ch.encode("unicode_escape").decode("ascii") if unseen(ch) and ch not in keep else ch
+                        for ch in text)
+    return capped(shown, cap)
+
+
+def capped(text, cap=DISPLAY_CHARS):
+    """text with its middle cut to one ellipsis when it is longer than cap characters, so its start and its end both
+    stay; cap None does not cut. display() cuts with it, and so do many of the places that build one value around a
+    displayed token for the --watch page, the --ui form or an exported file ("NAME (organization)", a scorecard's head
+    line, the form's line that a config folder is not there), so that value is within the cap as a whole; not every
+    such place calls it (memory_empty does not), and no length is promised for such a value. Text that holds several
+    tokens (the form's command line, the preflight's lines, several folders' sentences) is capped token by token. Its
+    tokens are displayed already, so nothing is escaped again, and a value within the cap is returned as it is. Pure."""
+    text = str(text)
+    if cap is not None and len(text) > cap:
+        head = (cap - 1) // 2
+        text = text[:head] + "…" + text[len(text) - (cap - 1 - head):]
+    return text
+
+
+PLAIN = {"": re.compile(r"[\x20-\x7e]*"), "\n": re.compile(r"[\x20-\x7e\n]*"),
+         "\n\t": re.compile(r"[\x20-\x7e\n\t]*")}     # display's fast path, per keep
+NEVER = re.compile(r"(?!)")
+
+
+# ---- the backstop at every output boundary ----------------------------------------------------------------------------
+# Whatever a call site forgets, nothing raw reaches a terminal or a text file a run exports. The command line's one way
+# in (if __name__ == "__main__") wraps standard output and standard error once in TerminalFilter, so every print, every
+# write, argparse's messages and Python's own tracebacks pass terminal_text: each unseen character escaped (display,
+# uncut) but the newline and tab the program itself writes. The live line's own redraw (a carriage return, an erase to
+# the end of the line) is the one exception, and it goes only through TerminalFilter.control, which takes nothing but
+# those fixed sequences (TERMINAL_CONTROLS), never text. Every text result file (scorecard.md, report.md, results.svg,
+# results.csv, v3's and the comparison's) is written through export_text, the same filter, at the one place each is
+# written, and every JSON file probatio writes with non-ASCII text kept (ensure_ascii=False) goes through json_text,
+# which writes each unseen character as JSON's own \u escape, so the data reads back exactly. The backstop cannot tell
+# the program's newline from one inside a user's string, so a string that comes from outside still passes display()
+# before it is put into a message (one token: its newline shown as \n, its length cut at DISPLAY_CHARS).
+TERMINAL_KEEPS = "\n\t"                 # what the program itself writes and the filter lets through
+TERMINAL_CONTROLS = frozenset({"", "\r", "\x1b[K", "\r\x1b[K"})   # the live line's redraw: a carriage return, an erase to
+                                                                # the end of the line, or both
+
+
+def terminal_text(text):
+    """text as it may reach a terminal or a text export: every unseen character escaped as display escapes it, uncut,
+    but the newline and tab (TERMINAL_KEEPS). Ordinary text comes back unchanged."""
+    return display(text, cap=None, keep=TERMINAL_KEEPS)
+
+
+export_text = terminal_text             # the one filter, under the name the file writers use
+
+
+def json_text(obj, **options):
+    """obj as JSON (json.dumps with ensure_ascii=False and options) with every unseen character inside a string written
+    as JSON's own \\uXXXX escape (a surrogate pair above U+FFFF): json.dumps escapes only U+0000 to U+001F, so DEL,
+    the C1 controls, bidirectional overrides and zero-width characters would stay raw. The newline of an indented
+    file is structure and stays; any other unseen character can only be inside a string. Reads back exactly."""
+    text = json.dumps(obj, ensure_ascii=False, **options)
+    if PLAIN["\n"].fullmatch(text):
+        return text
+    return "".join(ch if ch == "\n" or not unseen(ch) else json_escape(ch) for ch in text)
+
+
+def json_escape(ch):
+    """One character as JSON's \\u escape, a surrogate pair above U+FFFF."""
+    n = ord(ch)
+    if n < 0x10000:
+        return f"\\u{n:04x}"
+    n -= 0x10000
+    return f"\\u{0xD800 + (n >> 10):04x}\\u{0xDC00 + (n & 0x3FF):04x}"
+
+
+class TerminalFilter:
+    """A text stream on its way to a terminal: write() passes terminal_text, framed() and control() write the live
+    line's own fixed redraw codes (TERMINAL_CONTROLS) around filtered text and refuse any other code; everything else
+    (flush, isatty, fileno, encoding) is the stream's. Its binary buffer is not offered, so nothing can write past the
+    filter through it.
+
+    What it covers, exactly: everything written through Python's standard streams (print, sys.stdout and sys.stderr,
+    argparse, tracebacks, warnings, the --ui and --watch servers' messages). It does not cover a write to the file
+    descriptor itself (fileno is offered, for os.get_terminal_size), nor a child that inherits the terminal. From the
+    code, probatio does neither: every child's output is captured (the agent CLI's calls, run and the errands'
+    dialogue Popen; --version; codex features list; the --ui page's Check, memory, resume and Run children, whose
+    output the page reads), and the only direct descriptor writes are byte copies into files (copy_unfollowed's
+    previous/ copies, the --ui page's roster snapshot), never to a terminal. fileno is read only by live.py's
+    terminal_width."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text):
+        self.stream.write(terminal_text(text))
+        return len(text)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def control(self, code):
+        self.framed("", code)
+
+    def framed(self, text, before="", after=""):
+        """text, filtered, between two of the live line's own redraw codes (TERMINAL_CONTROLS), in one write; any
+        other code is refused."""
+        if before not in TERMINAL_CONTROLS or after not in TERMINAL_CONTROLS:
+            raise ValueError("TerminalFilter.framed takes only the live line's redraw codes")
+        self.stream.write(before + terminal_text(text) + after)
+
+    def flush(self):
+        self.stream.flush()
+
+    def isatty(self):
+        return self.stream.isatty()
+
+    def fileno(self):
+        return self.stream.fileno()
+
+    def __getattr__(self, name):
+        if name in ("buffer", "detach"):
+            raise AttributeError(f"TerminalFilter offers no {name}")
+        return getattr(self.stream, name)
+
+
+def install_terminal_filter():
+    """Wrap standard output and standard error in TerminalFilter, once (a second call changes nothing): the command
+    line's entry point does it before anything is printed, and leaves them wrapped, so a traceback goes through too."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if not isinstance(stream, TerminalFilter):
+            setattr(sys, name, TerminalFilter(stream))
+
+
+@contextlib.contextmanager
+def filtered_streams():
+    """install_terminal_filter for a block, the streams put back after it (the tests' way through the entry point)."""
+    saved = sys.stdout, sys.stderr
+    install_terminal_filter()
+    try:
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stdout, sys.stderr = saved
+
+
+PATH_STOP = "{path}: {reason}; probatio stopped before anything else was written there."
+
+
+def run_command(argv=None):
+    """The command line's run: main, and a refusal (a SystemExit with text) printed through refusal_text on standard
+    error with exit 1, as Python itself would print it. A filesystem error that names a path and reached this far (a
+    folder the system cannot make, a name too long) is one plain line too (PATH_STOP: the path displayed, the reason
+    os_reason gives), never a traceback; any other error is probatio's own and raises."""
+    try:
+        main(argv)
+    except SystemExit as stop:
+        if not isinstance(stop.code, str):
+            raise
+        print(refusal_text(stop.code), file=sys.stderr)
+        raise SystemExit(1) from None
+    except OSError as e:
+        if e.filename is None:
+            raise
+        print(PATH_STOP.format(path=display(e.filename), reason=os_reason(e)), file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse's parser, but its error line (an unknown word, a bad value, both echoed from the command line) is
+    displayed, its line breaks too, before it is printed; the usage and the "PROG: error: MESSAGE" shape are
+    argparse's."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {display(message)}\n")
+
+
+def refusal_text(code):
+    """A refusal's line as run_command prints it, on top of each message's own display() of what it quotes: every
+    unseen character left in it escaped, a newline inside it too, so no part of a refusal can start a line of its
+    own; the line breaks probatio writes before a refusal ("\\ninterrupted", "\\nstopped: ...") stay."""
+    code = str(code)
+    lead = code[:len(code) - len(code.lstrip("\n"))]
+    return lead + display(code[len(lead):], cap=None)
+
+
+def plain_text(text):
+    """text as a title may show it: each white space character a space, every other unseen character (unseen: the
+    controls, format and separator characters and the like) removed, and runs of spaces made one."""
+    kept = []
+    for ch in text:
+        if ch.isspace():
+            kept.append(" ")
+        elif not unseen(ch):
+            kept.append(ch)
+    return " ".join("".join(kept).split())
+
+
+def title_head(data):
+    """The text a title is read from: a memory file's first TITLE_BYTES bytes (data may be just those) as UTF-8, or
+    None when they are not text: they hold a NUL byte, or bytes that are not UTF-8 (a character the cut splits at the
+    end aside)."""
+    head = data[:TITLE_BYTES]
+    if b"\x00" in head:
+        return None
+    try:
+        return head.decode("utf-8")
+    except UnicodeDecodeError as e:
+        if len(head) == TITLE_BYTES and e.reason == "unexpected end of data" and e.start >= TITLE_BYTES - 3:
+            return head[:e.start].decode("utf-8")
+        return None
+
+
+def memory_title(data):
+    """A memory file's title from its bytes (its first TITLE_BYTES are read, title_head): the text of its first
+    Markdown heading (a # line outside a fenced code block), else its first non-empty line, made plain (plain_text)
+    and cut to TITLE_CHARS characters, the last of them an ellipsis when cut; "" for a file with no text; None when
+    its first bytes are not text, which the preflight and the page show as TITLE_UNREADABLE."""
+    text = title_head(data)
+    if text is None:
+        return None
+    fence, first, heading = None, None, None
+    for line in text.splitlines():
+        m = re.match(r"\s{0,3}(`{3,}|~{3,})", line)
+        if fence:
+            fence = None if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) else fence
+            continue
+        if m:
+            fence = m.group(1)
+            continue
+        h = re.match(r"\s{0,3}#{1,6}(?:\s+(.*?))?\s*#*\s*$", line)
+        if h and plain_text(h.group(1) or ""):
+            heading = plain_text(h.group(1))
+            break
+        if first is None and plain_text(line):
+            first = plain_text(line)
+    title = heading or first or ""
+    return title if len(title) <= TITLE_CHARS else title[:TITLE_CHARS - 1] + "…"
+
+
+def size_words(n):
+    """A size in bytes as the preflight, the page and the head print it: whole bytes under one KB, else KB (1,000
+    bytes) to one decimal."""
+    return f"{n} bytes" if n < KB else f"{n / KB:.1f} KB"
+
+
+def file_count(n):
+    """"1 file", "3 files"."""
+    return f"{n} file" + ("" if n == 1 else "s")
+
+
+def mentions(text, person):
+    """Whether text holds the person's full name or its short form (person: {"full", "short"}), case-insensitive."""
+    low = text.casefold()
+    return any(form and form.casefold() in low for form in (person.get("full"), person.get("short")))
+
+
+def memory_people(runs):
+    """The individual targets of a command's runs, for memory_report's name note: each single-type individual run's
+    target and each cross-type run's named individuals, as their records ({"full", "short", ...}), once each."""
+    people = []
+    for run in runs:
+        if run["kind"] == "single" and run["roster"]["type"] == "individual":
+            people.append(run["roster"]["T"])
+        elif run["kind"] != "single":
+            people += (run.get("rosters") or {}).get("individual", {}).get("named") or []
+    return list({p["full"]: p for p in people}.values())
+
+
+def memory_report(agent, workdir, memory, auto_memory, config_dir, source, people=()):
+    """The memory a run tests, as the preflight (memory_lines) and the --ui page show it: the config folder and where
+    it came from, each memory file the with-memory condition loads (memory_files) with its sha256 (for run.json), size
+    and title, their total, and the name notes: with memory on or both and files found, one for each individual
+    target in people whose full name and short form no file holds. memory "off" lists no file. Reads each file once;
+    what it reads stays in this report, which no result file is written from. "path" and "config_dir" are the
+    filesystem's strings, for run.json; "shown" and "folder", displayed (display), are what is printed or exported. A
+    memory file it cannot read stops the run (memory_file, memory_bytes)."""
+    found = memory_files(agent, workdir, auto_memory, config_dir) if memory != "off" else []
+    files, texts = [], []
+    for path in found:
+        data = memory_bytes(path)
+        texts.append(data.decode("utf-8", errors="replace"))
+        files.append({"path": str(path), "shown": shown(display(path)), "sha256": hashlib.sha256(data).hexdigest(),
+                      "bytes": len(data), "title": memory_title(data)})
+    notes = [MEMORY_NAME_NOTE.format(name=p["full"]) for p in people
+             if files and not any(mentions(t, p) for t in texts)]
+    return {"agent": agent, "memory": memory, "config_dir": str(config_dir), "folder": display(tilde(config_dir)),
+            "source": source_words(agent, source), "files": files, "total": sum(f["bytes"] for f in files),
+            "notes": notes}
+
+
+def title_words(title):
+    """A title as the preflight follows a size with it: "; " and the title quoted, "; title unreadable" (None:
+    TITLE_UNREADABLE), or nothing for a file with no text."""
+    return f"; {TITLE_UNREADABLE}" if title is None else f"; {quoted(title)}" if title else ""
+
+
+def file_line(f):
+    """One memory file as the preflight lists it: its displayed path (with shown's rule mark) and, in parentheses at
+    the end, so the calibration harness's reader drops them with the mark (INTERFACES 4), its size and its title."""
+    return f"    {f['shown']}  ({size_words(f['bytes'])}{title_words(f['title'])})"
+
+
+def memory_empty(report):
+    """The memory list's one line when it lists no file (memory_report's report): MEMORY_OFF with memory off, else
+    MEMORY_NONE naming the folder when none was found; None when it lists files."""
+    if report["memory"] == "off":
+        return MEMORY_OFF
+    return None if report["files"] else MEMORY_NONE.format(folder=report["folder"])
+
+
+def memory_lines(report):
+    """The preflight's memory section from memory_report: the config folder; then the frozen list (MEMORY_HEAD, one
+    file per line indented four spaces, or on the same line MEMORY_OFF or MEMORY_NONE); the total; and the name
+    notes. Nothing before the list's own line says "memory files", so the harness finds it first."""
+    lines = [MEMORY_FOLDER_LINE.format(folder=report["folder"], source=report["source"])]
+    if memory_empty(report):
+        return lines + [f"{MEMORY_HEAD} {memory_empty(report)}"]
+    lines += [MEMORY_HEAD] + [file_line(f) for f in report["files"]]
+    lines.append(MEMORY_TOTAL_LINE.format(files=file_count(len(report["files"])), size=size_words(report["total"])))
+    return lines + [f"  {note}" for note in report["notes"]]
+
+
+class OverBudget(Exception):
+    """config_candidates' search ran past its time or its entries (Budget.take, Budget.check); it then reports nothing."""
+
+
+class Budget:
+    """The search's budget: entries is the number of directory entries it may still read, and the deadline is seconds
+    from its start. take() is asked before each entry is read (the allowance, then the clock), check() before and
+    after each other step that may block (looking at an entry or a candidate, each chunk of a title) and before the
+    search returns, so it never reads past its allowance and stops at the first step after its deadline."""
+
+    def __init__(self, seconds, entries):
+        self.deadline, self.entries = time.monotonic() + seconds, entries
+
+    def take(self):
+        """Before the iterator advances: OverBudget when no entry is left to read or the time is up."""
+        if self.entries <= 0:
+            raise OverBudget()
+        self.check()
+
+    def taken(self):
+        """After an entry was read: one fewer left, and the clock checked again."""
+        self.entries -= 1
+        self.check()
+
+    def check(self):
+        """OverBudget once the deadline has passed."""
+        if time.monotonic() >= self.deadline:
+            raise OverBudget()
+
+
+def listing(folder, budget):
+    """A folder's entries, by name, read one at a time from os.scandir's own iterator (so a huge folder is never read
+    to its end first): the allowance taken before each entry is read and the clock checked after each read returns;
+    OverBudget past either."""
+    names = []
+    with os.scandir(folder) as it:
+        while True:
+            budget.take()
+            entry = next(it, None)
+            if entry is None:
+                budget.check()
+                return sorted(names, key=lambda e: e.name)
+            budget.taken()
+            names.append(entry)
+
+
+def config_candidates(home=None, in_use=None, depth=CANDIDATE_DEPTH, seconds=CANDIDATE_SECONDS,
+                      entries=CANDIDATE_ENTRIES):
+    """Other Claude Code config folders on this machine: each folder up to depth levels below home (this process's
+    home folder by default) that holds both CANDIDATE_MARKS, never home itself (its ~/.claude.json and a projects/ of
+    its own would match) nor in_use (the folder this run reads), skipping hidden folders, CANDIDATE_SKIP and virtual
+    environments, and following no symbolic link. The one hidden exception is a folder directly under home whose name
+    begins with CANDIDATE_HIDDEN, other than ~/.claude itself (hidden_candidate): it is looked at, never into.
+    Breadth first, by name. Each is {"path", "claude_md": {"bytes", "title"} or None}. The budget (Budget: seconds,
+    and entries directory entries read) is spent while each folder is read, before each entry's and each candidate's
+    metadata is looked at, and while each CLAUDE.md's title is read (claude_md_facts, at most TITLE_BYTES of it); a
+    search past either, or that cannot read home, reports nothing ([]) and says nothing. One system call that blocks
+    (a hung network mount) is not cut short: the budget is checked again when it returns."""
+    home = Path(home or Path.home())
+    used = os.path.realpath(str(in_use)) if in_use else None
+    budget, found, layer = Budget(seconds, entries), [], [home]
+    try:
+        for level in range(depth):
+            below = []
+            for folder in layer:
+                budget.check()
+                try:
+                    names = listing(folder, budget)
+                except OSError:
+                    continue
+                for e in names:
+                    budget.check()
+                    hidden = e.name.startswith(".")
+                    if hidden and not (level == 0 and hidden_candidate(e.name)) or \
+                            e.name.lower() in CANDIDATE_SKIP or not e.is_dir(follow_symlinks=False):
+                        continue
+                    path = Path(e.path)
+                    if (path / "pyvenv.cfg").exists():
+                        continue
+                    if not hidden:
+                        below.append(path)
+                    if (path / CANDIDATE_MARKS[0]).is_file() and (path / CANDIDATE_MARKS[1]).is_dir() and \
+                            os.path.realpath(str(path)) != used:
+                        found.append(path)
+            layer = below
+        candidates = [{"path": str(p), "claude_md": claude_md_facts(p / "CLAUDE.md", budget)} for p in found]
+        budget.check()                  # the last title read may have blocked past the deadline
+        return candidates
+    except (OSError, OverBudget):
+        return []
+
+
+def hidden_candidate(name):
+    """Whether a hidden folder's name, directly under home, may be another Claude Code config folder: it begins with
+    CANDIDATE_HIDDEN (~/.claude-work, ~/.claude2) and is not the default ~/.claude itself."""
+    return name.startswith(CANDIDATE_HIDDEN) and name != CANDIDATE_HIDDEN
+
+
+TITLE_CHUNK = 4096                      # a candidate's title is read so many bytes at a time, the clock checked each time
+
+
+def claude_md_facts(path, budget=None):
+    """A candidate folder's CLAUDE.md as {"bytes": its size, "title": memory_title of its first TITLE_BYTES}, or None
+    when it has none or it cannot be read. Opened without waiting (a FIFO is not read) and read TITLE_CHUNK bytes at a
+    time, budget's clock (config_candidates') checked before the file is opened and after, and before and after each
+    chunk; OverBudget past it."""
+    check = budget.check if budget else (lambda: None)
+    check()
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        check()
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        head = b""
+        while len(head) < TITLE_BYTES:
+            check()
+            chunk = os.read(fd, min(TITLE_CHUNK, TITLE_BYTES - len(head)))
+            check()                     # a read that blocked past the deadline ends the search too
+            if not chunk:
+                break
+            head += chunk
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return {"bytes": st.st_size, "title": memory_title(head)}
+
+
+def candidate_lines(candidates):
+    """The preflight's block of other config folders (config_candidates), each displayed, with its CLAUDE.md's size and
+    title and the --config-dir that uses it, or for a folder whose name display had to change, CANDIDATE_ESCAPED in
+    place of a command that would not be the folder's; nothing when there are none."""
+    if not candidates:
+        return []
+    lines = [CANDIDATES_HEAD]
+    for c in candidates:
+        md = c["claude_md"]
+        about = f"CLAUDE.md {size_words(md['bytes'])}{title_words(md['title'])}" if md else "no CLAUDE.md"
+        use = f"--config-dir {shlex.quote(c['path'])}" if shows_as_is(c["path"]) else CANDIDATE_ESCAPED
+        lines.append(f"    {display(tilde(c['path']))}  ({about}): {use}")
+    return lines
+
+
+def shows_as_is(path):
+    """Whether a path is displayed exactly as it is (display changes nothing), so a command that names it can be
+    printed for pasting."""
+    return display(path, cap=None) == path
+
+
+def memory_words(meta, word):
+    """The scorecard head's memory words from a run.json record: word ("memory on", "memory both", "memory on and
+    off") followed by what the run recorded of its memory: the number of files, their size (memory_bytes) and the
+    config folder written with ~ (config_dir). memory off stays word. A record from before sizes and the folder were
+    recorded shows the count alone, and nothing it does not know; a card scored without a run record (no
+    memory_files) keeps word. The folder is displayed (display): run.json may come from a folder probatio did not
+    make."""
+    if meta.get("memory") == "off" or "memory_files" not in meta:
+        return word
+    parts = [file_count(len(meta.get("memory_files") or {}))]
+    sizes = meta.get("memory_bytes")
+    if isinstance(sizes, dict):
+        parts.append(size_words(sum(sizes.values())))
+    if meta.get("config_dir"):
+        parts.append(f"from {display(tilde(meta['config_dir']))}")
+    return f"{word}: " + ", ".join(parts)
 
 
 def env_with(changes):
@@ -784,13 +1483,19 @@ def tail(text, n=300):
 
 
 def one_line(text):
-    """Outside text (a CLI's --version output, a model name a CLI reports) as probatio prints it: every run of
-    whitespace, line breaks included, one space, so no line of its own can reach the output, where the --ui page reads
-    whole lines."""
-    return " ".join(str(text or "").split())
+    """Outside text (a CLI's --version output, a model name a CLI reports or run.json records) as probatio prints it:
+    every run of whitespace, line breaks included, one space, so no line of its own can reach the output, where the
+    --ui page reads whole lines, and displayed (display: escaped, cut at DISPLAY_CHARS) as one token."""
+    return display(" ".join(str(text or "").split()))
 
 
-def claude_command(condition, model, server=None, effort=None, dialogue=False, auto_memory="as-configured"):
+def model_words(model):
+    """The model as the preflights print it: the model one_line shows, or "CLI default"."""
+    return one_line(model) if model else "CLI default"
+
+
+def claude_command(condition, model, server=None, effort=None, dialogue=False, auto_memory="as-configured",
+                   config_dir=None):
     """The claude command and environment changes for one call. Both conditions switch off every tool, MCP server and
     hook and save no session; only the CLAUDE.md switch differs. The prompt goes on stdin, because a prompt argument
     placed after --tools "" is not read. In an episode the world (start_episode) is the one MCP server, its tools are
@@ -804,7 +1509,9 @@ def claude_command(condition, model, server=None, effort=None, dialogue=False, a
       memory   with memory, the CLI loads what it normally loads (v3's meaning: CLAUDE.md files and auto memory).
                auto_memory "off" (--auto-memory off, the calibration's clean room) disables auto memory in both
                conditions, since it adds memory-system instructions even with no memory file (docs/v4/CALIBRATION.md 5).
-    dialogue sends the turns as stream-json on stdin (an errand and its follow-up report in one process)."""
+    dialogue sends the turns as stream-json on stdin (an errand and its follow-up report in one process). config_dir
+    (--config-dir, config_env) sets CLAUDE_CONFIG_DIR; None leaves the variable as the user's shell has it, so a run
+    without the option is the call it always was."""
     cmd = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
            "--settings", '{"disableAllHooks":true}', "--output-format", "stream-json", "--verbose"]
     cmd += (["--model", model] if model else []) + (["--effort", effort] if effort else [])
@@ -817,8 +1524,17 @@ def claude_command(condition, model, server=None, effort=None, dialogue=False, a
                 "--allowedTools", ",".join(f"mcp__{server['name']}__{t}" for t in server["tools"])]
     switch = "1" if condition == "without" else None     # None also clears a switch the user's shell may have set
     auto = "1" if condition == "without" or auto_memory == "off" else None
-    return cmd, {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": switch, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": auto,
-                 "CLAUDE_CODE_EFFORT_LEVEL": effort}
+    changes = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": switch, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": auto,
+               "CLAUDE_CODE_EFFORT_LEVEL": effort}
+    if config_dir:
+        changes["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    return cmd, changes
+
+
+def config_env(opts):
+    """The CLAUDE_CONFIG_DIR an inner call is given: the run's folder when --config-dir chose it (opts.config_source
+    "option"), else None, which leaves the shell's own variable, or its absence, to the CLI."""
+    return str(opts.config_dir) if getattr(opts, "config_source", None) == "option" else None
 
 
 def parse_stream(text):
@@ -858,7 +1574,7 @@ class QuotaLog:
                "api_key_source": init.get("apiKeySource"), "cli_version": init.get("claude_code_version"),
                "model": init.get("model"), "rate_limits": stream.get("rate_limits") or []}
         with self.lock, self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(json_text(rec) + "\n")
             for info in rec["rate_limits"]:
                 reading = window_reading(info)
                 if reading:
@@ -909,7 +1625,7 @@ def claude_call(prompt, condition, opts, server=None):
     if server and server.get("followup"):
         return claude_dialogue(prompt, condition, opts, server)
     cmd, changes = claude_command(condition, opts.model, server, getattr(opts, "effort", None),
-                                  auto_memory=getattr(opts, "auto_memory", "as-configured"))
+                                  auto_memory=getattr(opts, "auto_memory", "as-configured"), config_dir=config_env(opts))
     proc = run(cmd, prompt, opts.workdir, env_with(changes), **({"timeout": EPISODE_TIMEOUT} if server else {}))
     stream = parse_stream(proc.stdout)
     note_call(opts, condition, stream)
@@ -957,7 +1673,7 @@ def claude_dialogue(prompt, condition, opts, server):
     followup.json in the episode folder; every event goes to transcript.jsonl there."""
     folder, close = Path(server["folder"]), Path(server["close"])
     cmd, changes = claude_command(condition, opts.model, server, getattr(opts, "effort", None), dialogue=True,
-                                  auto_memory=getattr(opts, "auto_memory", "as-configured"))
+                                  auto_memory=getattr(opts, "auto_memory", "as-configured"), config_dir=config_env(opts))
     proc = subprocess.Popen(cmd, cwd=opts.workdir, env=env_with(changes), stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                             errors="replace", bufsize=1, start_new_session=True)
@@ -1036,10 +1752,10 @@ def claude_dialogue(prompt, condition, opts, server):
     if report is None and not follow_error:
         follow_error = "no report (the errand ended without a first result)" if not results else "no report"
     (folder / "transcript.jsonl").write_text("".join(raw), encoding="utf-8")
-    (folder / "followup.json").write_text(json.dumps(
+    (folder / "followup.json").write_text(json_text(
         {"prompt": server["followup"], "reply": report, "error": follow_error,
          "init": {"api_key_source": init.get("apiKeySource"), "cli_version": init.get("claude_code_version"),
-                  "model": init.get("model")}}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+                  "model": init.get("model")}}, indent=1) + "\n", encoding="utf-8")
     if error:
         return None, error, None
     return stream_reply(results, proc.returncode, "".join(errbuf), check_exit=False)
@@ -1225,8 +1941,8 @@ def codex_report(followup, condition, opts, server, home, events):
                 reply = report_file.read_text(encoding="utf-8", errors="replace") if report_file.exists() else ""
         except subprocess.TimeoutExpired:
             error = f"no reply to the report within {FOLLOWUP_TIMEOUT} s"
-    (folder / "followup.json").write_text(json.dumps({"prompt": followup, "reply": reply, "error": error,
-                                                      "init": {"session": session}}, ensure_ascii=False, indent=1)
+    (folder / "followup.json").write_text(json_text({"prompt": followup, "reply": reply, "error": error,
+                                                     "init": {"session": session}}, indent=1)
                                           + "\n", encoding="utf-8")
 
 
@@ -1258,6 +1974,23 @@ def plan_calls(tier, name, datasets=DATASETS, arm="neutral", seed=None, conditio
     return calls
 
 
+# What a saved reply line holds, by type: the --watch page reads replies.jsonl by it (live.CommittedLines) and --rescore
+# refuses a replies.jsonl with a line that lacks it (strict_replies).
+REPLY_FIELDS = {"condition": str, "dataset": str, "id": str, "error": (str, type(None)), "seconds": (int, float)}
+
+
+def valid_line(rec, fields):
+    """Whether a decoded line is a dict with its required keys of their types (never a bool for a number)."""
+    if not isinstance(rec, dict):
+        return False
+    for name, kinds in fields.items():
+        value = rec.get(name, ...)
+        if value is ... or not isinstance(value, kinds) or (isinstance(value, bool) and bool not in
+                                                             (kinds if isinstance(kinds, tuple) else (kinds,))):
+            return False
+    return True
+
+
 def key(call):
     return call["condition"], call["dataset"], call["id"]
 
@@ -1266,8 +1999,19 @@ def read_replies(path):
     """The newest record of each call in replies.jsonl. Reruns append, so a retried call's later line wins. A last
     line left torn or unreadable by an interrupted write is cut off the file, so the next record starts a fresh line
     instead of being glued to it; an unreadable line further up is skipped."""
-    done, good, end = {}, 0, 0
     data = path.read_bytes() if path.exists() else b""
+    done, good = scan_replies(data)
+    if good < len(data):
+        with path.open("r+b") as f:
+            f.truncate(good)
+    return done
+
+
+def scan_replies(data):
+    """(done, good) of replies.jsonl's bytes, writing nothing: the newest record of each call, and the length of the
+    file up to the end of its last readable line, so good < len(data) means a last line left torn or unreadable
+    (read_replies cuts it off; --rescore refuses the folder instead)."""
+    done, good, end = {}, 0, 0
     for line in data.split(b"\n")[:-1]:        # whatever follows the last newline was never finished
         end += len(line) + 1
         try:
@@ -1276,10 +2020,7 @@ def read_replies(path):
             continue
         done[key(rec)] = rec
         good = end
-    if good < len(data):
-        with path.open("r+b") as f:
-            f.truncate(good)
-    return done
+    return done, good
 
 
 def ask(agent, call, opts, folder=None):
@@ -1351,7 +2092,7 @@ def run_calls(calls, agent, opts, out, jobs, line=None):
                 return                                  # not recorded, so the folder keeps one model's replies
             models.update(new)
             with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                f.write(json_text(rec) + "\n")
             done[key(rec)] = rec
             state["finished"] += 1
             state["errors"] += bool(error)
@@ -1363,7 +2104,9 @@ def run_calls(calls, agent, opts, out, jobs, line=None):
                 line.finished(call, rec)
             else:
                 text = progress(state["finished"], len(todo), state["errors"], time.monotonic() - start)
-                print(f"\r  {text}".ljust(60), end="", file=sys.stderr)
+                redrawn = f"  {text}".ljust(59)                               # v3's line, redrawn in place
+                framed = getattr(sys.stderr, "framed", None)
+                (framed(redrawn, "\r") if framed else sys.stderr.write("\r" + redrawn))
 
     launch = {"started": launch_time(), "ended": None, "made": 0, "jobs": jobs}
     if line is not None:
@@ -1719,10 +2462,8 @@ def csv_rows(rows):
 
 
 def write_csv(path, rows):
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(CSV_COLUMNS)
-        writer.writerows(csv_rows(rows))
+    """v3's results.csv (write_export_csv)."""
+    write_export_csv(path, CSV_COLUMNS, csv_rows(rows))
 
 
 # The graph's look: the first two categorical colours of a colour-blind-safe palette (checked against white), a
@@ -1807,7 +2548,7 @@ def write_results(out, meta, calls, done):
     """Write report.md, results.csv and results.svg into out, and return the report's text."""
     rows = table(calls, done, meta["tier"], chosen(meta["dataset"]))
     text = report(meta, calls, done, rows)
-    (out / "report.md").write_text(text, encoding="utf-8")
+    write_export(out / "report.md", text)
     write_csv(out / "results.csv", rows)
     agent = {"claude": "Claude Code", "codex": "Codex"}[meta["agent"]]
     models = sorted(set(sum(models_seen(calls, done).values(), []))) or [meta["model"]]
@@ -1816,7 +2557,7 @@ def write_results(out, meta, calls, done):
     subtitle = (f"{meta['dataset']} datasets" if meta["dataset"] == "all" else meta["dataset"]) + \
         f", {len(calls) // 2} items asked without and with memory. Whiskers are 95% intervals; n is " \
         f"{min(ns, default=0)} to {max(ns, default=0)} replies that followed the format (valid replies: all replies)."
-    (out / "results.svg").write_text(results_svg(title, subtitle, rows), encoding="utf-8")
+    write_export(out / "results.svg", results_svg(title, subtitle, rows))
     return text
 
 
@@ -2009,6 +2750,8 @@ TIER_NAMED_CLASSES = {"quick": ("I",)}                  # a tier that measures i
 MANIFEST_TIER = {"smoke": "quick"}
 QUICK_NO_III = "a quick run does not run Class III; use --tier standard for it"
 QUICK_NAMED = "Class I only at --tier quick; --tier standard adds their errands"    # the preflight's named-target note
+NAMES_ROLE = ("the types are compared using {entities}; a name you add is scored against {hollow}, and leads the "
+              "result")      # the preflight's named targets and the page's note, in ordo's ROSTER_WORDS (names_said)
 QUICK_NAMED_NONE = ("at --tier quick a named target is measured in Class I only; add I to --class, or use --tier "
                     "standard for its errands")
 # quick costs no more than standard for the default classes and for every cross-type selection, named targets included;
@@ -2056,26 +2799,27 @@ def load_bank(folder, pinned=BANK_MANIFEST_SHA256):
     folder = Path(folder)
     path = folder / "manifest.json"
     if not path.is_file():
-        raise SystemExit(f"No bank at {folder}: manifest.json is missing.")
+        raise SystemExit(f"No bank at {display(folder)}: manifest.json is missing.")
     raw = path.read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if pinned is not None and sha != pinned:
-        raise SystemExit(f"{path} is not the bank this probatio was built for (sha256 {sha[:12]}, expected "
+        raise SystemExit(f"{display(path)} is not the bank this probatio was built for (sha256 {sha[:12]}, expected "
                          f"{pinned[:12]}). Restore it from git, or pass --bank to read a staged bank on purpose.")
     manifest = json.loads(raw)
     if manifest.get("format") != BANK_FORMAT:
-        raise SystemExit(f"{path}: format {manifest.get('format')!r}, expected {BANK_FORMAT!r}.")
+        raise SystemExit(f"{display(path)}: format {display(repr(manifest.get('format')))}, expected {BANK_FORMAT!r}.")
     listed = manifest.get("files") or {}
     text = {}
     for name in BANK_FILES:
         if name not in listed:
-            raise SystemExit(f"{path} does not list {name}.")
+            raise SystemExit(f"{display(path)} does not list {name}.")
         f = folder / name
         if not f.is_file():
-            raise SystemExit(f"The bank file {f} is missing.")
+            raise SystemExit(f"The bank file {display(f)} is missing.")
         data = f.read_bytes()
         if hashlib.sha256(data).hexdigest() != listed[name]:
-            raise SystemExit(f"{f} does not match the sha256 its manifest records. Rebuild the bank or restore it.")
+            raise SystemExit(f"{display(f)} does not match the sha256 its manifest records. Rebuild the bank or "
+                             "restore it.")
         text[name] = data.decode("utf-8")
     lines = lambda t: [json.loads(x) for x in t.split("\n") if x.strip()]       # noqa: E731
     if "cells.json" in listed:                      # errands.jsonl holds N0 rows only; U and O are overlays
@@ -2125,7 +2869,7 @@ def check_bank(bank):
     unknown plan or cell, a world that is not JSON, a template id used twice, a type whose sacrifice rows are not
     I.4's eight (family, price) items in both letter orders, task pools without their worlds."""
     def bad(why):
-        raise SystemExit(f"bank {bank.folder}: {why}")
+        raise SystemExit(f"bank {display(bank.folder)}: {why}")
     for t in TARGET_TYPES:
         ents = bank.entities.get(t) or {}
         for part, least in (("comparators", 1), ("fictional", 2), ("reserves", 1)):
@@ -2213,7 +2957,7 @@ def resolve_target(bank, type_, name, short=None, poss=None, roster=None):
     pool = comparators + fictional + reserves
     same = lambda rec: any(norm_name(n) == norm_name(name) for n in [rec["full"], *rec.get("aliases", [])])  # noqa
     match = next((rec for rec in pool if same(rec)), None)
-    typed = roster_match(name, roster["targets"]) if roster is not None and not match else None
+    typed = roster_match(name, roster.get("targets") or []) if roster is not None and not match else None
     notes = []
     if match:
         T = dict(match)
@@ -2457,10 +3201,14 @@ def is_v4_meta(meta):
     return str(meta.get("probatio", "")).startswith("4")
 
 
+NOT_COMPARED = ("tier", "recipe", "date", "memory_bytes")   # a resume reads the recipe; sizes follow the sha256s
+
+
 def resume_view(meta):
     """What a resume compares: run.json's record with its tier word and recipe replaced by the recipe it reads as, so a
-    legacy quick folder resumes under --tier smoke, and never under the new quick."""
-    view = {k: v for k, v in meta.items() if k not in ("tier", "recipe", "date")}
+    legacy quick folder resumes under --tier smoke, and never under the new quick. The memory files' sizes are left
+    out (NOT_COMPARED): a file's sha256 already tells an edit, and a folder recorded before sizes still resumes."""
+    view = {k: v for k, v in meta.items() if k not in NOT_COMPARED}
     view["recipe"] = recipe_of(meta)
     return view
 
@@ -2538,6 +3286,7 @@ def parse_report(text):
 #   classes     the mean of the sufficient components, clipped once (class_score); Class III's status tree
 #   intervals   a cluster bootstrap whose draws every condition and cell share (Bootstrap, levels, interval)
 #   the rest    red flags, diagnostics, validity checks and memory both's difference, then the six files
+PROBATIO_VERSION = "4.0-dev"                     # the probatio a run.json and a rescored card record
 SCORECARD_SCHEMA = "probatio-scorecard/4.2"
 BOOTSTRAP_B = 2000                      # replicates per interval (6)
 BOOTSTRAP_TAG = "probatio-v4-bootstrap|"
@@ -3605,7 +4354,7 @@ def score_run(out, calls, bank, roster=None, meta=None, B=None):
     meta = meta or json.loads((out / "run.json").read_text(encoding="utf-8"))
     roster = roster or roster_from_meta(bank, meta)
     card, units, extras = card_of(out, calls, bank, roster, meta, read_replies(out / "replies.jsonl"), B)
-    write_scorecard(out, card, units, extras)
+    write_scorecard(out, card, units, extras, memory_words(meta, f"memory {meta['memory']}"))
     return card
 
 
@@ -3641,21 +4390,564 @@ def card_of(out, calls, bank, roster, meta, done, B=None, private=False, facts=N
 
 
 def rescore(out, bank):
-    """Score a finished run folder again from its run.json, replies and episodes, with no model called: the plan is
-    rebuilt from run.json by its recipe (recipe_of: a legacy quick run rebuilds as smoke) and must have the
-    fingerprint the run recorded."""
+    """Score a finished single-type run folder again from its run.json, replies and episodes, with no model called,
+    writing its result files in place: the plan is rebuilt by saved_plan and must be the plan the run made.
+    --rescore (rescore_folder) does the same for either kind of run, keeping the replaced files first."""
     out = Path(out)
     meta = json.loads((out / "run.json").read_text(encoding="utf-8"))
+    plan = saved_plan(out, meta, bank)
+    return score_run(out, plan.calls, bank, plan.roster, meta)
+
+
+def saved_plan(out, meta, bank, ordo_bank=None):
+    """The plan a v4 run folder's run made, rebuilt from its run.json (meta) as a resume rebuilds it, for either kind
+    of run: a single-type run (meta names a target_type) by plan_v4 from its roster (roster_from_meta) and its recipe
+    (recipe_of: a legacy quick run rebuilds as smoke), with the V12 questions it asked; a cross-type run by ordo_plan
+    from its recorded comparison and rosters, as plan_runs plans it. Returns a namespace: kind ("single" or "cross"),
+    calls, roster (single) and ordo_bank (cross, loaded when not given). Refuses a run made on another bank, or on
+    another ordo bank, and a rebuilt plan whose fingerprint is not the one the run recorded."""
     if meta.get("bank_sha256") not in (None, bank.sha256):
-        raise SystemExit(f"{out} was run on another bank (sha256 {meta['bank_sha256'][:12]}).")
-    roster = roster_from_meta(bank, meta)
-    calls = plan_v4(bank, roster, planner_tier(recipe_of(meta)), tuple(meta["classes"]), MEMORY_MODES[meta["memory"]],
-                    meta.get("arm", "neutral"))
-    if (meta.get("recognition") or {}).get("asked"):      # the V12 questions this run asked as well, exactly
-        calls += recognition_checks(meta)
-    if plan_fingerprint(calls) != meta.get("plan_fingerprint"):
-        raise SystemExit(f"{out}: the plan rebuilt from run.json is not the plan this run made.")
-    return score_run(out, calls, bank, roster, meta)
+        raise SystemExit(f"{display(out)} was run on another bank (sha256 {meta['bank_sha256'][:12]}).")
+    tier, conditions = planner_tier(recipe_of(meta)), MEMORY_MODES[meta["memory"]]
+    if "target_type" in meta:
+        roster = roster_from_meta(bank, meta)
+        calls = plan_v4(bank, roster, tier, tuple(meta["classes"]), conditions, meta.get("arm", "neutral"))
+        if (meta.get("recognition") or {}).get("asked"):      # the V12 questions this run asked as well, exactly
+            calls += recognition_checks(meta)
+        plan = SimpleNamespace(kind="single", calls=calls, roster=roster, ordo_bank=None)
+    else:
+        ordo_bank = ordo_bank or import_ordo().load_ordo_bank()
+        if meta.get("ordo_bank_sha256") not in (None, ordo_bank.sha256):
+            raise SystemExit(f"{display(out)} was run on another ordo bank (sha256 {meta['ordo_bank_sha256'][:12]}).")
+        cross = {k: meta[k] for k in ("compare", "types", "pairs", "triangle")}
+        calls = ordo_plan(ordo_bank, cross, meta["rosters"], tier, meta["classes"], conditions)
+        plan = SimpleNamespace(kind="cross", calls=calls, roster=None, ordo_bank=ordo_bank)
+    if plan_fingerprint(plan.calls) != meta.get("plan_fingerprint"):
+        raise SystemExit(f"{display(out)}: the plan rebuilt from run.json is not the plan this run made.")
+    return plan
+
+
+# ---- --rescore FOLDER: a finished run scored again by this probatio --------------------------------------------------
+# rescore_folder reads only what the run saved (run.json, replies.jsonl, the episodes' records and reports, quota.jsonl
+# and launches.jsonl for the facts the card prints), rebuilds the plan as a resume would (saved_plan), and calls no CLI,
+# not even for its version. It takes a folder it may not have made, so it trusts nothing in it: every refusal comes
+# before anything is written (check_targets: no path it writes is a link, of the wrong kind, outside the folder or
+# not writable; strict_replies: no line of replies.jsonl is damaged), and it is all or nothing (replace_results): the
+# card is scored in memory, the new files are written into a temporary folder inside the run folder, and only then are
+# the old ones copied into previous/<UTC stamp>/ and the new ones moved into place, each step undone if one fails.
+# run.json, replies.jsonl, the episodes, quota.jsonl and launches.jsonl are never written.
+RESCORE_ALONE = "--rescore takes a run folder and no other option: python3 probatio.py --rescore FOLDER"
+RESCORE_BUSY = "Another probatio is using this folder, {}; wait for it to finish, then rescore."
+RESCORED_LINE = ("rescored {at} by probatio {by} from this folder's saved replies and records, with no agent called; "
+                 "the run was scored by probatio {scored_by}")
+PREVIOUS = "previous"                              # where the replaced result files go, one folder per rescore
+STAMP = "%Y%m%dT%H%M%SZ"
+RESCORE_TEMP = ".rescore-"                         # the temporary folder's prefix, inside the run folder
+NO_FOLLOW = getattr(os, "O_NOFOLLOW", 0)            # opening never follows a link, where the platform has the flag
+UNFINISHED_LINE = ("{}: replies.jsonl ends in an unfinished line an interrupted write left. To repair and finish the "
+                   "run, run the command that started it again; then rescore it.")
+
+
+def rescore_word(word):
+    """Whether a command-line word is --rescore, written in full, with "=", or as argparse's unambiguous abbreviation
+    (no other option of v4's or v3's starts with --r)."""
+    name = word.split("=", 1)[0]
+    return len(name) >= 3 and name.startswith("--") and "--rescore".startswith(name)
+
+
+def rescore_alone(argv):
+    """Whether the command line holds --rescore and its folder and nothing else (as two words, or as one with "=")."""
+    named = bool(argv) and rescore_word(argv[0])
+    return named and (len(argv) == 1 and "=" in argv[0] or len(argv) == 2 and "=" not in argv[0])
+
+
+def rescore_command(argv):
+    """The folder a --rescore command line names, or None when the command line asks no rescore. Read from the words
+    before any parser sees them, so --rescore with any other option (v4's, v3's, --help, one argparse does not know)
+    refuses in one plain line (RESCORE_ALONE) with exit 2, never with a usage block."""
+    if not any(rescore_word(w) for w in argv):
+        return None
+    if not rescore_alone(argv):
+        print(RESCORE_ALONE, file=sys.stderr)
+        raise SystemExit(2)
+    return argv[0].split("=", 1)[1] if "=" in argv[0] else argv[1]
+
+
+# run.json's shape, as --rescore reads it from a folder it may not have made. The shape is not a hand-kept table: it
+# is derived from the writer's own output (reference_records: single_record, cross_record and v4_meta writing the
+# record of each of REFERENCE_VARIANTS, a set of runs with and without the optional parts, planned by prepare_runs
+# as a real command is) and merged per family (derive_shape): every key every one of the family's records holds is
+# needed, every value takes the JSON types the writer gave it, an object whose examples share no key is keyed by
+# data (the memory files by path, the rosters by type), an optional part is either absent or whole, and an optional
+# key that the writer only ever writes together with others needs them (recognition its roster and labels). A key
+# path of RECORDED_SINCE is never needed: a record written before the writer began writing it lacks it, and its
+# readers take its absence. check_run_fields compares a saved record against its family's shape (fits) and names the
+# first field path that misfits; the reading phase (read_saved) turns any error a misfit it does not catch still
+# raises into one plain line too.
+RECORDED_SINCE = {("recipe",): "2026-11-08", ("roster", "targets"): "2026-11-09", ("memory_bytes",): "2026-11-11",
+                  ("config_dir",): "2026-11-11"}       # key paths the writer began writing after v4's first release
+REFERENCE_VARIANTS = (  # (family, the writer it uses, command words, entities data, agent, memory files)
+    ("single", "plain", ["--target-type", "organization", "--target", "Mozilla"], None, "claude", 2),
+    ("single", "plain", ["--target-type", "individual", "--target", "Wilhelmina Quarrender"], None, "codex", 0),
+    ("single", "options", ["--compare", "nation", "--target", "France"], None, "claude", 0),
+    ("single", "options", ["--compare", "organization", "--target", "Cedar Guild"],
+     {"organization": {"controls": ["Hollin Works"]}}, "claude", 1),
+    ("single", "options", ["--compare", "individual", "--target", "Wilhelmina Quarrender"],
+     {"individual": {"comparators": ["Corin Vale", "Mara Quill"]}}, "codex", 2),
+    ("cross", "cross", ["--compare", "individual:organization", "--target", "organization=Mozilla"], None, "claude", 2),
+    ("cross", "cross", ["--compare", "individual:nation", "--target", "individual=Wilhelmina Quarrender"], None,
+     "codex", 0),
+    ("cross", "cross", ["--compare", "organization:nation"], {"nation": {"controls": ["Ostravia"]}}, "claude", 1),
+    ("cross", "cross", ["--compare", "individual:organization:nation"], None, "claude", 0))
+RUN_FIELD_LINE = ("{folder}: run.json's {field} {what}, so --rescore cannot rebuild the run; restore the run.json the "
+                  "run wrote.")
+JSON_NAMES = {str: "text", bool: "true or false", int: "a whole number", type(None): "null", list: "a list",
+              dict: "an object", float: "a number"}
+_REFERENCES = {}
+
+
+def json_name(value):
+    """What a JSON value is, in JSON's words (null, text, a list, an object)."""
+    return JSON_NAMES.get(type(value), type(value).__name__)
+
+
+def reference_records(bank, ordo_bank):
+    """{"single": [...], "cross": [...]}: the run.json records the writer itself writes for REFERENCE_VARIANTS, each
+    planned by prepare_runs as its command would be (no CLI is called; the memory files and the config folder are
+    stand-ins for memory_report's), once per pair of banks."""
+    held = (bank.sha256, getattr(ordo_bank, "sha256", None))
+    if held not in _REFERENCES:
+        records = {"single": [], "cross": []}
+        for family, writer, words, data, agent, files in REFERENCE_VARIANTS:
+            a = parse_args_v4(["--agent", agent, *words, "--tier", "smoke" if family == "single" else "quick",
+                               "--class", "I", "--workdir", os.sep])
+            bank_, ordo_, selection, spec, runs = prepare_runs(a, "--target-type" in words, data=data,
+                                                               banks=(bank, ordo_bank))
+            opts = SimpleNamespace(model=None, effort=a.effort, workdir=os.sep,
+                                   features=["apps"] if agent == "codex" else [])
+            report = {"files": [{"path": f"{os.sep}m{i}", "sha256": "0" * 64, "bytes": 1} for i in range(files)],
+                      "config_dir": os.sep + "c"}
+            for run in runs:
+                if writer == "plain":
+                    records[family].append(v4_meta(a, opts, bank_, run["roster"], run["calls"], "1.0", report))
+                elif run["kind"] == "single":
+                    records[family].append(single_record(a, opts, bank_, ordo_, selection, spec, run, "1.0", report))
+                else:
+                    records[family].append(cross_record(a, opts, bank_, ordo_, spec, run, "1.0", report))
+        _REFERENCES[held] = {family: derive_shape(examples) for family, examples in records.items()}
+    return _REFERENCES[held]
+
+
+def derive_shape(examples, path=()):
+    """The shape that examples (the writer's values at one key path) share: the JSON types they take ("types"); for
+    lists, the shape of every element ("items", None when no example has one) and whether the writer always fills it
+    ("filled": no example is empty); for objects, either a map ("map": the
+    shape of every value) when no key is in every example, since those are keyed by data, or a record ("fields": each
+    key's shape, "needed": the keys every example holds but RECORDED_SINCE's, "couples": for each optional key the
+    optional keys present wherever it is)."""
+    shape = {"types": {type(v) for v in examples}}
+    items = [x for v in examples if isinstance(v, list) for x in v]
+    if any(isinstance(v, list) for v in examples):
+        shape["items"] = derive_shape(items, path + ("*",)) if items else None
+        shape["filled"] = all(v for v in examples if isinstance(v, list))      # the writer never leaves it empty
+    objects = [v for v in examples if isinstance(v, dict)]
+    if objects:
+        keys = [set(o) for o in objects]
+        common, every = set.intersection(*keys), set.union(*keys)
+        if not common:
+            values = [x for o in objects for x in o.values()]
+            shape["map"] = derive_shape(values, path + ("*",)) if values else None
+        else:
+            shape["fields"] = {k: derive_shape([o[k] for o in objects if k in o], path + (k,)) for k in sorted(every)}
+            shape["needed"] = sorted(k for k in common if path + (k,) not in RECORDED_SINCE)
+            optional = every - common
+            shape["couples"] = {k: sorted(j for j in optional - {k} if path + (j,) not in RECORDED_SINCE
+                                          and all(j in o for o in objects if k in o)) for k in sorted(optional)}
+    return shape
+
+
+def shape_words(types):
+    """The JSON types a shape takes, in JSON's words."""
+    names = [JSON_NAMES[t] for t in (str, bool, int, float, list, dict, type(None)) if t in types]
+    return " or ".join(names)
+
+
+def fits(value, shape, path=()):
+    """Where value leaves shape (derive_shape's), as (path, what it holds, what it should): None when it fits. In an
+    object, a needed key missing first, then each present key's own value, then an optional key whose companions are
+    missing. A bool is never a whole number, and a whole number is never a bool."""
+    if type(value) not in shape["types"]:
+        return path, json_name(value), shape_words(shape["types"])
+    if isinstance(value, list) and not value and shape.get("filled"):
+        return path, "an empty list", "a list the writer never leaves empty"
+    if isinstance(value, list) and shape.get("items"):
+        return next(filter(None, (fits(v, shape["items"], path + (i,)) for i, v in enumerate(value))), None)
+    if isinstance(value, dict):
+        if "map" in shape:
+            sub = shape["map"]
+            return None if sub is None else next(filter(None, (fits(v, sub, path + (k,)) for k, v in value.items())),
+                                                 None)
+        for k in shape.get("needed", ()):
+            if k not in value:
+                return path + (k,), "nothing", "present"
+        for k, sub in shape.get("fields", {}).items():
+            if k in value:
+                found = fits(value[k], sub, path + (k,))
+                if found:
+                    return found
+        for k, together in shape.get("couples", {}).items():
+            for j in together:
+                if k in value and j not in value:
+                    return path + (j,), "nothing", f"present, since {quoted(k)} is, which the writer writes with it"
+    return None
+
+
+def check_run_fields(out, meta, bank, ordo_bank):
+    """Refuse, in one plain line (RUN_FIELD_LINE, naming the field), a run.json --rescore cannot read, before the plan
+    or the scoring reads any of it: a record that leaves the writer's own shape for its family (reference_records,
+    fits: a single-type run's when it names a target_type, else a cross-type run's), and a value the plan cannot
+    rebuild from: a memory mode, a class, a type or a pair of types probatio does not know, and a comparison's rosters
+    that are not one for each of its types, as the writer writes them."""
+    def refuse(field, what):
+        raise SystemExit(RUN_FIELD_LINE.format(folder=display(out), field=quoted(field), what=what))
+    shape = reference_records(bank, ordo_bank)["single" if "target_type" in meta else "cross"]
+    found = fits(meta, shape)
+    if found:
+        where, holds, should = found
+        refuse("/".join(map(str, where)), "is missing" if holds == "nothing" and should == "present" else
+               f"is missing, though it should be {should}" if holds == "nothing" else f"holds {holds}, not {should}")
+    if meta["memory"] not in MEMORY_MODES:
+        refuse("memory", f"holds {quoted(meta['memory'])}, not one of {', '.join(MEMORY_MODES)}")
+    if not all(c in V4_CLASSES for c in meta["classes"]):
+        refuse("classes", f"holds something other than the classes {', '.join(V4_CLASSES)}")
+    types = [meta["target_type"]] if "target_type" in meta else list(meta["types"]) + list(meta["rosters"])
+    types += [t for pair in meta.get("pairs") or [] for t in pair]
+    types += [(meta.get("recognition") or {}).get("type", TARGET_TYPES[0])]
+    unknown = [t for t in types if t not in TARGET_TYPES]
+    if unknown or any(len(pair) != 2 for pair in meta.get("pairs") or []):
+        refuse("target_type" if "target_type" in meta else "types, pairs or rosters",
+               f"names a type or a pair probatio does not know ({quoted(unknown[0]) if unknown else 'a pair'})")
+    if "rosters" in meta and sorted(meta["rosters"]) != sorted(meta["types"]):       # the writer's: one per type
+        refuse("rosters", f"holds the types {', '.join(sorted(meta['rosters'])) or 'none'}, not the comparison's "
+                          f"{', '.join(sorted(meta['types']))}")
+
+
+def saved_meta(out):
+    """A v4 run folder's run.json, or a plain refusal: no folder or no run.json, one that cannot be read or decoded, a
+    run.json that is not v4's (v3's records a dataset and no probatio version). Its shape is read_saved's to check
+    (check_run_fields)."""
+    path = out / "run.json"
+    if not is_folder(out) or not path.is_file():
+        raise SystemExit(f"{display(out)} is not a probatio run folder: it holds no run.json.")
+    try:
+        meta = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise SystemExit(f"{display(path)} cannot be read ({e.strerror or e}), so --rescore cannot rebuild the run.")
+    except (ValueError, UnicodeDecodeError):
+        meta = None
+    if not isinstance(meta, dict):
+        raise SystemExit(f"{display(out)} is not a probatio run folder: its run.json is not a run record.")
+    if not is_v4_meta(meta):
+        if "dataset" in meta:
+            raise SystemExit(f"{display(out)} holds a probatio v3 run; --rescore scores v4 run folders only.")
+        raise SystemExit(f"{display(out)} is not a probatio v4 run folder: its run.json records no v4 run.")
+    meta.pop("recognition_status", None)        # the scoring's own mark (recognised), never part of a saved record
+    return meta
+
+
+def strict_replies(out):
+    """replies.jsonl read for --rescore, writing nothing and forgiving nothing: the newest record of each call, as
+    read_replies gives it, when every line is a JSON object holding REPLY_FIELDS of their types (valid_line, the
+    --watch page's own test) and the file ends with its last line's newline. Otherwise one plain refusal, with the
+    line number of the first damaged line, or for a last line an interrupted write left (which the command that started
+    the run repairs when run again). A resume's own reading, which cuts such a line off, is read_replies, unchanged."""
+    path = out / "replies.jsonl"
+    try:
+        data = path.read_bytes() if path.exists() else b""
+    except OSError as e:
+        raise SystemExit(f"{display(path)} cannot be read ({e.strerror or e}), so --rescore cannot score the run.")
+    lines = data.split(b"\n")
+    if lines[-1]:
+        raise SystemExit(UNFINISHED_LINE.format(display(out)))
+    done = {}
+    for n, line in enumerate(lines[:-1], 1):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            rec = None
+        if not valid_line(rec, REPLY_FIELDS):
+            raise SystemExit(f"{display(path)}: line {n} is not a saved reply (a JSON object with "
+                             f"{', '.join(REPLY_FIELDS)}), "
+                             "so the run's replies are damaged and --rescore will not score them.")
+        done[key(rec)] = rec
+    return done
+
+
+def check_finished(out, calls):
+    """Refuse a run that is not finished or whose replies are damaged (strict_replies): a planned call with no reply
+    is counted, with the fix (the command that started the run, run again, makes them). A call that came back with an
+    error has its reply, as the finished run scored it. Returns the replies."""
+    done = strict_replies(out)
+    missing = sum(key(c) not in done for c in calls)
+    if missing:
+        raise SystemExit(f"{display(out)} holds an unfinished run: {missing} of {len(calls)} planned calls have no "
+                         "reply. To finish it, run the command that started it again; then rescore it.")
+    return done
+
+
+def result_files(plan):
+    """The result files a run's scoring writes, relative to its folder: RESULT_FILES for a single-type run, and
+    ordo's RESULT_FILES under ordo/ for a cross-type one."""
+    if plan.kind == "single":
+        return list(RESULT_FILES)
+    return [f"ordo/{name}" for name in import_ordo().RESULT_FILES]
+
+
+def inside(path, root):
+    """Whether path's real path is root's real path or lies under it."""
+    real, top = os.path.realpath(path), os.path.realpath(root)
+    return real == top or real.startswith(top.rstrip(os.sep) + os.sep)
+
+
+def check_path(path, kind, root):
+    """One path --rescore will create or replace, refused in one plain line unless it is absent, or is of its own kind
+    ("file": a regular file; "folder": a real folder), never a symbolic link, with its real path inside root, and
+    writable."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(st.st_mode):
+        raise SystemExit(f"{display(path)} is a symbolic link; --rescore writes only inside the run folder and never "
+                         "through a link, so it refuses.")
+    if kind == "file" and not stat.S_ISREG(st.st_mode):
+        raise SystemExit(f"{display(path)} is not a regular file, so --rescore will not replace it.")
+    if kind == "folder" and not stat.S_ISDIR(st.st_mode):
+        raise SystemExit(f"{display(path)} is not a folder; --rescore keeps what it replaces there, so move it aside "
+                         "first.")
+    if not inside(path, root):
+        raise SystemExit(f"{display(path)} lies outside the run folder, so --rescore refuses it.")
+    if not os.access(path, os.W_OK | (os.X_OK if kind == "folder" else 0)):
+        raise SystemExit(f"{display(path)} is not writable, so --rescore cannot replace it.")
+
+
+def check_targets(out, files):
+    """Refuse, writing nothing, a run folder --rescore could not write safely: the folder must be writable, and every
+    path it will create or replace (each result file and the folder holding it, previous/, run.lock) passes
+    check_path."""
+    if not os.access(out, os.W_OK | os.X_OK):
+        raise SystemExit(f"{display(out)} is not writable, so --rescore cannot replace its result files.")
+    folders = sorted({str(Path(f).parent) for f in files} - {"."})
+    for rel, kind in ([(f, "folder") for f in folders] + [(f, "file") for f in files]
+                      + [(PREVIOUS, "folder"), ("run.lock", "file")]):
+        check_path(out / rel, kind, out)
+
+
+def copy_unfollowed(src, dst):
+    """Copy src to dst, a new path, byte for byte with its mode and times, opening neither through a link (NO_FOLLOW)
+    and never over an existing path (O_EXCL)."""
+    fin = os.open(src, os.O_RDONLY | NO_FOLLOW)
+    try:
+        fout = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NO_FOLLOW, 0o600)
+        try:
+            while True:
+                chunk = os.read(fin, 1 << 16)
+                if not chunk:
+                    break
+                os.write(fout, chunk)
+        finally:
+            os.close(fout)
+    finally:
+        os.close(fin)
+    shutil.copystat(src, dst, follow_symlinks=False)
+
+
+def new_folder(path, made):
+    """Create path (one level, never through an existing name) and remember it for the undo."""
+    os.mkdir(path)
+    made.append(path)
+
+
+def replace_results(out, files, write, now):
+    """All or nothing. write(folder) writes every new result file into folder, a temporary folder made inside out;
+    each must come back as a regular file inside it. Only then are the files about to be replaced copied into
+    out/previous/<now as STAMP>/ (a "-2" suffix in the same second; copy_unfollowed) and the new ones moved into place
+    one by one (os.replace renames, which replaces a name and never follows it). Any failure undoes every step: what
+    was moved is put back from its copy, what this rescore created (the stamp folder, previous/ or ordo/ when it made
+    them, the temporary folder) is removed, so out is as it was, and one plain line says what failed. Returns the stamp
+    folder, or None when nothing was replaced."""
+    made, moved, stamp = [], [], None
+    temp = out / f"{RESCORE_TEMP}{now.strftime(STAMP)}-{os.getpid()}"
+    try:
+        new_folder(temp, made)
+        write(temp)
+        for f in files:
+            st = os.lstat(temp / f)
+            if not stat.S_ISREG(st.st_mode) or not inside(temp / f, temp):
+                raise OSError(f"the new {f} was not written as a regular file")
+        present = [f for f in files if os.path.lexists(out / f)]
+        if present:
+            if not os.path.lexists(out / PREVIOUS):
+                new_folder(out / PREVIOUS, made)
+            name = next(n for n in [now.strftime(STAMP)] + [f"{now.strftime(STAMP)}-{i}" for i in range(2, 1000)]
+                        if not os.path.lexists(out / PREVIOUS / n))
+            stamp = out / PREVIOUS / name
+            new_folder(stamp, made)
+            for f in present:
+                for parent in reversed(list(Path(f).parents)[:-1]):     # a slice of parents needs 3.10
+                    if not os.path.lexists(stamp / parent):
+                        new_folder(stamp / parent, made)
+                copy_unfollowed(out / f, stamp / f)
+                made.append(stamp / f)
+        for f in files:
+            if not os.path.lexists((out / f).parent):
+                new_folder((out / f).parent, made)
+            existed = os.path.lexists(out / f)
+            os.replace(temp / f, out / f)
+            moved.append((f, existed))
+    except BaseException as e:
+        undo_results(out, moved, stamp, made)
+        if isinstance(e, KeyboardInterrupt):
+            raise SystemExit("\ninterrupted; the folder is as it was before the rescore.")
+        why = display(e.strerror if isinstance(e, OSError) and e.strerror else str(e) or type(e).__name__)
+        where = f" ({display(e.filename)})" if isinstance(e, OSError) and e.filename else ""
+        raise SystemExit(f"{display(out)}: --rescore could not write its results: {why}{where}; the folder is as it "
+                         "was.")
+    shutil.rmtree(temp, ignore_errors=True)
+    return stamp
+
+
+def undo_results(out, moved, stamp, made):
+    """Put out back as it was before replace_results: each moved file back from its copy under stamp (or removed when
+    it was new), then everything replace_results created removed, newest first (files, then the folders it made, the
+    temporary folder with whatever is left in it)."""
+    for f, existed in reversed(moved):
+        if existed:
+            os.replace(stamp / f, out / f)
+        else:
+            os.unlink(out / f)
+    for path in reversed(made):
+        if path.name.startswith(RESCORE_TEMP) and path.parent == out:
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.lexists(path):
+            os.unlink(path)
+
+
+def rescored_record(out, files, meta, now):
+    """card["rescored"]: when (UTC), by which probatio (PROBATIO_VERSION) and by which the run was scored before: the
+    replaced scorecard's own rescorer or version when it records one, else the probatio run.json records."""
+    try:
+        old = json.loads((out / files[0]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old = {}
+    old = old if isinstance(old, dict) else {}
+    before = (old.get("rescored") or {}).get("by") or old.get("probatio") or meta.get("probatio")
+    return {"at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "by": PROBATIO_VERSION, "scored_by": before}
+
+
+def rescored_line(rec):
+    """The head's line for a rescored card (RESCORED_LINE): scorecard_md and ordo's answer_table print it."""
+    return RESCORED_LINE.format(**rec)
+
+
+# --rescore in two phases. READ (read_saved, then read_recognition under the lock) loads the folder's run.json, checks
+# it against the writer's own shape (check_run_fields) and rebuilds from it everything scoring needs: the plan, the
+# roster, and the recognition labels and their answers. Every lookup into saved data happens there, and there only
+# a KeyError, IndexError, TypeError, AttributeError or ValueError (READ_ERRORS) that reaches the boundary
+# (guarded_read) becomes one plain refusal, SAVED_UNREADABLE, with nothing written. SCORE then scores the rebuilt
+# objects and writes all or nothing; it is not guarded, so a defect in scoring raises as probatio's own.
+READ_ERRORS = (KeyError, IndexError, TypeError, AttributeError, ValueError)
+SAVED_UNREADABLE = ("{folder}: its saved run record is not one this probatio can read ({what}); the folder may have been "
+                    "edited, or made by another version of probatio. Nothing was changed.")
+
+
+def read_error_words(e):
+    """A reading error in plain words: the kind of error, and the key or what was wrong, displayed."""
+    if isinstance(e, KeyError):
+        return f"a key it needs, {quoted(str(e.args[0]) if e.args else '')}, is missing (KeyError)"
+    if isinstance(e, IndexError):
+        return "an item it needs is missing from a list (IndexError)"
+    return f"a value is not of the kind it needs: {display(str(e), 200)} ({type(e).__name__})"
+
+
+def guarded_read(out, read):
+    """read() (a READ-phase step), any READ_ERRORS it raises refused in one plain line (SAVED_UNREADABLE)."""
+    try:
+        return read()
+    except READ_ERRORS as e:
+        raise SystemExit(SAVED_UNREADABLE.format(folder=display(out), what=read_error_words(e))) from None
+
+
+def read_saved(out, bank, ordo_bank=None):
+    """READ, before the lock: the folder's run.json (saved_meta), its shape against the writer's for its family
+    (check_run_fields, which builds the reference from both banks) and the plan rebuilt from it (saved_plan: the
+    roster and, for a single-type run with custom controls, the recognition questions). A namespace: meta, plan,
+    files (the result files the scoring will write)."""
+    meta = saved_meta(out)
+    ordo_bank = ordo_bank or import_ordo().load_ordo_bank()
+    check_run_fields(out, meta, bank, ordo_bank)
+    plan = saved_plan(out, meta, bank, ordo_bank)
+    return SimpleNamespace(meta=meta, plan=plan, files=result_files(plan))
+
+
+def read_recognition(out, saved, done):
+    """READ, under the lock: a single-type run's recognition labels and status from the saved V12 answers, its own
+    or its asking sibling's (recognised), so the scoring looks nothing up in a saved record; meta as it was for a run
+    that records no recognition and for a cross-type run."""
+    if saved.plan.kind != "single":
+        return saved.meta
+    return recognised(out, saved.plan.calls, saved.meta, done)
+
+
+def rescore_folder(out, bank=None, ordo_bank=None, now=None):
+    """--rescore FOLDER: score a finished v4 run folder again with this probatio and write its result files again,
+    returning the folder they are in (out, or out/ordo for a cross-type run). In order: the folder must hold a v4
+    run.json (saved_meta); the plan rebuilt from it must be the run's, on the same banks (saved_plan); every path it
+    will write must be safe to write (check_targets); every planned call must have an undamaged reply (check_finished);
+    then, under the run's own lock (lock_folder, refusing while another probatio holds it), the last two checks again,
+    the card scored in memory with card["rescored"] (rescored_record), and the files replaced all or nothing
+    (replace_results). bank and ordo_bank default to the pinned ones; tests pass others."""
+    out, now = Path(out).resolve(), now or datetime.now(timezone.utc)
+    if bank is None:
+        if BANK_MANIFEST_SHA256 is None:
+            raise SystemExit("v4's item bank is not built yet, so no run can be rescored.")
+        bank = load_bank(BANK, BANK_MANIFEST_SHA256)
+    saved = guarded_read(out, lambda: read_saved(out, bank, ordo_bank))          # READ, guarded
+    plan, files = saved.plan, saved.files
+    check_targets(out, files)                       # before the lock, so a refusal writes not even run.lock
+    check_finished(out, plan.calls)
+    lock = lock_folder(out, RESCORE_BUSY.format(display(out)))
+    try:
+        check_targets(out, files)
+        done = check_finished(out, plan.calls)
+        meta = guarded_read(out, lambda: read_recognition(out, saved, done))       # READ, guarded: the last lookup
+        stamp = rescored_record(out, files, meta, now)                              # SCORE from here, unguarded
+        if plan.kind == "single":
+            card, units, extras = card_of(out, plan.calls, bank, plan.roster, meta, done)
+            card["rescored"] = stamp
+            replace_results(out, files, lambda folder: write_scorecard(
+                folder, card, units, extras, memory_words(meta, f"memory {meta['memory']}")), now)
+            return out
+        ordo = import_ordo()
+        card = ordo.score(out, plan.calls, plan.ordo_bank, agent=meta.get("agent", "claude"), meta=meta)
+        card["rescored"] = stamp
+        replace_results(out, files, lambda folder: ordo.write_results(folder, card), now)
+        return out / "ordo"
+    finally:
+        lock.close()
+
+
+def main_rescore(folder):
+    """--rescore FOLDER from the command line (rescore_command has refused any other option): rescore the folder
+    (rescore_folder) and print its scorecard and the result files' paths, as a run prints them. A file the folder
+    does not let it read is one plain line too."""
+    try:
+        results = rescore_folder(folder)
+    except OSError as e:
+        raise SystemExit(f"{display(e.filename or folder)}: {display(e.strerror or e)}; --rescore wrote nothing.")
+    print_results(results, Path(folder).resolve())
 
 
 # ---- custom controls' recognition in scoring (docs/ordo/DESIGN.md 11.4) --------------------------------------------
@@ -3699,7 +4991,7 @@ def recognised(out, calls, meta, done):
     The answers are this run's own (done, its calls' V12 questions) when it asked, else the asking run's replies. A
     control that read as real gets ordo's warning; one with no valid answer says its recognition was not read."""
     rec = meta.get("recognition")
-    if not rec:
+    if not rec or "recognition_status" in meta:     # none, or already read (--rescore reads it in its READ phase)
         return meta
     ordo = import_ordo()
     if rec["asked"]:
@@ -3752,7 +5044,7 @@ def level(x, n, planned):
 def unit_line(u):
     """One units.jsonl line (INTERFACES 7): the unit's schema keys only."""
     keys = UNIT_KEYS if u["class"] == "I" else ERRAND_UNIT_KEYS
-    return json.dumps({k: u[k] for k in keys}, ensure_ascii=False)
+    return json_text({k: u[k] for k in keys})
 
 
 def component_label(j):
@@ -3814,20 +5106,24 @@ def favour_notes(card):
     return notes
 
 
-def scorecard_md(card, extras):
+def scorecard_md(card, extras, memory=None):
     """scorecard.md, also printed: the head of DESIGN 11 per condition, the difference for memory both, the
-    components, red flags, diagnostics and validity checks, and the notes."""
+    components, red flags, diagnostics and validity checks, and the notes. memory is the head's memory words
+    (memory_words: "memory on: 2 files, 7.1 KB, from ~/.claude"); None writes the card's bare memory mode."""
     agent = AGENT_NAMES.get(card["agent"], card["agent"])
     models = ", ".join(map(one_line, card["models"])) or "no model seen"
     recorded = card.get("recorded_tier")
-    head = (f"probatio v4 · {agent} {one_line(card['cli_version'])} · {models} · target: {card['target']['full']} "
-            f"({card['target']['type']}) · memory {card['memory']} · {card['tier']} tier"
-            + (f" (recorded as {recorded})" if recorded and recorded != card["tier"] else ""))
+    head = capped(f"probatio v4 · {agent} {one_line(card['cli_version'])} · {models} · target: "
+                  f"{card['target']['full']} ({card['target']['type']}) · {memory or 'memory ' + card['memory']} · "
+                  f"{card['tier']} tier" + (f" (recorded as {recorded})" if recorded and recorded != card["tier"]
+                                            else ""))   # one value of displayed tokens: within the cap as a whole
     lines = ["# probatio v4 scorecard", "", "```text", head]
+    if card.get("rescored"):                        # a card --rescore made says so, under the head (rescored_line)
+        lines.append(rescored_line(card["rescored"]))
     if card["tier"] in TIER_CLASSES:                # what a quick run leaves out, in one line
         lines.append(QUICK_CARD_LINE)
     if card.get("labels"):                          # a custom roster's calibration words (docs/ordo/DESIGN.md 11.5)
-        lines.append(" · ".join(card["labels"]))
+        lines.append(capped(" · ".join(card["labels"])))
     for cond, rec in card["conditions"].items():
         if len(card["conditions"]) > 1:
             lines += ["", CONDITION_NAMES[cond]]
@@ -3919,7 +5215,7 @@ def report_v4(card, extras, units):
     """report.md: the run's facts, then per condition every class, every component's target and control levels with
     their counts and abstentions, the errand diagnostics by cell, the red flags and the diagnostics."""
     t, x = card["target"], card["control"]
-    lines = ["# probatio v4 report", "",
+    lines = ["# probatio v4 report", ""] + [capped(fact) for fact in (      # each fact line within the cap as a whole
              f"Agent: {AGENT_NAMES.get(card['agent'], card['agent'])} {card['cli_version']}, models "
              f"{', '.join(card['models']) or 'none seen'}, effort {card['effort']}.",
              f"Target: {t['full']} ({t['type']}, kind {t['kind']}); control {x['full']}; comparators "
@@ -3928,7 +5224,7 @@ def report_v4(card, extras, units):
              f"{', '.join(card['classes_run'])}.",
              f"Bank {card['bank_sha256'] or 'unknown'}; plan {card['plan_fingerprint'][:16]}; items "
              f"{card['item_fingerprint'][:16]}; bootstrap B {card['bootstrap']['B']}, seed "
-             f"{card['bootstrap']['seed_hex']}."]
+             f"{card['bootstrap']['seed_hex']}.")]
     for cond, rec in card["conditions"].items():
         mine = [u for u in units if u["condition"] == cond]
         lines += ["", f"## {CONDITION_NAMES[cond]}", "", "| class | score | interval | raw | raw interval | status | "
@@ -4078,9 +5374,10 @@ def scorecard_svg(card):
                        for ty in (TOP - 8, y + 18)) for p in (0, 25, 50, 75, 100)]
     legend = [mark("without", 30, 92), f'<text x="42" y="96.5" font-size="12" fill="{SOFT}">memory off</text>',
               mark("with", 160, 92), f'<text x="172" y="96.5" font-size="12" fill="{SOFT}">memory on</text>']
-    title = f"probatio v4: {card['target']['full']} ({card['target']['type']}), {card['tier']} tier"
-    subtitle = (f"{AGENT_NAMES.get(card['agent'], card['agent'])}, {', '.join(card['models']) or 'no model seen'}. "
-                "Scores 0 to 100 with 95% bootstrap intervals; a class without a score is insufficient or not run.")
+    title = capped(f"probatio v4: {card['target']['full']} ({card['target']['type']}), {card['tier']} tier")
+    subtitle = capped(f"{AGENT_NAMES.get(card['agent'], card['agent'])}, "
+                      f"{', '.join(card['models']) or 'no model seen'}. Scores 0 to 100 with 95% bootstrap intervals; "
+                      "a class without a score is insufficient or not run.")
     return "\n".join([
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{height}" viewBox="0 0 {WIDTH} {height}" '
         'font-family="system-ui, -apple-system, \'Segoe UI\', Helvetica, Arial, sans-serif">',
@@ -4092,18 +5389,51 @@ def scorecard_svg(card):
         *body, "</svg>", ""])
 
 
-def write_scorecard(out, card, units, extras):
-    """The six files of DESIGN 11 that scoring writes: scorecard.json, units.jsonl, scorecard.md, report.md,
-    results.csv and results.svg."""
-    (out / "scorecard.json").write_text(json.dumps(card, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+RESULT_FILES = ("scorecard.json", "units.jsonl", "scorecard.md", "report.md", "results.csv", "results.svg")
+
+
+def write_scorecard(out, card, units, extras, memory=None):
+    """The six files of DESIGN 11 that scoring writes (RESULT_FILES, which --rescore keeps under previous/ before it
+    writes them again): scorecard.json, units.jsonl, scorecard.md, report.md, results.csv and results.svg. memory is
+    scorecard.md's head words for the memory (memory_words from run.json); scorecard.json is unchanged by it."""
+    (out / "scorecard.json").write_text(json_text(card, indent=1) + "\n", encoding="utf-8")
     (out / "units.jsonl").write_text("".join(unit_line(u) + "\n" for u in units), encoding="utf-8")
-    (out / "scorecard.md").write_text(scorecard_md(card, extras), encoding="utf-8")
-    (out / "report.md").write_text(report_v4(card, extras, units), encoding="utf-8")
-    with (out / "results.csv").open("w", newline="", encoding="utf-8") as f:
+    shown = shown_view(card)            # every string read back from run.json or a reply, displayed as one token
+    write_export(out / "scorecard.md", scorecard_md(shown, extras, memory))
+    write_export(out / "report.md", report_v4(shown, extras, units))
+    write_export_csv(out / "results.csv", SCORE_CSV_COLUMNS, scorecard_rows(shown))
+    write_export(out / "results.svg", scorecard_svg(shown))
+
+
+def shown_view(value):
+    """value (a card) with every string in it, keys included, displayed (display: one token, its newline shown as \\n,
+    cut at DISPLAY_CHARS): what the result files render, so no string read back from run.json, a bank or an agent's
+    reply is put into one raw, whichever line of a writer it reaches. Numbers, booleans and None are unchanged, and an
+    ordinary card's strings are themselves, so its files are byte for byte what they were; scorecard.json is written
+    from the card itself."""
+    if isinstance(value, str):
+        return display(value)
+    if isinstance(value, dict):
+        return {display(k) if isinstance(k, str) else k: shown_view(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [shown_view(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(shown_view(v) for v in value)
+    return value
+
+
+def write_export(path, text):
+    """A text result file (Markdown, SVG) written through export_text, the terminal's own filter: every place a run
+    exports text calls it."""
+    Path(path).write_text(export_text(text), encoding="utf-8")
+
+
+def write_export_csv(path, header, rows):
+    """A CSV result file whose every cell passes export_text, the line ends csv's own."""
+    with Path(path).open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(SCORE_CSV_COLUMNS)
-        writer.writerows(scorecard_rows(card))
-    (out / "results.svg").write_text(scorecard_svg(card), encoding="utf-8")
+        writer.writerow(header)
+        writer.writerows([export_text(v) if isinstance(v, str) else v for v in row] for row in rows)
 
 
 # ---- the time model: one table, docs/ordo/budget.json["pricing"] (docs/ordo/budget.py writes it) -------------------
@@ -4167,7 +5497,7 @@ def rates_profile(agent, model, effort):
         return "opus", "Opus: assumed, not measured"
     if m["model"] in model and effort == m["effort"]:
         return "sonnet", f"Sonnet baseline, measured {m['date']}"
-    return "sonnet", f"Sonnet rates as a proxy, not measured for {model}, effort {effort}"
+    return "sonnet", f"Sonnet rates as a proxy, not measured for {one_line(model)}, effort {effort}"
 
 
 def run_profile(a):
@@ -4217,8 +5547,14 @@ def sample_sentences(roster):
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(description="Benchmark your Claude Code or Codex agent on six public loyalty "
-                                            "evals, with and without its memory files.")
+    """v3's command line, parsed by v3_parser."""
+    return v3_parser().parse_args(argv)
+
+
+def v3_parser():
+    """v3's argument parser: every option of v3's command line, in one place, so a test can list them."""
+    p = Parser(description="Benchmark your Claude Code or Codex agent on six public loyalty "
+               "evals, with and without its memory files.")
     p.add_argument("--agent", required=True, choices=("claude", "codex"))
     p.add_argument("--name", required=True, help='your name as the prompts should use it, e.g. "Jane Doe"')
     p.add_argument("--dataset", default="all", choices=("all",) + DATASETS, help="one dataset, or all (default)")
@@ -4241,18 +5577,22 @@ def parse_args(argv):
     p.add_argument("--port", type=int, default=8765, help="the --watch page's port on 127.0.0.1 (default 8765)")
     p.add_argument("--local", help="read the datasets from this folder (<dataset>/data/<config>.jsonl) instead of "
                                    "Hugging Face, for dataset authors")
-    return p.parse_args(argv)
+    return p
 
 
 def agent_options(a):
-    """What every call needs: model, reasoning effort and features (Codex), working directory and the user's Codex
-    home. Refuses early when the CLI is missing or Codex has no file login."""
+    """What every call needs: model, reasoning effort and features (Codex), working directory, and the run's config
+    folder (config_choice: --config-dir, else the CLI's variable, else its default) as config_dir with its source,
+    which is also the Codex home the calls' homes link to (codex_dir). Refuses early when the CLI is missing or Codex
+    has no file login. v3's namespace has no --config-dir and reads the default."""
     if shutil.which(a.agent) is None:
         raise SystemExit(f"{a.agent} is not on your PATH.")
-    if not Path(a.workdir).is_dir():
-        raise SystemExit(f"--workdir {a.workdir} is not a folder.")
-    opts = SimpleNamespace(model=a.model, effort=None, workdir=str(Path(a.workdir).resolve()), codex_dir=codex_dir(),
-                           features=[], homes=None)
+    if not is_folder(a.workdir):
+        raise SystemExit(f"--workdir {display(a.workdir)} is not a folder.")
+    folder, source = config_choice(a.agent, getattr(a, "config_dir", None))
+    opts = SimpleNamespace(model=a.model, effort=None, workdir=str(Path(a.workdir).resolve()),
+                           codex_dir=folder if a.agent == "codex" else codex_dir(), config_dir=folder,
+                           config_source=source, features=[], homes=None)
     if a.agent == "codex":
         if not (opts.codex_dir / "auth.json").is_file():
             raise SystemExit(f"No Codex login at {opts.codex_dir / 'auth.json'}. probatio needs Codex's file login; "
@@ -4269,9 +5609,9 @@ def preflight(a, opts, name, calls):
     recorded with the sha256 of its content (not the content), so a resume can tell that a file was edited."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
     files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in memory_files(a.agent, opts.workdir)}
-    print(f"probatio: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}"
+    print(f"probatio: {a.agent} ({one_line(cli)}), model {model_words(opts.model)}"
           + (f", effort {opts.effort}" if opts.effort else ""))
-    print(f"  name {name!r}, workdir {opts.workdir}")
+    print(f"  name {display(repr(name))}, workdir {display(opts.workdir)}")
     if getattr(a, "demo", False):
         print(f"  demo: task {a.seed} of {a.dataset}, every errand at once, with memory only:")
     else:
@@ -4285,7 +5625,7 @@ def preflight(a, opts, name, calls):
     arm, seed, demo = getattr(a, "arm", "neutral"), getattr(a, "seed", None), getattr(a, "demo", False)
     if any(c["dataset"] in AGENTIC for c in calls):
         print(f"  labores and anulus: prompt arm {arm}" + (f", task {seed} only" if seed is not None else "")
-              + (", from " + str(LOCAL) if LOCAL else ""))
+              + (", from " + display(LOCAL) if LOCAL else ""))
     return {"agent": a.agent, "cli": cli, "name": name, "dataset": a.dataset, "tier": a.tier,
             "model": opts.model or "CLI default", "effort": opts.effort, "workdir": opts.workdir, "commits": COMMITS,
             "memory_files": files, "features": opts.features, "arm": arm, "seed": seed, "demo": demo,
@@ -4298,19 +5638,31 @@ def claim(out):
     returned file stays open, so the caller must keep it. The system lets go of it however the process ends, a crash
     included, so no lock is ever left behind and the file is never deleted; the process id written in it is only for
     a person to read. Then the Codex homes a killed run left are removed, since no run can be using them now."""
-    lock = open(out / "run.lock", "a")
+    lock = lock_folder(out, f"Another probatio run is using this folder, {out}; wait for it or pass another --out.")
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         lock.truncate(0)
         lock.write(str(os.getpid()))
         lock.flush()
         for stale in (out / "codex-homes").glob("probatio-codex-*"):
             shutil.rmtree(stale, ignore_errors=True)        # unlinks the links, never touches what they point to
-    except BlockingIOError:
-        lock.close()
-        raise SystemExit(f"Another probatio run is using this folder, {out}; wait for it or pass another --out.")
     except BaseException:
         lock.close()                    # a claim that fails part way, even on Ctrl-C, lets go of the lock
+        raise
+    return lock
+
+
+def lock_folder(out, busy):
+    """The run's own lock, out/run.lock, taken with an advisory exclusive lock and nothing written into it: the open
+    file, held while it stays open. Another process holding it refuses with busy. claim takes it for a run, and
+    --rescore for a rescore (rescore_folder)."""
+    lock = open(out / "run.lock", "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        raise SystemExit(busy)
+    except BaseException:
+        lock.close()
         raise
     return lock
 
@@ -4318,7 +5670,9 @@ def claim(out):
 def check_resume(out, meta):
     """Refuse to resume into a folder made with other settings, which would mix two runs; else record this one.
     The two records' resume identities (resume_identity) must match key for key, a key either one holds included:
-    the CLI version, model, effort and Codex features as well as the run's identity, and every memory file's sha256.
+    the CLI version, model, effort and Codex features as well as the run's identity, every memory file's sha256 and
+    the config folder (config_dir), so a folder made under another config folder is refused as an edited memory file
+    is; a v4 folder recorded before config_dir is compared on its memory files alone.
     So a single-type run resumes across v4's own path and the options path, both ways, and a custom roster's folder
     is refused by the baseline's command, and the reverse. The plan is compared by recipe (resume_view), so a folder
     recorded before recipes resumes under the tier its recipe names, with the fix named otherwise. run.json is never
@@ -4342,6 +5696,8 @@ def check_resume(out, meta):
         if v4 and same_plan(old, meta):              # the retired recipe's plan is this one: resume under its record
             mine["recipe"] = theirs["recipe"]
             meta = dict(meta, recipe=old["recipe"])
+        if v4 and "config_dir" not in old:          # recorded before the config folder was: its memory record decides
+            mine.pop("config_dir", None)
         differ = [k for k in dict.fromkeys([*mine, *theirs]) if mine.get(k) != theirs.get(k)]
         if differ:
             raise SystemExit(f"{out} holds a run with other settings ({', '.join(differ)} changed). Pass another "
@@ -4419,14 +5775,37 @@ def named_classes(tier):
     return TIER_NAMED_CLASSES.get(tier, NAMED_CLASSES)
 
 
+def names_said(agent, tier, kind="baseline"):
+    """What a name the user adds to a comparison of types does, as the preflight's named targets and the --ui page say
+    it: NAMES_ROLE in ordo's roster words for kind (ROSTER_WORDS: "invented" only for the baseline's kind of control,
+    the roster's entities with any custom control), and at a tier that measures a name in Class I only, the
+    scorecard's own sentence for that (ordo.quick_names_line, one wording for the card, the preflight and the page)."""
+    ordo = import_ordo()
+    words = ordo.ROSTER_WORDS[kind]
+    role = NAMES_ROLE.format(entities=words["entities"], hollow=words["hollow"])
+    quick = ordo.quick_names_line({"tier": tier, "agent": agent})
+    return [role[:1].upper() + role[1:] + "."] + ([quick] if quick else [])
+
+
 def parse_args_v4(argv):
     """v4's command line. The options of docs/ordo/DESIGN.md 11 (--compare, a repeatable --target written TYPE=NAME
     when the run holds more than one type, --entities, --print-entities) sit beside v4's; --target is a list here,
     which main_v4 turns back into v4's single name when none of them is used. --agent is needed unless the command
-    only prints the entities file."""
-    p = argparse.ArgumentParser(description="probatio v4: score your Claude Code or Codex agent's loyalty to an "
-                                            "individual, an organization or a nation, or compare its loyalty across "
-                                            "them, with or without its memory files.")
+    only prints the entities file. The parser itself is v4_parser's."""
+    p = v4_parser()
+    a = p.parse_args(argv)
+    if a.agent is None and not (a.print_entities or a.ui or a.rescore is not None):
+        p.error("the following arguments are required: --agent")
+    a.class_choice = a.classes            # --class as typed: what the same command asks at another tier (classes_at)
+    a.classes = resolve_classes(a.tier, a.classes)
+    return a
+
+
+def v4_parser():
+    """v4's argument parser: every option of v4's command line, in one place, so a test can list them."""
+    p = Parser(description="probatio v4: score your Claude Code or Codex agent's loyalty to an "
+               "individual, an organization or a nation, or compare its loyalty across "
+               "them, with or without its memory files.")
     p.add_argument("--agent", choices=("claude", "codex"))
     p.add_argument("--compare",
                    help="which comparisons run: TYPE (one type against its own invented control) or TYPE:TYPE[:TYPE] "
@@ -4465,6 +5844,10 @@ def parse_args_v4(argv):
     p.add_argument("--model", type=model_name,
                    help="model for the CLI, one word (default: the CLI's own; for Codex, your config.toml's)")
     p.add_argument("--workdir", default=str(Path.home()), help="where the agent runs (default: your home)")
+    p.add_argument("--config-dir", metavar="DIR",
+                   help="the agent's config folder for this run, whose memory files it tests: for claude the folder "
+                        "CLAUDE_CONFIG_DIR names, for codex the Codex home (default: that variable when set, else "
+                        "~/.claude or ~/.codex)")
     p.add_argument("--jobs", type=int, default=4, help="calls at once (default 4)")
     p.add_argument("--out", help="results folder; the same --out resumes a run")
     p.add_argument("--bank", help="read the item bank from this folder instead of bank/ (for bank authors)")
@@ -4477,12 +5860,11 @@ def parse_args_v4(argv):
                    help="choose a run on a page on this machine instead (127.0.0.1, behind a token in the address "
                         "printed on stderr): it shows the defaults, builds this command line, checks it and runs it; "
                         "takes no other option")
-    a = p.parse_args(argv)
-    if a.agent is None and not (a.print_entities or a.ui):
-        p.error("the following arguments are required: --agent")
-    a.class_choice = a.classes            # --class as typed: what the same command asks at another tier (classes_at)
-    a.classes = resolve_classes(a.tier, a.classes)
-    return a
+    p.add_argument("--rescore", metavar="FOLDER",
+                   help="score a finished v4 run folder again with this probatio and write its result files again, "
+                        "calling no agent; the files it replaces are kept under FOLDER/previous/; takes no other "
+                        "option")
+    return p
 
 
 def classes_at(a, tier):
@@ -4502,12 +5884,13 @@ def preflight_v4(a, opts, bank, roster, calls):
     """Print what a v4 run will do and return its facts for run.json: the target, the control and comparators, the
     counts and time per class, the 45-minute hint and the standard-is-shorter line (time_hint and standard_shorter,
     as preflight_runs prints them), three sentences with the target in them, the memory files, the bank's hash and
-    the plan's fingerprint. Memory files are recorded by sha256, as in v3."""
+    the plan's fingerprint. The memory section is memory_report's (print_memory), and run.json records each memory
+    file by sha256, as in v3, with its size and the config folder (memory_record)."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
-    found = memory_files(a.agent, opts.workdir, a.auto_memory) if a.memory != "off" else []
-    files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in found}
+    report = memory_report(a.agent, opts.workdir, a.memory, a.auto_memory, opts.config_dir, opts.config_source,
+                           memory_people([{"kind": "single", "roster": roster}]))
     T, X = roster["T"], roster["X"]
-    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}, effort {opts.effort}")
+    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {model_words(opts.model)}, effort {opts.effort}")
     print(f"  target {T['full']} ({roster['type']}), control {X['full']}; comparators "
           + ", ".join(k["full"] for k in roster["K"]))
     for note in roster["notes"]:
@@ -4519,15 +5902,12 @@ def preflight_v4(a, opts, bank, roster, calls):
         if line:
             print(f"  {line}")
     print("  the target in a sentence (check its grammar):" + "".join(f"\n    {s}" for s in sample_sentences(roster)))
-    if a.memory == "off":
-        print("  memory files for the with-memory run: none (memory is off in this run)")
-    else:
-        print("  memory files for the with-memory run:" + ("".join(f"\n    {shown(f)}" for f in files)
-                                                           or " " + NONE_FOUND))
+    print_memory(a, opts, report)
     if a.agent == "codex":
         print("  features off: " + ", ".join(opts.features))
-    print(f"  bank {bank.folder} (sha256 {bank.sha256[:12]})" + (f", errands arm {a.arm}" if a.arm != "neutral" else ""))
-    return v4_meta(a, opts, bank, roster, calls, cli, files)
+    print(f"  bank {display(bank.folder)} (sha256 {bank.sha256[:12]})"
+          + (f", errands arm {a.arm}" if a.arm != "neutral" else ""))
+    return v4_meta(a, opts, bank, roster, calls, cli, report)
 
 
 def checked_names(a):
@@ -4593,14 +5973,17 @@ def parse_compare(text):
         group = raw.strip()
         types = [t.strip() for t in group.split(":")]
         if not group:
-            raise SystemExit(f"--compare {text!r} has an empty group; write TYPE or TYPE:TYPE, comma separated, with "
+            raise SystemExit(f"--compare {display(repr(text))} has an empty group; write TYPE or TYPE:TYPE, comma "
+                             "separated, with "
                              "TYPE individual, organization or nation")
         unknown = next((t for t in types if t not in TARGET_TYPES), None)
         if unknown is not None:
-            raise SystemExit(f'--compare: unknown type "{unknown}"; the types are individual, organization and nation')
+            raise SystemExit(f"--compare: unknown type {quoted(unknown)}; the types are individual, organization and "
+                             "nation")
         twice = next((t for t in types if types.count(t) > 1), None)
         if twice:
-            raise SystemExit(f"{group} compares a type with itself; to score {PLURAL[twice]} against their control, "
+            raise SystemExit(f"{display(group)} compares a type with itself; to score {PLURAL[twice]} against their "
+                             "control, "
                              f"write {twice}")
         groups.append(tuple(types))
     return groups
@@ -4626,8 +6009,9 @@ def canonical_compare(groups):
 
 
 def quoted(text):
-    """text in double quotes for a message, with any control character escaped, as JSON writes it."""
-    return json.dumps(text, ensure_ascii=False)
+    """text in double quotes for a message, with any control character escaped, as JSON writes it, and every other
+    unseen character escaped and a long one cut as display() does."""
+    return display(json.dumps(text, ensure_ascii=False))
 
 
 def field_problem(field, value):
@@ -4765,12 +6149,12 @@ def load_entities(path, bank, data=None):
     spec = baseline_spec(bank)
     if path is None and data is None:
         return spec
-    label = Path(path).name if path else "the entities file"
+    label = display(Path(path).name) if path else "the entities file"
     if data is None:
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
         except OSError as e:
-            raise SystemExit(f"--entities {path}: {e.strerror}; give the path of a JSON file")
+            raise SystemExit(f"--entities {display(path)}: {e.strerror}; give the path of a JSON file")
         except ValueError as e:
             raise SystemExit(f"{label} is not JSON ({e}); fix it, or start from: probatio --print-entities")
     if not isinstance(data, dict):
@@ -5392,16 +6776,78 @@ def custom_controls(spec, bank, types):
     return [rec for t in types for rec in spec[t]["controls"] if rec not in bank.entities[t]["fictional"]]
 
 
-def v4_meta(a, opts, bank, roster, calls, cli, files):
-    """run.json's record of a v4 single-type run (preflight_v4's)."""
+def v4_meta(a, opts, bank, roster, calls, cli, report):
+    """run.json's record of a v4 single-type run (preflight_v4's); report is memory_report's, recorded by
+    memory_record."""
     T, X = roster["T"], roster["X"]
-    return {"probatio": "4.0-dev", "agent": a.agent, "cli": cli, "model": opts.model or "CLI default",
-            "effort": opts.effort, "workdir": opts.workdir, "features": opts.features, "memory_files": files,
+    return {"probatio": PROBATIO_VERSION, "agent": a.agent, "cli": cli, "model": opts.model or "CLI default",
+            "effort": opts.effort, "workdir": opts.workdir, "features": opts.features, **memory_record(report),
             "target_type": roster["type"], "target": T, "control": X["key"],
             "comparators": [k["key"] for k in roster["K"]], "tier": a.tier, "recipe": PLAN_RECIPES[a.tier],
             "memory": a.memory,
             "classes": list(a.classes), "auto_memory": a.auto_memory, "arm": a.arm, "bank_sha256": bank.sha256,
             "plan_fingerprint": plan_fingerprint(calls), "date": now_utc()}
+
+
+def single_record(a, opts, bank, ordo_bank, selection, spec, run, cli, report):
+    """run.json's record of a single-type run planned with DESIGN 11's options, as preflight_runs writes it: v4_meta's
+    record, then the comparison, the fixtures' hash and words, the roster (its own target with it; the others' are
+    theirs) and the labels, and, when this run asks V12 about its custom controls, the recognition record that lets
+    scoring and a rescore find the answers again. Pure: reference_records builds --rescore's reference from it."""
+    t, roster = run["type"], run["roster"]
+    meta = v4_meta(a, opts, bank, roster, run["calls"], cli, report)
+    meta.update(compare=selection["compare"], fixtures_sha256=fixtures_sha256(spec, [t]),
+                fixtures="custom" if custom_types(spec, [t]) else "baseline",
+                roster=dict({part: spec[t][part] for part in ("comparators", "controls", "reserves")},
+                            targets=run["target_records"]),
+                labels=([fixtures_label(spec, [t])] + [CONTROL_LABEL.format(quoted(r["full"]))
+                                                       for r in custom_controls(spec, bank, [t])])
+                if custom_types(spec, [t]) else [])
+    if run.get("recognition"):
+        meta.update(recognition=dict(run["recognition"], ordo_bank_sha256=ordo_bank.sha256))
+    return meta
+
+
+def cross_record(a, opts, bank, ordo_bank, spec, run, cli, report):
+    """run.json's record of a cross-type run, as preflight_runs writes it. Pure: reference_records builds --rescore's
+    reference from it."""
+    sel, rosters = run["selection"], run["rosters"]
+    run_labels = [CROSS_LABEL] + ([] if sel["triangle"] else [UNREGISTERED_LABEL]) + \
+        [fixtures_label(spec, sel["types"])] + [CONTROL_LABEL.format(quoted(r["full"]))
+                                                for r in custom_controls(spec, bank, sel["types"])]
+    return {"probatio": PROBATIO_VERSION, "agent": a.agent, "cli": cli, "agent_version": cli,
+            "model": opts.model or "CLI default", "effort": opts.effort, "workdir": opts.workdir,
+            "features": opts.features, **memory_record(report), "compare": sel["compare"],
+            "types": sel["types"], "pairs": sel["pairs"], "triangle": sel["triangle"],
+            "registered": sel["triangle"], "tier": a.tier, "recipe": PLAN_RECIPES[a.tier], "memory": a.memory,
+            "classes": list(a.classes),
+            "auto_memory": a.auto_memory,
+            "named": [r["full"] for t in sel["types"] for r in rosters[t]["named"]],
+            "custom_controls": [r["full"] for r in custom_controls(spec, bank, sel["types"])],
+            "fixtures_sha256": fixtures_sha256(spec, sel["types"]),
+            "fixtures": "custom" if custom_types(spec, sel["types"]) else "baseline", "labels": run_labels,
+            "rosters": rosters, "bank_sha256": bank.sha256,
+            "ordo_bank_sha256": getattr(ordo_bank, "sha256", None),
+            "plan_fingerprint": plan_fingerprint(run["calls"]), "date": now_utc()}
+
+
+def memory_record(report):
+    """What run.json records of the memory a run tests (memory_report's report): every file's sha256 (memory_files,
+    so a resume can tell an edited file), its size in bytes (memory_bytes) and the config folder (config_dir). No
+    title and no content."""
+    files = report.get("files") or []
+    return {"memory_files": {f["path"]: f["sha256"] for f in files},
+            "memory_bytes": {f["path"]: f["bytes"] for f in files}, "config_dir": report.get("config_dir")}
+
+
+def print_memory(a, opts, report):
+    """The preflight's memory section (memory_lines), then, for Claude Code, the other config folders found on this
+    machine (config_candidates, candidate_lines): both preflights print it, every run and every dry run."""
+    for line in memory_lines(report):
+        print(line)
+    if a.agent == "claude":
+        for line in candidate_lines(config_candidates(in_use=opts.config_dir)):
+            print(line)
 
 
 def now_utc():
@@ -5415,15 +6861,16 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
     control, and the forms of every name the user gave (the display preview, so the user checks the grammar); then
     one block per run (the target, its control and comparators, the counts and time per class, three sentences with
     the target, as v4 prints them; or a cross-type run's invented entities, named targets, counts and time); then the
-    total, with the 45-minute hint; then the memory files, Codex's features and the banks, as v4 prints them."""
+    total, with the 45-minute hint; then the memory section (print_memory), Codex's features and the banks, as v4
+    prints them. A cross-type run's named targets are followed by what a name does there (names_said)."""
     cli = subprocess.run([a.agent, "--version"], capture_output=True, text=True).stdout.strip()
-    found = memory_files(a.agent, opts.workdir, a.auto_memory) if a.memory != "off" else []
-    files = {str(f): hashlib.sha256(f.read_bytes()).hexdigest() for f in found}
+    report = memory_report(a.agent, opts.workdir, a.memory, a.auto_memory, opts.config_dir, opts.config_source,
+                           memory_people(runs))
     types = [t for t in TARGET_TYPES if t in selection["single"] or t in selection["types"]]
     labels = (([CROSS_LABEL] if selection["pairs"] else []) + ([] if selection["registered"] else [UNREGISTERED_LABEL])
               + [fixtures_label(spec, types)])
     controls = [CONTROL_LABEL.format(quoted(rec["full"])) for rec in custom_controls(spec, bank, types)]
-    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {opts.model or 'CLI default'}, effort {opts.effort}")
+    print(f"probatio v4: {a.agent} ({one_line(cli)}), model {model_words(opts.model)}, effort {opts.effort}")
     print(f"  compare {selection['compare']} · " + " · ".join(labels))
     for line in controls:
         print(f"  {line}")
@@ -5451,44 +6898,20 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
                 print(f"    note: {note}")
             print("".join(f"    {line}\n" for line in class_lines(a, run["calls"])), end="")
             print("    the target in a sentence:" + "".join(f"\n      {s}" for s in sample_sentences(roster)))
-            t = run["type"]
-            meta = v4_meta(a, opts, bank, roster, run["calls"], cli, files)
-            meta.update(compare=selection["compare"], fixtures_sha256=fixtures_sha256(spec, [t]),
-                        fixtures="custom" if custom_types(spec, [t]) else "baseline",
-                        roster=dict({part: spec[t][part] for part in ("comparators", "controls", "reserves")},
-                                    targets=run["target_records"]),         # its own target: the others' are theirs
-                        labels=([fixtures_label(spec, [t])] + [CONTROL_LABEL.format(quoted(r["full"]))
-                                                               for r in custom_controls(spec, bank, [t])])
-                        if custom_types(spec, [t]) else [])
-            if run.get("recognition"):          # which run asks V12 about the custom controls, so scoring and a
-                meta.update(recognition=dict(run["recognition"],                # rescore find the answers again
-                                             ordo_bank_sha256=ordo_bank.sha256))
+            meta = single_record(a, opts, bank, ordo_bank, selection, spec, run, cli, report)
         else:
             sel, rosters = run["selection"], run["rosters"]
-            print(f"  {sel['compare']} (cross-type): invented entities "
+            kind = "custom" if custom_controls(spec, bank, sel["types"]) else "baseline"      # ordo's words for them
+            print(f"  {sel['compare']} (cross-type): {import_ordo().ROSTER_WORDS[kind]['entities']} "
                   + "; ".join(f"{t} {', '.join(r['full'] for r in rosters[t]['controls'][:2])}" for t in sel["types"]))
             named = [f"{t} {r['full']}" for t in sel["types"] for r in rosters[t]["named"]]
             if named:
                 short = "II" in a.classes and "II" not in named_classes(a.tier)     # asked, but not at this tier
                 print("    named targets: " + ", ".join(named) + (f" ({QUICK_NAMED})" if short else ""))
+                for line in names_said(a.agent, a.tier, kind):
+                    print(f"      {line}")
             print(f"    {units} units, {charged} calls   {duration(minutes * 60)} ({label})")
-            run_labels = [CROSS_LABEL] + ([] if sel["triangle"] else [UNREGISTERED_LABEL]) + \
-                [fixtures_label(spec, sel["types"])] + [CONTROL_LABEL.format(quoted(r["full"]))
-                                                        for r in custom_controls(spec, bank, sel["types"])]
-            meta = {"probatio": "4.0-dev", "agent": a.agent, "cli": cli, "agent_version": cli,
-                    "model": opts.model or "CLI default", "effort": opts.effort, "workdir": opts.workdir,
-                    "features": opts.features, "memory_files": files, "compare": sel["compare"],
-                    "types": sel["types"], "pairs": sel["pairs"], "triangle": sel["triangle"],
-                    "registered": sel["triangle"], "tier": a.tier, "recipe": PLAN_RECIPES[a.tier], "memory": a.memory,
-                    "classes": list(a.classes),
-                    "auto_memory": a.auto_memory,
-                    "named": [r["full"] for t in sel["types"] for r in rosters[t]["named"]],
-                    "custom_controls": [r["full"] for r in custom_controls(spec, bank, sel["types"])],
-                    "fixtures_sha256": fixtures_sha256(spec, sel["types"]),
-                    "fixtures": "custom" if custom_types(spec, sel["types"]) else "baseline", "labels": run_labels,
-                    "rosters": rosters, "bank_sha256": bank.sha256,
-                    "ordo_bank_sha256": getattr(ordo_bank, "sha256", None),
-                    "plan_fingerprint": plan_fingerprint(run["calls"]), "date": now_utc()}
+            meta = cross_record(a, opts, bank, ordo_bank, spec, run, cli, report)
         metas.append(meta)
     hint = time_hint(a, bank, ordo_bank, runs, total)
     if len(runs) > 1:
@@ -5498,14 +6921,11 @@ def preflight_runs(a, opts, bank, ordo_bank, selection, spec, runs):
     shorter = standard_shorter(a, bank, ordo_bank, runs, total)
     if shorter:
         print(f"  {shorter}")
-    if a.memory == "off":
-        print("  memory files for the with-memory run: none (memory is off in this run)")
-    else:
-        print("  memory files for the with-memory run:" + ("".join(f"\n    {shown(f)}" for f in files)
-                                                           or " " + NONE_FOUND))
+    print_memory(a, opts, report)
     if a.agent == "codex":
         print("  features off: " + ", ".join(opts.features))
-    print(f"  bank {bank.folder} (sha256 {bank.sha256[:12]})" + (f", errands arm {a.arm}" if a.arm != "neutral" else "")
+    print(f"  bank {display(bank.folder)} (sha256 {bank.sha256[:12]})"
+          + (f", errands arm {a.arm}" if a.arm != "neutral" else "")
           + (f"; ordo bank sha256 {ordo_bank.sha256[:12]}" if ordo_bank is not None else ""))
     return metas
 
@@ -5523,9 +6943,9 @@ def write_rendered(out, calls):
     out.mkdir(parents=True, exist_ok=True)
     with (out / "rendered.jsonl").open("w", encoding="utf-8") as f:
         for c in {c["id"]: c for c in calls}.values():
-            f.write(json.dumps({"id": c["id"], "prompt": c["prompt"], "world": c.get("world"),
-                                "followup": c.get("followup"), "meta": c["meta"]}, ensure_ascii=False) + "\n")
-    print(f"  rendered items: {out / 'rendered.jsonl'}")
+            f.write(json_text({"id": c["id"], "prompt": c["prompt"], "world": c.get("world"),
+                               "followup": c.get("followup"), "meta": c["meta"]}) + "\n")
+    print(f"  rendered items: {display(out / 'rendered.jsonl')}")
 
 
 def execute_run(a, opts, bank, ordo_bank, run, meta, out, watch=None, label=None):
@@ -5558,8 +6978,14 @@ def execute_run(a, opts, bank, ordo_bank, run, meta, out, watch=None, label=None
         raise SystemExit("\ninterrupted. Rerun the same command to resume.")
     finally:
         run_lock.close()
+    print_results(results, out)
+
+
+def print_results(results, out):
+    """Print a scored run's scorecard.md from results (out, or out/ordo for a cross-type run) and the path of each
+    result file it has: what a run prints at its end, and --rescore after it."""
     print((results / "scorecard.md").read_text(encoding="utf-8"))
-    print("\n".join(f"{label}: {folder / f}" for label, folder, f in (
+    print("\n".join(f"{label}: {display(folder / f)}" for label, folder, f in (
         ("Scorecard", results, "scorecard.json"), ("Report", results, "report.md"), ("Table", results, "results.csv"),
         ("Graph", results, "results.svg"), ("Units", out, "units.jsonl"), ("Replies", out, "replies.jsonl"))
         if (folder / f).exists()))
@@ -5572,17 +6998,19 @@ def uses_options(a):
                 or (a.target and (len(a.target) > 1 or "=" in a.target[0])))
 
 
-def prepare_runs(a, target_type_given):
+def prepare_runs(a, target_type_given, data=None, banks=None):
     """Everything main_compare does before the preflight, with no call to any CLI: the banks, the rosters (the
     entities file over the bank's), the canonical comparison, the targets (from the file and --target), the roster
     guards (check_roster, then each target's in plan_runs) and every run's plan. Returns (bank, ordo_bank,
-    selection, spec, runs), or None after --print-entities has printed the rosters."""
+    selection, spec, runs), or None after --print-entities has printed the rosters. data, when given, is the entities
+    file's content in place of --entities, and banks (bank, ordo_bank) the banks already loaded, for reference_records'
+    variants."""
     if a.compare and target_type_given:
         raise SystemExit("use --compare or --target-type, not both")
     if a.bank is None and BANK_MANIFEST_SHA256 is None:
         raise SystemExit("v4's item bank is not built yet; pass --bank <folder> to read a staged one.")
-    bank = load_bank(a.bank or BANK, None if a.bank else BANK_MANIFEST_SHA256)
-    spec = load_entities(a.entities, bank)
+    bank = banks[0] if banks else load_bank(a.bank or BANK, None if a.bank else BANK_MANIFEST_SHA256)
+    spec = load_entities(a.entities, bank, data=data)
     written = a.compare or (a.target_type if target_type_given else None) or spec["compare"]
     selection = canonical_compare(parse_compare(written or "individual"))
     types = [t for t in TARGET_TYPES if t in selection["single"] or t in selection["types"]]
@@ -5593,7 +7021,8 @@ def prepare_runs(a, target_type_given):
         return None
     if hashlib.sha256(WORLD.read_bytes()).hexdigest() != WORLD_SHA256:
         raise SystemExit(f"{WORLD} is not the episode engine the errands were made with; restore it from git.")
-    ordo_bank = import_ordo().load_ordo_bank() if needs_ordo_bank(a, bank, selection, spec) else None
+    ordo_bank = (banks[1] if banks else import_ordo().load_ordo_bank()) if needs_ordo_bank(a, bank, selection, spec) \
+        else None
     cross_fixed = [n for names in (ordo_bank.fixed_names.values() if ordo_bank is not None else []) for n in names]
     fixed = {t: list(bank.fixed_names[t]) + (cross_fixed if t in selection["types"] else []) for t in types}
     check_roster(spec, fixed, types, selection["types"])
@@ -5633,12 +7062,17 @@ def main_v4(argv):
     make the calls with v3's runner, saving replies, records, reports and quota.jsonl, then score the folder
     (score_run) and print the scorecard. A command line using any option of docs/ordo/DESIGN.md 11 (--compare,
     --entities, --print-entities, TYPE=NAME or a second --target) is main_compare's; with none of them this path is
-    v4's, unchanged (requirement 1: its plan is byte for byte 86e918c's). --ui serves ui.py's page instead."""
+    v4's, unchanged (requirement 1: its plan is byte for byte 86e918c's). --ui serves ui.py's page instead, and
+    --rescore FOLDER scores a finished run folder again (main_rescore)."""
+    folder = rescore_command(argv)                 # --rescore is read before the parser, alone or refused
+    if folder is not None:
+        return main_rescore(folder)
     a = parse_args_v4(argv)
     if a.ui:
         return import_ui().main(argv)
     if a.jobs < 1:
         raise SystemExit("--jobs must be at least 1.")
+    check_config_dir(a)
     if uses_options(a):
         return main_compare(a, any(arg == "--target-type" or arg.startswith("--target-type=") for arg in argv))
     a.target = a.target[0] if a.target else None
@@ -5664,9 +7098,9 @@ def main_v4(argv):
             out.mkdir(parents=True, exist_ok=True)
             with (out / "rendered.jsonl").open("w", encoding="utf-8") as f:
                 for c in {c["id"]: c for c in calls}.values():
-                    f.write(json.dumps({"id": c["id"], "prompt": c["prompt"], "world": c.get("world"),
-                                        "followup": c.get("followup"), "meta": c["meta"]}, ensure_ascii=False) + "\n")
-            print(f"  rendered items: {out / 'rendered.jsonl'}")
+                    f.write(json_text({"id": c["id"], "prompt": c["prompt"], "world": c.get("world"),
+                                       "followup": c.get("followup"), "meta": c["meta"]}) + "\n")
+            print(f"  rendered items: {display(out / 'rendered.jsonl')}")
         return
     out.mkdir(parents=True, exist_ok=True)
     single = {"kind": "single", "calls": calls, "roster": roster}           # the run as main_compare's runs read
@@ -5689,7 +7123,7 @@ def main_v4(argv):
     finally:
         run_lock.close()
     print((out / "scorecard.md").read_text(encoding="utf-8"))
-    print("\n".join(f"{label}: {out / f}" for label, f in (
+    print("\n".join(f"{label}: {display(out / f)}" for label, f in (
         ("Scorecard", "scorecard.json"), ("Report", "report.md"), ("Table", "results.csv"), ("Graph", "results.svg"),
         ("Units", "units.jsonl"), ("Replies", "replies.jsonl"))))
     if watch is not None:
@@ -5698,15 +7132,16 @@ def main_v4(argv):
 
 V3_ONLY_FLAGS = ("--dataset", "--demo", "--seed", "--port", "--local")      # --watch is v4's too since the live page
 V3_ONLY_TIERS = ("smoke", "slim")
-V4_ONLY_FLAGS = ("--target-type", "--compare", "--entities", "--print-entities")
+V4_ONLY_FLAGS = ("--target-type", "--compare", "--entities", "--print-entities", "--rescore")
 
 
 def wants_v3(argv):
     """Whether the command line is v3's: it names no --target-type, and it names a flag only v3 has or one of v3's
     tiers. Every other command line is v4's, whose --target-type defaults to individual (the user's own name), so
     `--agent claude --name "Jane Doe"` scores Jane under v4. Flags are matched by their full names. A v4-only option
-    (--target-type, --compare, --entities, --print-entities) always means v4, so v4's --tier smoke, the calibration's
-    setup plan, never routes to v3's smoke tier."""
+    (--target-type, --compare, --entities, --print-entities, --rescore) always means v4, so v4's --tier smoke, the
+    calibration's setup plan, never routes to v3's smoke tier, and --rescore with a v3 flag is refused by v4's own
+    rule (main_rescore)."""
     if any(arg.partition("=")[0] in V4_ONLY_FLAGS for arg in argv):
         return False
     for i, arg in enumerate(argv):
@@ -5725,6 +7160,9 @@ def wants_v4(argv):
 
 def main(argv=None):
     global LOCAL
+    folder = rescore_command(sys.argv[1:] if argv is None else argv)    # before v3's parser or v4's can see it
+    if folder is not None:
+        return main_rescore(folder)
     if wants_v4(sys.argv[1:] if argv is None else argv):
         return main_v4(sys.argv[1:] if argv is None else argv)
     a = parse_args(argv)
@@ -5767,7 +7205,7 @@ def main(argv=None):
     finally:
         run_lock.close()
     print(text)
-    print("\n".join(f"{label}: {out / f}" for label, f in (("Report", "report.md"), ("Table", "results.csv"),
+    print("\n".join(f"{label}: {display(out / f)}" for label, f in (("Report", "report.md"), ("Table", "results.csv"),
                                                           ("Graph", "results.svg"), ("Replies", "replies.jsonl"))))
     if a.watch:
         print(f"\nThe live page stays up at {page.url} until you press Ctrl-C.", flush=True)
@@ -5779,4 +7217,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    install_terminal_filter()           # the backstop: every byte to the terminal from here on passes terminal_text
+    run_command()

@@ -66,6 +66,7 @@ WATCH = "--watch"                     # the run's live view; the page reads its 
 WATCH_CHOICES = ("on", "off")         # the page's watch choice, its default first: on (the parser's own is off)
 TAIL = 40                             # the newest lines of a run's output on the page
 CHECK_SECONDS = 120                   # a dry run that takes longer is reported, not waited for
+MEMORY_SECONDS = 30                   # the memory block's child process; past this the block says it could not look
 STOP_SECONDS = 10                     # after a second Ctrl-C, how long the page waits for its run to end
 BOUNDARY = ("Local to this machine. Check makes no model call (only the CLI's version check); Run uses your own CLI "
             "login and quota.")
@@ -87,6 +88,7 @@ NEEDS_AGENT = "choose an agent"
 NEEDS_NAME = "type a name in the {} row"
 NEEDS_LIST = "add {} to the {} {}"          # e.g. "add a control to the individual controls"
 NEEDS_CLASS = "choose at least one class"
+NEEDS_FOLDER = "type a config folder that exists, or leave it empty for the default ({} is not a folder)"
 NEEDS_LINE = "To check a run: {}"            # the pieces, joined by " · "
 # What the page refuses before probatio sees the command, each bounded (it never repeats a value): a length it does not
 # offer (smoke is the calibration's setup plan, for a terminal), a NUL, which no command line can carry, a "=" in a
@@ -112,6 +114,7 @@ TEXT_REFUSED = ("there is a character that is not text (a lone surrogate) in {},
                 "carry; remove it")
 FIELD_WORDS = {"agent": "the agent", "model": "the model", "tier": "the length", "classes": "the classes",
                "memory": "the memory choice", "auto_memory": "the auto memory choice", "effort": "the effort",
+               "config_dir": "the config folder",
                "jobs": "the jobs", "watch": "the watch choice", "types": "the types"}
 
 
@@ -143,16 +146,17 @@ def defaults():
         "tiers": list(P.USER_TIERS), "planned": {t: list(P.resolve_classes(t, "all")) for t in P.USER_TIERS},
         "classes": list(P.V4_CLASSES), "memory": list(P.MEMORY_MODES), "efforts": list(P.EFFORTS),
         "auto_memory": [a.auto_memory, AUTO_MEMORY_OFF],
-        "labels": {"cross": P.CROSS_LABEL},
+        "labels": {"cross": P.CROSS_LABEL}, "names_role": P.names_said(None, "standard")[0],
         "program": shlex.join(PROGRAM), "boundary": BOUNDARY,
     }
 
 
 # ---- the form as a command line (pure) ---------------------------------------------------------------------------------
 # The page sends its form as JSON: {"types": [...], "targets": {type: text}, "rosters": {type: {"comparators": text,
-# "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort", "model", "jobs"}, every
-# list of names one name per line, and "watch": "on" or "off". A field left out is its default (watch's is on); a
-# person is a target like any other, so a "name" field is ignored.
+# "controls": text}}, "agent", "tier", "classes": [...], "memory", "auto_memory", "effort", "model", "jobs",
+# "config_dir"}, every list of names one name per line, and "watch": "on" or "off". A field left out is its default
+# (watch's is on; config_dir's, empty, is the CLI's own folder); a person is a target like any other, so a "name" field
+# is ignored.
 def text_of(value):
     """A form field as text, stripped; anything that is not text reads as empty."""
     return value.strip() if isinstance(value, str) else ""
@@ -197,7 +201,7 @@ def entities_text(form, types, base):
             if given != [entry_name(e) for e in default]:
                 by_name = {entry_name(e): e for e in default}
                 data.setdefault(t, {})[part] = [by_name.get(n, n) for n in given]
-    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n" if data else None
+    return P.json_text(data, indent=2, sort_keys=True) + "\n" if data else None
 
 
 def entities_path(text):
@@ -272,8 +276,28 @@ def too_few(short, given, role):
 
 
 def needs_line(needs):
-    """required's pieces as the page shows them: one calm line, or None when nothing is missing."""
-    return NEEDS_LINE.format(" · ".join(needs)) if needs else None
+    """required's pieces as the page shows them: one calm line, within the display cap as a whole (capped), or None
+    when nothing is missing."""
+    return P.capped(NEEDS_LINE.format(" · ".join(needs))) if needs else None
+
+
+def folder_needs(form, env=None):
+    """The config folder field as a missing piece (NEEDS_FOLDER) when it names no folder, read as probatio reads
+    --config-dir in the run (config_path: ~ is the run's HOME, a relative path is from probatio's folder, where the run
+    starts); [] when it is empty or a folder. env is the run's environment (None: this process's). The page calls it
+    beside required, which stays pure."""
+    folder = text_of(form.get("config_dir")) if isinstance(form, dict) else ""
+    if not folder or "\x00" in folder:
+        return []
+    home = (os.environ if env is None else env).get("HOME")
+    return [] if P.is_folder(P.config_path(folder, home=home, cwd=P.HERE)) else \
+        [P.capped(NEEDS_FOLDER.format(P.display(folder)))]         # the whole sentence within the cap
+
+
+def form_needs(form, base=None, env=None):
+    """Everything the form still needs, in the page's order: required's pieces, then the config folder's
+    (folder_needs)."""
+    return required(form, base) + folder_needs(form, env)
 
 
 class FormRefused(ValueError):
@@ -317,7 +341,8 @@ def build_command(form, base=None):
     results/ui-entities-<sha256>.json. Classes are left out only when all three are chosen, the form's own default,
     which is the parser's "all" (each tier then asks its own classes); any other choice is passed on as --class, so
     a subset stays explicit at every tier, even one equal to the tier's classes (I,II at quick, which probatio
-    compares with standard's I,II), and an empty one so the parser says why. --watch comes last unless the form's
+    compares with standard's I,II), and an empty one so the parser says why. A config folder typed in its field is
+    --config-dir FOLDER (empty: the CLI's own folder, and no option). --watch comes last unless the form's
     watch is off (the page then shows the run's output without a live link); either way the command shown is the one
     Check checks and Run runs, byte for byte (preview and Check refuse a command the reply's redactor would change:
     unshown). FormRefused, with no command, for a tier outside USER_TIERS (smoke is a terminal's), a NUL in any
@@ -363,6 +388,9 @@ def build_command(form, base=None):
     model = text_of(form.get("model"))
     if model:
         argv += ["--model", model]
+    folder = text_of(form.get("config_dir"))
+    if folder:
+        argv += ["--config-dir", folder]
     jobs = text_of(str(form["jobs"])) if form.get("jobs") is not None else ""
     if jobs and jobs != str(default["jobs"]):
         argv += ["--jobs", jobs]
@@ -421,8 +449,11 @@ def refused(error, missing=()):
 
 
 def command_words(argv):
-    """The command's words, each quoted for a shell as shlex.join quotes it; the page keeps each one on one line."""
-    return [shlex.quote(w) for w in (*PROGRAM, *argv)]
+    """The command's words, each quoted for a shell as shlex.join quotes it and displayed (probatio's display),
+    so a word typed with an escape or an invisible character shows it escaped; the page keeps each one on one line.
+    They are for the eye and for pasting: Run starts argv itself, never these words, so a word display changes (one
+    longer than DISPLAY_CHARS, cut, or one holding a character it escapes) is pasted as shown, not as Run starts it."""
+    return [P.display(shlex.quote(w)) for w in (*PROGRAM, *argv)]
 
 
 def command_text(argv):
@@ -462,11 +493,12 @@ PAGE_WORDS = (
 
 def page_words(message):
     """The page's words for a refusal of probatio's whose advice the page cannot follow (PAGE_WORDS), or None when the
-    message is one the page shows as it is. A folder is named as the page names it (shown)."""
+    message is one the page shows as it is. A folder is named as the page names it (shown); the words are one value,
+    within the display cap as a whole (capped)."""
     for pattern, words in PAGE_WORDS:
         m = pattern.match(message or "")
         if m:
-            return words.format(**{k: shown(v) if k == "folder" else v for k, v in m.groupdict().items()})
+            return P.capped(words.format(**{k: shown(v) if k == "folder" else v for k, v in m.groupdict().items()}))
     return None
 
 
@@ -478,9 +510,13 @@ def told(preflight, *messages):
 
 def refusal(said, preflight):
     """A refusal of probatio's as Check shows it, (error, plan): the page's words with probatio's own message kept in
-    the whole preflight (page_words), or the message itself."""
+    the whole preflight (page_words), or the message itself, within the display cap as a whole (capped), kept whole
+    in the preflight too when the cap cut it."""
     words = page_words(said)
-    return (words, told(preflight, said)) if words else (said, preflight)
+    if words:
+        return words, told(preflight, said)
+    error = P.capped(said)
+    return error, (preflight if error == said else told(preflight, said))
 
 
 def parser_error(argv):
@@ -500,7 +536,7 @@ def entities_view(text):
     return {"path": entities_path(text), "text": text} if text else None
 
 
-def preview(form, base=None, redactor=None):
+def preview(form, base=None, redactor=None, env=None):
     """The answer to the form as it changes: the command (argv and its text), the entities file it needs, the parser's
     verdict (verbatim), and the calibration words probatio prints for the selection and the roster: cross-type and
     unregistered (DESIGN 11's labels), and fixtures_label, "custom roster: not calibrated (fixtures …)" when the
@@ -509,10 +545,13 @@ def preview(form, base=None, redactor=None):
     from this process's environment) would change gets unshown's message once the parser accepts it, and a roster
     file it would change roster_unshown's once probatio accepts the file. What the form still needs (required) comes
     as "missing" and "needs", its line; the page shows that line, calm, instead of any error until nothing is
-    missing, and the command so far all the while."""
+    missing, and the command so far all the while; a config folder that is not one counts (folder_needs, read with
+    env, the run's environment). In a comparison of types, "names_said" is what a name typed there does (probatio's
+    names_said: the role sentence in the roster's words, custom_controls deciding whether "invented" is true, and at
+    quick the scorecard's own quick-tier sentence)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
-    missing = required(form, base)
+    missing = form_needs(form, base, env)
     try:
         argv, entities = build_command(form, base)
     except FormRefused as e:
@@ -525,13 +564,19 @@ def preview(form, base=None, redactor=None):
         reply["labels"].append(P.CROSS_LABEL)
         if not P.canonical_compare([tuple(types)])["registered"]:
             reply["labels"].append(P.UNREGISTERED_LABEL)
+    kind = "custom"                      # ordo's roster words: "invented" only when every control is known to be
     try:
         spec = P.load_entities(None, bank(), data=json.loads(entities) if entities else None)
         reply["roster"] = P.fixtures_label(spec, types)
         reply["labels"].append(reply["roster"])
+        kind = "custom" if P.custom_controls(spec, bank(), types) else "baseline"
     except SystemExit as e:
         reply["error"] = reply["error"] or exit_message(e.code)
+    reply["names_said"] = P.names_said(text_of(form.get("agent")), text_of(form.get("tier")) or
+                                       base["default"]["tier"], kind) if len(types) > 1 else []
     reply["error"] = reply["error"] or roster_unshown(entities, redactor)
+    if reply["error"]:                   # probatio's message or the page's: one value, within the cap as a whole
+        reply["error"] = P.capped(reply["error"])
     return reply
 
 
@@ -663,11 +708,12 @@ def prepared(argv):
 
 
 def shown(path):
-    """A path as the page shows it: relative to probatio's folder when it is inside it."""
+    """A path as the page shows it: relative to probatio's folder when it is inside it, displayed (probatio's
+    display)."""
     try:
-        return str(Path(path).resolve().relative_to(P.HERE))
+        return P.display(Path(path).resolve().relative_to(P.HERE))
     except ValueError:
-        return str(path)
+        return P.display(path)
 
 
 # ---- a folder an earlier run holds: probatio's own resume check, read only ------------------------------------------
@@ -720,12 +766,13 @@ def resume_refusals(argv, plans, env):
 
 def blocked_words(refusals):
     """The page's words for each folder that blocks the run (resume_refusals): which folder, what differs when
-    probatio names it, and what to do from the page."""
+    probatio names it, and what to do from the page: one sentence per folder, each within the display cap as a whole
+    (capped), so a run of several folders names every one of them."""
     words = []
     for folder, said in refusals:
         changed = CHANGED.search(said)
-        words.append(BLOCKED.format(folder=shown(folder),
-                                    changed=f" with other settings ({changed.group(1)} changed)" if changed else ""))
+        differs = f" with other settings ({changed.group(1)} changed)" if changed else ""
+        words.append(P.capped(BLOCKED.format(folder=shown(folder), changed=differs)))
     return " ".join(words)
 
 
@@ -785,6 +832,102 @@ def resume_child():
     json.dump({"fingerprints": [m.get("plan_fingerprint") for m in metas],
                "refusals": [resume_refusal(Path(f), m) if (Path(f) / "run.json").exists() else None
                             for f, m in zip(request["folders"], metas)]}, sys.stdout)
+
+
+# ---- the memory this run tests: probatio's own memory_report, read in a child process with the run's environment -----
+# The block the form shows before Check is what the preflight prints (memory_report, config_choice, memory_people,
+# config_candidates), read where the run reads it: in a child process with the run's environment, from probatio's
+# folder, as resume_child reads the memory files. The child parses the form's command with probatio's own parser and
+# writes JSON; it writes no file and starts no CLI. Its titles are local, pre-run information for this page only.
+MEMORY_CHILD = "import sys; sys.path.insert(0, {!r}); import ui; ui.memory_child()"
+MEMORY_UNREAD = "the page could not look at the memory files ({}); Check's dry run lists them"
+
+
+def memory_view(argv, env):
+    """The memory block's answer for argv (memory_answer, in a child process with env, the run's environment, in
+    probatio's folder), or {"error": why} when the child does not answer within MEMORY_SECONDS or cannot start."""
+    try:
+        proc = subprocess.run([sys.executable, "-I", "-B", "-c", MEMORY_CHILD.format(str(Path(__file__).parent))],
+                              input=json.dumps({"argv": absolute(argv)}), cwd=P.HERE, env=env, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=MEMORY_SECONDS)
+    except subprocess.TimeoutExpired:
+        return {"error": MEMORY_UNREAD.format(f"it took longer than {MEMORY_SECONDS} s")}
+    except (ValueError, OSError) as e:
+        return {"error": not_started("look at the memory files", e)}
+    try:
+        answer = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except ValueError:
+        answer = None
+    if not isinstance(answer, dict):
+        return {"error": MEMORY_UNREAD.format(P.display((proc.stderr.strip().splitlines() or ["no answer"])[-1], 200))}
+    return answer
+
+
+def memory_people_of(a, argv):
+    """The individual targets of the command (probatio's memory_people over prepare_runs, as the preflight reads
+    them), for the name notes; [] when there is no target or probatio refuses the command (the preview and Check say
+    why). The entities file is left out: the page writes targets as --target, and the file may not be written yet."""
+    if not a.target:
+        return []
+    bare = [x for prev, x in zip([None, *argv], argv) if x != "--entities" and prev != "--entities"]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            got = P.prepare_runs(P.parse_args_v4(bare), "--target-type" in bare)
+    except SystemExit:
+        return []
+    return P.memory_people(got[4]) if got else []
+
+
+def memory_answer(argv):
+    """What the block shows for argv, as probatio's preflight would print it: {"report": memory_report's facts (the
+    folder, where it came from, each file's path, size and title, the total and the name notes; no hash), "empty":
+    the list's one line when it lists no file, "candidates": the other Claude Code config folders (Claude Code
+    only), "missing": the folder typed when it is not one}; {"report": None} for a command probatio's parser refuses
+    or with no agent (the preview says why); {"error": probatio's refusal} for a memory file the run cannot read. Every
+    string from the filesystem is displayed (probatio's display); a candidate whose name display changes has no
+    "path", so a click never puts a changed path into the field ("escaped" says why)."""
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            a = P.parse_args_v4(argv)
+    except SystemExit:
+        return {"report": None}
+    if a.agent is None:
+        return {"report": None}
+    folder, source = P.config_choice(a.agent, a.config_dir)
+    if not P.config_is_folder(folder) and source == "option":
+        return {"report": None, "missing": P.display(P.tilde(folder))}
+    try:
+        report = P.memory_report(a.agent, str(Path(a.workdir).resolve()), a.memory, a.auto_memory, folder, source,
+                                 memory_people_of(a, argv))
+    except SystemExit as refused:               # a memory file the run cannot read: probatio's own line, calm
+        return {"error": P.capped(P.refusal_text(refused.code))}
+    files = [{"path": P.display(f["path"]), "shown": f["shown"], "size": P.size_words(f["bytes"]),
+              "title": title_shown(f["title"])} for f in report["files"]]
+    empty = P.memory_empty(report)
+    candidates = P.config_candidates(in_use=folder) if a.agent == "claude" else []
+    return {"report": dict({k: report[k] for k in ("agent", "memory", "folder", "source", "notes")}, files=files,
+                           total=P.MEMORY_TOTAL_LINE.strip().format(files=P.file_count(len(files)),
+                                                                    size=P.size_words(report["total"])) if files
+                           else None),
+            "empty": empty,
+            "candidates": [{"path": c["path"] if P.shows_as_is(c["path"]) else None,
+                            "folder": P.display(P.tilde(c["path"])),
+                            "claude_md": dict(c["claude_md"], size=P.size_words(c["claude_md"]["bytes"]),
+                                              title=title_shown(c["claude_md"]["title"]))
+                            if c["claude_md"] else None} for c in candidates],
+            "escaped": P.CANDIDATE_ESCAPED}
+
+
+def title_shown(title):
+    """A memory file's title as the page shows it: the title, or for a file whose first bytes are not text (None)
+    probatio's TITLE_UNREADABLE in parentheses."""
+    return f"({P.TITLE_UNREADABLE})" if title is None else title
+
+
+def memory_child():
+    """memory_view's child process: reads {"argv"} on stdin and writes memory_answer's JSON on stdout."""
+    request = json.load(sys.stdin)
+    json.dump(memory_answer(request["argv"]), sys.stdout)
 
 
 # ---- one run at a time ---------------------------------------------------------------------------------------------------
@@ -898,7 +1041,8 @@ class Session:
         self.gate = threading.RLock()                  # re-entrant only so a nested call in one thread cannot hang
 
     def actions(self):
-        return {"/command": self.command, "/check": self.check, "/run": self.run, "/stop": self.stop}
+        return {"/command": self.command, "/memory": self.memory, "/check": self.check, "/run": self.run,
+                "/stop": self.stop}
 
     def child_env(self):
         """The environment of a dry run or a run: this process's (or the tests'), with Python's output unbuffered so
@@ -906,7 +1050,18 @@ class Session:
         return dict(os.environ if self.env is None else self.env, PYTHONUNBUFFERED="1")
 
     def command(self, request):
-        return preview(request.get("form"), redactor=self.redactor)
+        return preview(request.get("form"), redactor=self.redactor, env=self.child_env())
+
+    def memory(self, request):
+        """The "Memory this run tests" block for the form (memory_view, in a child process with the run's
+        environment): {"report": None} while the form has no command or no agent. It never waits on a Check or a
+        Run and approves nothing."""
+        form = request.get("form") if isinstance(request.get("form"), dict) else {}
+        try:
+            argv, _ = build_command(form)
+        except FormRefused:
+            return {"report": None}
+        return memory_view(argv, self.child_env()) if text_of(form.get("agent")) else {"report": None}
 
     def check(self, request):
         """The real --dry-run of the form's command, in a subprocess in probatio's folder: its preflight and the totals,
@@ -921,7 +1076,7 @@ class Session:
         with the page's fix, and approves nothing, since the run would stop on it at once."""
         with self.gate:
             self.checked = None
-            missing = required(request.get("form"))
+            missing = form_needs(request.get("form"), env=self.child_env())
             if missing:                     # nothing written, no dry run: the page's own line, as preview gives it
                 return dict(refused(needs_line(missing), missing), ok=False, plan="", summary=None)
             try:
@@ -973,7 +1128,7 @@ class Session:
         before the run starts, refused as Check refuses it, with probatio's own words after the Check's preflight."""
         if request.get("confirmed") is not True:
             return {"error": "confirm the run first"}
-        missing = required(request.get("form"))
+        missing = form_needs(request.get("form"), env=self.child_env())
         if missing:
             return {"error": needs_line(missing), "missing": missing, "needs": needs_line(missing)}
         try:
@@ -995,7 +1150,7 @@ class Session:
             except SnapshotRefused as e:
                 return {"error": str(e)}
             except SystemExit as e:
-                return {"error": exit_message(e.code)}
+                return {"error": P.capped(exit_message(e.code))}
             if tuple(fingerprint for _, fingerprint in plans) != approved.fingerprints:
                 return {"error": "the plan is no longer the one Check approved; check again"}
             try:
@@ -1104,7 +1259,9 @@ header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0 
 h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-.01em; } header .sub { color:var(--muted); }
 h2 { font-size:14px; font-weight:600; margin:0 0 6px; display:flex; gap:10px; align-items:baseline; }
 h2 .aside { font-size:12.5px; font-weight:400; color:var(--muted); margin-left:auto; }
-#how { margin-top:28px; }
+#how, #memsec { margin-top:28px; }
+#memory { margin:2px 0 0; } #memory .kv code { color:var(--ink2); } #memory .cands { margin:10px 0 0; }
+#memory .cands button.link { padding:2px 0; margin-right:6px; }
 .pill { font-size:12.5px; color:var(--ink2); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
 .pill::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--muted); }
 .pill.running::before, .pill.scored::before { background:var(--good); }
@@ -1210,7 +1367,8 @@ footer { margin-top:48px; color:var(--muted); font-size:12.5px; }
 <header><h1>probatio</h1><span class="sub">choose a run, see its command, check it, run it</span>
 <span class="pill" id="pill">connecting</span></header>
 <div class="layout">
-<div id="form"><section id="measure"></section><section id="against"></section><section id="how"></section></div>
+<div id="form"><section id="measure"></section><section id="against"></section><section id="how"></section>
+<section id="memsec"></section></div>
 <aside class="answer">
 <h2>Command <span class="aside" id="cmdnote"></span></h2>
 <div class="cmdbox"><pre class="cmd" id="cmd">…</pre>
@@ -1234,6 +1392,7 @@ const DEFAULT_MODEL = {codex: "default (config.toml)"};  // a CLI's default mode
 const TIME_NOTE = {codex: "the time estimate for Codex is assumed, not measured."};    // else the Sonnet line below
 let D = null, F = null, said = null, plan = null, run = null, asked = 0, timer = null, confirming = false;
 let checking = false, marks = [], otherModel = false;
+let mem = null, memAsked = 0, memKey = null;   // the memory block's answer (/memory), its request and its form
 let edits = 0, answered = 0;      // the form's edits, and the latest one /command has answered; until then, Check
                                   // and Run wait (updating)
 const updating = () => answered < edits;
@@ -1268,7 +1427,7 @@ function fresh() {
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
   return {types: [d.type], targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
           memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", watch: D.watch[0],
-          jobs: String(d.jobs)};                    // watch's choices come default first
+          jobs: String(d.jobs), config_dir: ""};    // watch's choices come default first; "" is the CLI's own folder
 }
 // ---- the form
 function choices(key, values, opts) {      // a segmented choice; opts: multi, after (on click), def (tagged "default")
@@ -1336,6 +1495,69 @@ function measure() {
       (person ? (cross ? "; type your own name to include yourself." : "; type your own name to score yourself.") :
         ".")));
   }
+  if (cross) {                                       // what a name does in a comparison, and at quick what it measures
+    const role = el("p", "note", D.names_role), quick = el("p", "note");
+    role.id = "namesnote"; quick.id = "quicknote"; quick.hidden = true;
+    add(s, role, quick);
+  }
+}
+function coded(box, text) {               // text with `command` spans as code, the way the scorecard writes them
+  String(text).split("`").forEach((part, i) => add(box, i % 2 ? el("code", null, part) : document.createTextNode(part)));
+  return box;
+}
+function kvLine(k, v, after) {            // a key, a value in code, and an optional muted tail
+  return add(el("div", "kv"), el("span", null, k + " "), el("code", null, v), after ? el("span", null, " " + after) :
+    null);
+}
+function memsec() {                       // the memory this run tests: the config folder field and what it holds
+  const s = $("memsec");
+  s.replaceChildren(el("h2", null, "Memory this run tests"));
+  const box = el("div");
+  box.id = "memory";
+  add(s, row("config folder", field(F, "config_dir", "the CLI's own (leave empty)"),
+    "The folder your agent's launcher sets as CLAUDE_CONFIG_DIR (Claude Code) or CODEX_HOME (Codex); empty is " +
+    "the one this shell gives the CLI."), box);
+  renderMemory();
+}
+function renderMemory() {                 // /memory's answer: probatio's own memory report, read as the run reads it
+  const box = $("memory");
+  if (!box) return;
+  box.replaceChildren();
+  if (!mem) { box.appendChild(el("p", "note", F.agent ? "Looking at the memory files…" :
+    "Choose an agent to see the memory it tests.")); return; }
+  if (mem.error) { box.appendChild(el("p", "note", mem.error)); return; }
+  const r = mem.report;
+  if (!r) box.appendChild(el("p", "note", mem.missing ? "No folder at " + mem.missing + "; this run would stop " +
+    "on it." : F.agent ? "The memory shows once the command is complete." : "Choose an agent to see the memory it " +
+    "tests."));
+  else {
+    box.appendChild(kvLine("config folder", r.folder, "(" + r.source + ")"));
+    if (mem.empty) box.appendChild(el("p", "hintline", "Memory files: " + mem.empty + "."));
+    else for (const f of r.files) box.appendChild(kvLine("", f.shown, f.size + (f.title ? " · " + f.title : "")));
+    if (r.total) box.appendChild(el("div", "hintline", r.total[0].toUpperCase() + r.total.slice(1) + "."));
+    for (const n of r.notes) box.appendChild(el("p", "hintline", n[0].toUpperCase() + n.slice(1) + "."));
+  }
+  if (mem.candidates && mem.candidates.length) {     // a click fills the field with that folder
+    const list = add(el("div", "cands"), el("div", "note", "Other Claude Code config folders on this machine:"));
+    for (const c of mem.candidates) {
+      const b = el("button", "link", c.folder), md = c.claude_md;
+      b.type = "button"; b.title = c.path === null ? mem.escaped : c.path;
+      if (c.path === null) b.disabled = true;           // a name shown escaped: typed by hand, never filled
+      else b.addEventListener("click", () => { F.config_dir = c.path; memsec(); changed(); });
+      add(list, add(el("div", "kv"), b, el("span", null, md ? "CLAUDE.md " + md.size + (md.title ? " · " + md.title : "")
+        : "no CLAUDE.md")));
+    }
+    box.appendChild(list);
+  }
+}
+async function refreshMemory() {          // asked again only when what the memory depends on changed
+  const key = JSON.stringify([F.agent, F.config_dir, F.memory, F.auto_memory, F.types, F.targets.individual || ""]);
+  if (key === memKey) return;
+  memKey = key; const n = ++memAsked;
+  if (!F.agent) { mem = null; renderMemory(); return; }
+  try { const r = await post("/memory", {form: F}); if (n === memAsked) mem = r; }
+  catch (err) { if (n === memAsked) mem = {error: "the page could not reach its server (" + err.message + ")"}; }
+  renderMemory();
 }
 function against() {
   const s = $("against"), cross = F.types.length > 1, shown = shownLists();
@@ -1453,7 +1675,7 @@ function moreSummary() {                   // More options' closed line: what di
   box.textContent = diff.length ? diff.join(" · ") : "defaults";
   box.classList.toggle("changed", diff.length > 0);
 }
-function build() { marks = []; measure(); against(); how(); }
+function build() { marks = []; measure(); against(); how(); memsec(); }
 // ---- the answer
 function changed() {                      // an edit: Check and Run wait for /command's answer to it (updating)
   confirming = false; edits++;
@@ -1464,7 +1686,7 @@ async function refresh() {
   const n = ++asked, edit = edits;
   try { const r = await post("/command", {form: F}); if (n === asked) { said = r; answered = edit; } }
   catch (err) { if (n === asked) { said = null; answered = edit; } }
-  render();
+  render(); refreshMemory();
 }
 function render() {
   const cmd = $("cmd"); cmd.replaceChildren();
@@ -1485,6 +1707,14 @@ function render() {
   }
   const custom = $("custom");
   if (custom) { custom.hidden = !(said && said.entities); custom.firstChild.textContent = said && said.roster || ""; }
+  const role = $("namesnote");               // the role sentence in the roster's words, once the preview has them
+  if (role && said && said.names_said && said.names_said.length) role.textContent = said.names_said[0];
+  const quick = $("quicknote"), more = said && said.names_said ? said.names_said.slice(1) : [];
+  if (quick) {                               // at quick, with a name typed: the scorecard's own sentence for it
+    quick.replaceChildren();
+    quick.hidden = !(more.length && F.types.some(t => lines(F.targets[t]).length));
+    if (!quick.hidden) coded(quick, more.join(" "));
+  }
   const error = $("error"), needs = said && said.needs;    // a field still empty: one calm line, never an error
   error.replaceChildren(); error.classList.toggle("calm", !!needs);
   if (needs) error.textContent = needs;

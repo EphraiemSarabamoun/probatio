@@ -346,6 +346,53 @@ class TestBuildCommand(unittest.TestCase):
             self.assertEqual(U.build_command(form), U.build_command({k: v for k, v in form.items() if k != "name"}))
             self.assertNotIn("--name", U.build_command(form)[0], form)
 
+    def test_the_config_folder_is_one_option_and_empty_adds_none(self):
+        """A config folder typed in its field is --config-dir FOLDER, as typed but stripped; empty, or blank, is the
+        CLI's own folder and adds nothing, as every other field does. probatio's parser takes it."""
+        self.assertEqual(U.build_command(dict(JANE, config_dir=" ~/agents/work "))[0],
+                         ["--agent", "claude", "--target", "Jane Doe", "--config-dir", "~/agents/work", "--watch"])
+        for blank in ("", "  ", None):
+            self.assertEqual(U.build_command(dict(JANE, config_dir=blank)), U.build_command(JANE))
+        self.assertEqual(P.parse_args_v4(U.build_command(dict(JANE, config_dir="/c"))[0]).config_dir, "/c")
+        self.assertEqual(U.FIELD_WORDS["config_dir"], "the config folder")
+
+    def test_a_config_folder_that_is_not_one_is_a_calm_missing_piece(self):
+        """A folder that is not there is what the run still needs, in plain words (folder_needs, read as probatio
+        reads --config-dir: ~ is the run's HOME, a relative path is from probatio's folder); required stays pure."""
+        with tempfile.TemporaryDirectory() as d:
+            env = {"HOME": d}
+            (Path(d) / "agents").mkdir()
+            self.assertEqual(U.folder_needs(dict(JANE, config_dir="~/agents"), env), [])
+            self.assertEqual(U.folder_needs(dict(JANE, config_dir="~/nowhere"), env),
+                             [U.NEEDS_FOLDER.format("~/nowhere")])
+            self.assertEqual(U.folder_needs(dict(JANE, config_dir=""), env), [])
+            said = U.preview(dict(JANE, config_dir="~/nowhere"), env=env)
+            self.assertEqual((said["missing"], said["needs"]), ([U.NEEDS_FOLDER.format("~/nowhere")],
+                                                                U.needs_line([U.NEEDS_FOLDER.format("~/nowhere")])))
+            self.assertEqual(U.required(dict(JANE, config_dir="~/nowhere")), [])
+
+    def test_a_comparison_says_what_a_name_does(self):
+        """In a comparison the page's note under the rows is probatio's role sentence, and at quick the preview adds
+        the scorecard's own quick-tier sentence (names_said: one wording, ordo's quick_names_line), in ordo's roster
+        words: invented only when every control is one of the bank's invented entities."""
+        self.assertEqual(U.defaults()["names_role"], P.names_said(None, "standard")[0])
+        cross = {"agent": "codex", "types": ["individual", "organization"], "targets": {"individual": "Jane Doe"}}
+        self.assertEqual(U.preview(dict(cross, tier="quick"))["names_said"], P.names_said("codex", "quick"))
+        self.assertEqual(U.preview(dict(cross, tier="quick"))["names_said"][1],
+                         P.import_ordo().QUICK_NAMES_LINE.format(agent="codex") + ".")
+        self.assertEqual(U.preview(cross)["names_said"], P.names_said("codex", "standard"))
+        self.assertEqual(U.preview(JANE)["names_said"], [])
+        self.assertIn("invented entities", U.preview(cross)["names_said"][0])
+        # a control of the user's own may be real: the note then uses the roster's words, never "invented"
+        custom = dict(cross, rosters={"organization": {"controls": "NASA\nThirlbeck Systems"}})
+        role = U.preview(custom)["names_said"][0]
+        self.assertEqual(role, P.names_said("codex", "standard", "custom")[0])
+        self.assertIn("the roster's entities", role)
+        self.assertNotIn("invented", role)
+        for words in ('role.id = "namesnote"', 'quick.id = "quicknote"', "coded(quick, more.join(\" \"))",
+                      "role.textContent = said.names_said[0]"):
+            self.assertIn(words, U.PAGE)
+
     def test_a_default_spelled_out_adds_no_flag(self):
         base = U.defaults()
         spelled = dict(JANE, types=["individual"], tier="standard", memory="on",
@@ -1471,7 +1518,8 @@ class TestCheckAndRun(Stubbed):
         reads none of them); and while the form still needs a field, the page shows that one calm line (preview's
         "needs") and waits, keeping probatio's own message, in red, for a complete form; no "touched" rule."""
         for i in ("pill", "form", "measure", "against", "how", "cmd", "where", "copy", "labels", "error", "files",
-                  "check", "run", "why", "confirm", "runsec", "runbox", "plan", "foot", "custom", "modelnote"):
+                  "check", "run", "why", "confirm", "runsec", "runbox", "plan", "foot", "custom", "modelnote",
+                  "memsec", "memory", "namesnote", "quicknote"):
             self.assertTrue(f'id="{i}"' in U.PAGE or f'.id = "{i}"' in U.PAGE, i)
         for token in ("--field", "--track", "--accent"):
             self.assertIn(token + ":", L.PAGE_BASE)
@@ -1625,6 +1673,45 @@ class TestCheckAndRun(Stubbed):
         self.assertEqual(spied, [])
         self.assertFalse(list((self.tmp / "results").glob("ui-entities-*")))
 
+    def test_the_memory_block_is_the_preflights_own_report(self):
+        """/memory answers with probatio's own memory_report for the form's command, read in a child process with the
+        run's environment (its HOME here): the folder and where it came from, each file's path, size and title, the
+        total, the name note, and the other Claude Code config folders; the config folder field moves it, a folder
+        that is not there is said calmly (preview's needs, and Check refuses it before any dry run), and a form with
+        no agent shows nothing yet. No CLI is started for it."""
+        home = Path(self.env["HOME"])
+        (home / ".claude").mkdir()
+        (home / ".claude" / "CLAUDE.md").write_text("# Old notes\nnothing here\n")
+        work = home / "agents" / "work"
+        (work / "projects").mkdir(parents=True)
+        (work / ".claude.json").write_text("{}")
+        (work / "CLAUDE.md").write_text("# Working agent\nfor Jane Doe\n")
+        plain = self.s.post("/memory", {"form": JANE})
+        report = P.memory_report("claude", str(home.resolve()), "on", "as-configured", home / ".claude", "default",
+                                 [P.entity("individual", "Jane Doe")])
+        self.assertEqual(plain["report"]["folder"], "~/.claude")                     # ~ is the run's HOME
+        self.assertEqual(plain["report"]["source"], P.source_words("claude", "default"))
+        self.assertEqual([(f["path"], f["size"], f["title"]) for f in plain["report"]["files"]],
+                         [(f["path"], P.size_words(f["bytes"]), f["title"]) for f in report["files"]])
+        self.assertEqual(report["notes"], [P.MEMORY_NAME_NOTE.format(name="Jane Doe")])
+        self.assertEqual(plain["report"]["notes"], report["notes"])
+        self.assertEqual([c["path"] for c in plain["candidates"]], [str(work)])
+        self.assertEqual(plain["candidates"][0]["claude_md"]["title"], "Working agent")
+        self.assertNotIn("sha256", json.dumps(plain))
+        chosen = self.s.post("/memory", {"form": dict(JANE, config_dir=str(work))})
+        self.assertEqual([f["title"] for f in chosen["report"]["files"]][:1], ["Working agent"])
+        self.assertEqual((chosen["report"]["notes"], chosen["candidates"]), ([], []))
+        off = self.s.post("/memory", {"form": dict(JANE, memory="off")})
+        self.assertEqual((off["report"]["files"], off["empty"]), ([], P.MEMORY_OFF))
+        gone = dict(JANE, config_dir="~/nowhere")
+        self.assertEqual(self.s.post("/memory", {"form": gone}), {"report": None, "missing": "~/nowhere"})
+        need = [U.NEEDS_FOLDER.format("~/nowhere")]
+        said = self.s.post("/command", {"form": gone})
+        self.assertEqual((said["missing"], said["needs"], said["error"]), (need, U.needs_line(need), None))
+        self.assertEqual(self.s.post("/check", {"form": gone})["error"], U.needs_line(need))
+        self.assertEqual(self.s.post("/memory", {"form": dict(JANE, agent="")}), {"report": None})
+        self.assertTrue(self.s.post("/check", {"form": dict(JANE, config_dir=str(work))})["ok"])
+
     def test_what_a_run_still_needs_is_one_calm_line_and_nothing_runs(self):
         """Through the page's own actions: an untouched page, a name typed before an agent, an agent with an empty row,
         empty organization and nation rows, and no class each get required's pieces in the page's order as "missing"
@@ -1670,6 +1757,52 @@ class TestCheckAndRun(Stubbed):
                                                                  targets={"individual": "Jane Doe"})})["ok"])
 
     @unittest.skipUnless(CHROME, "needs a headless Chrome on PATH")
+    @unittest.skipUnless(CHROME, "needs a headless Chrome on PATH")
+    def test_the_memory_block_in_a_real_browser(self):
+        """In a real browser, before any Check: the "Memory this run tests" block shows the config folder, the file
+        with its size and title, and the name note; a click on another config folder found on this machine fills the
+        field, the command gains --config-dir and the block shows that folder's file; a folder that is not there is the
+        calm line, never red."""
+        home = Path(self.env["HOME"])
+        (home / ".claude").mkdir()
+        (home / ".claude" / "CLAUDE.md").write_text("# Old notes\nnothing here\n")
+        work = home / "agents" / "work"
+        (work / "projects").mkdir(parents=True)
+        (work / ".claude.json").write_text("{}")
+        (work / "CLAUDE.md").write_text("# Working agent\nfor Jane Doe\n")
+        chrome = Chrome(self.tmp / "chrome")
+        try:
+            def settle():
+                self.assertTrue(wait_for(lambda: chrome.js(
+                    "window.__inflight === 0 && Date.now() - window.__last > 400 && !checking"), 60))
+            text = lambda i: chrome.js(f"document.getElementById('{i}').textContent")       # noqa: E731
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{self.s.port}/?t={self.s.token}")
+            self.assertTrue(wait_for(lambda: chrome.js("typeof said !== 'undefined' && said !== null"), 60))
+            chrome.js(PAGE_HANDS)
+            self.assertIn("Choose an agent to see the memory it tests.", text("memory"))
+            for step in ("__h.click('claude')", "__h.type('Jane Doe')"):
+                chrome.js(step)
+                settle()
+            shown = text("memory")
+            for words in ("config folder ~/.claude", "Old notes", P.size_words(len("# Old notes\nnothing here\n")),
+                          "Note: none of these memory files mentions Jane Doe", "~/agents/work", "Working agent"):
+                self.assertIn(words, shown)
+            chrome.js("[...document.querySelectorAll('#memory .cands button')][0].click(); window.__last = Date.now()")
+            settle()
+            self.assertEqual(chrome.js("document.querySelector('#memsec input').value"), str(work))
+            self.assertIn(f"--config-dir {work}", text("cmd"))
+            self.assertIn("config folder ~/agents/work", text("memory"))
+            self.assertNotIn("Note: none of these memory files", text("memory"))
+            chrome.js("const i = document.querySelector('#memsec input'); i.value = '~/nowhere'; "
+                      "i.dispatchEvent(new Event('input')); window.__last = Date.now()")
+            settle()
+            self.assertEqual(text("error"), U.needs_line([U.NEEDS_FOLDER.format("~/nowhere")]))
+            self.assertIn("No folder at ~/nowhere", text("memory"))
+            self.assertTrue(chrome.js("document.getElementById('check').disabled"))
+            self.assertEqual(chrome.js("__h.reds()"), [])
+        finally:
+            chrome.close()
+
     def test_an_edit_and_a_click_at_once_never_turn_red(self):
         """In a real browser: clearing the row and clicking Check in the same moment, and, after a passed Check,
         clearing the row and clicking Run and Start the run, never show red text. The page acts only on a form the
