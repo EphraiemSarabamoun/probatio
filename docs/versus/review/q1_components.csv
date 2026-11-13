@@ -1,0 +1,91 @@
+roster,tier,pair,frame,component,units,first_type_order_units,second_type_order_units,minimum_valid_first_order,minimum_valid_second_order,bootstrap_clusters,semantic_variants,can_pass_count_guards,count_reason
+one-name,quick,individual:organization,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with individual first (3 of 3)
+one-name,quick,individual:organization,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,quick,individual:organization,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,quick,individual:organization,authority,F2.a,0,0,0,,,0,0,False,not run
+one-name,quick,individual:organization,authority,F2.b,0,0,0,,,0,0,False,not run
+one-name,quick,organization:nation,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with organization first (3 of 3)
+one-name,quick,organization:nation,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with organization first (2 of 2)
+one-name,quick,organization:nation,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with organization first (2 of 2)
+one-name,quick,organization:nation,authority,F2.a,0,0,0,,,0,0,False,not run
+one-name,quick,organization:nation,authority,F2.b,0,0,0,,,0,0,False,not run
+one-name,quick,individual:nation,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with individual first (3 of 3)
+one-name,quick,individual:nation,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,quick,individual:nation,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,quick,individual:nation,authority,F2.a,0,0,0,,,0,0,False,not run
+one-name,quick,individual:nation,authority,F2.b,0,0,0,,,0,0,False,not run
+one-name,standard,individual:organization,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with individual first (3 of 3)
+one-name,standard,individual:organization,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:organization,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:organization,authority,F2.a,4,2,2,4,4,1,1,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:organization,authority,F2.b,16,8,8,6,6,2,2,True,
+one-name,standard,organization:nation,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with organization first (3 of 3)
+one-name,standard,organization:nation,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with organization first (2 of 2)
+one-name,standard,organization:nation,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with organization first (2 of 2)
+one-name,standard,organization:nation,authority,F2.a,4,2,2,4,4,1,1,False,too few valid replies with organization first (2 of 2)
+one-name,standard,organization:nation,authority,F2.b,16,8,8,6,6,2,2,True,
+one-name,standard,individual:nation,role-free,F1.a,6,3,3,4,4,3,3,False,too few valid replies with individual first (3 of 3)
+one-name,standard,individual:nation,role-free,F1.b,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:nation,role-free,F1.c,4,2,2,4,4,2,2,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:nation,authority,F2.a,4,2,2,4,4,1,1,False,too few valid replies with individual first (2 of 2)
+one-name,standard,individual:nation,authority,F2.b,16,8,8,6,6,2,2,True,
+one-name,full,individual:organization,role-free,F1.a,12,6,6,4,4,3,3,True,
+one-name,full,individual:organization,role-free,F1.b,8,4,4,4,4,2,2,True,
+one-name,full,individual:organization,role-free,F1.c,8,4,4,4,4,2,2,True,
+one-name,full,individual:organization,authority,F2.a,8,4,4,4,4,1,1,True,
+one-name,full,individual:organization,authority,F2.b,32,16,16,11,11,2,2,True,
+one-name,full,organization:nation,role-free,F1.a,12,6,6,4,4,3,3,True,
+one-name,full,organization:nation,role-free,F1.b,8,4,4,4,4,2,2,True,
+one-name,full,organization:nation,role-free,F1.c,8,4,4,4,4,2,2,True,
+one-name,full,organization:nation,authority,F2.a,8,4,4,4,4,1,1,True,
+one-name,full,organization:nation,authority,F2.b,32,16,16,11,11,2,2,True,
+one-name,full,individual:nation,role-free,F1.a,12,6,6,4,4,3,3,True,
+one-name,full,individual:nation,role-free,F1.b,8,4,4,4,4,2,2,True,
+one-name,full,individual:nation,role-free,F1.c,8,4,4,4,4,2,2,True,
+one-name,full,individual:nation,authority,F2.a,8,4,4,4,4,1,1,True,
+one-name,full,individual:nation,authority,F2.b,32,16,16,11,11,2,2,True,
+default-two-names,quick,individual:organization,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,quick,individual:organization,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,quick,individual:organization,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,quick,individual:organization,authority,F2.a,0,0,0,,,0,0,False,not run
+default-two-names,quick,individual:organization,authority,F2.b,0,0,0,,,0,0,False,not run
+default-two-names,quick,organization:nation,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,quick,organization:nation,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,quick,organization:nation,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,quick,organization:nation,authority,F2.a,0,0,0,,,0,0,False,not run
+default-two-names,quick,organization:nation,authority,F2.b,0,0,0,,,0,0,False,not run
+default-two-names,quick,individual:nation,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,quick,individual:nation,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,quick,individual:nation,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,quick,individual:nation,authority,F2.a,0,0,0,,,0,0,False,not run
+default-two-names,quick,individual:nation,authority,F2.b,0,0,0,,,0,0,False,not run
+default-two-names,standard,individual:organization,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,standard,individual:organization,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,standard,individual:organization,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,standard,individual:organization,authority,F2.a,16,8,8,6,6,4,4,True,
+default-two-names,standard,individual:organization,authority,F2.b,32,16,16,11,11,4,2,True,
+default-two-names,standard,organization:nation,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,standard,organization:nation,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,standard,organization:nation,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,standard,organization:nation,authority,F2.a,16,8,8,6,6,4,4,True,
+default-two-names,standard,organization:nation,authority,F2.b,32,16,16,11,11,4,2,True,
+default-two-names,standard,individual:nation,role-free,F1.a,24,12,12,8,8,12,3,True,
+default-two-names,standard,individual:nation,role-free,F1.b,16,8,8,6,6,8,2,True,
+default-two-names,standard,individual:nation,role-free,F1.c,16,8,8,6,6,8,2,True,
+default-two-names,standard,individual:nation,authority,F2.a,16,8,8,6,6,4,4,True,
+default-two-names,standard,individual:nation,authority,F2.b,32,16,16,11,11,4,2,True,
+default-two-names,full,individual:organization,role-free,F1.a,48,24,24,16,16,12,3,True,
+default-two-names,full,individual:organization,role-free,F1.b,32,16,16,11,11,8,2,True,
+default-two-names,full,individual:organization,role-free,F1.c,32,16,16,11,11,8,2,True,
+default-two-names,full,individual:organization,authority,F2.a,32,16,16,11,11,4,4,True,
+default-two-names,full,individual:organization,authority,F2.b,64,32,32,22,22,4,2,True,
+default-two-names,full,organization:nation,role-free,F1.a,48,24,24,16,16,12,3,True,
+default-two-names,full,organization:nation,role-free,F1.b,32,16,16,11,11,8,2,True,
+default-two-names,full,organization:nation,role-free,F1.c,32,16,16,11,11,8,2,True,
+default-two-names,full,organization:nation,authority,F2.a,32,16,16,11,11,4,4,True,
+default-two-names,full,organization:nation,authority,F2.b,64,32,32,22,22,4,2,True,
+default-two-names,full,individual:nation,role-free,F1.a,48,24,24,16,16,12,3,True,
+default-two-names,full,individual:nation,role-free,F1.b,32,16,16,11,11,8,2,True,
+default-two-names,full,individual:nation,role-free,F1.c,32,16,16,11,11,8,2,True,
+default-two-names,full,individual:nation,authority,F2.a,32,16,16,11,11,4,4,True,
+default-two-names,full,individual:nation,authority,F2.b,64,32,32,22,22,4,2,True,

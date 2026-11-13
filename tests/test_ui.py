@@ -109,6 +109,19 @@ def page_form(**changes):
 CHROME = next((shutil.which(n) for n in ("google-chrome", "chromium", "chromium-browser") if shutil.which(n)), None)
 
 
+def browser_env(profile):
+    """The browser's environment: this one, with its home and every cache it writes (font and dconf caches, the GPU
+    drivers' shader caches) inside a folder beside its throwaway profile, so a test's browser leaves nothing under the
+    user's HOME. Only the browser gets it; the test process's own environment is unchanged."""
+    home = Path(str(profile) + "-home")
+    for sub in (".cache", ".config", ".local/share"):
+        (home / sub).mkdir(parents=True, exist_ok=True)
+    return dict(os.environ, HOME=str(home), XDG_CACHE_HOME=str(home / ".cache"),
+                XDG_CONFIG_HOME=str(home / ".config"), XDG_DATA_HOME=str(home / ".local/share"),
+                MESA_SHADER_CACHE_DIR=str(home / ".cache" / "mesa"),
+                __GL_SHADER_DISK_CACHE_PATH=str(home / ".cache" / "nvidia"))
+
+
 class Chrome:
     """A headless Chrome driven over --remote-debugging-pipe: CDP's JSON messages, each ended by a NUL, on the
     browser's fds 3 (commands) and 4 (replies). Standard library only, a throwaway profile, every host but 127.0.0.1
@@ -123,7 +136,7 @@ class Chrome:
                 "--no-default-browser-check", "--disable-extensions", "--disable-background-networking",
                 "--disable-component-update", "--disable-sync", "--proxy-server=http://127.0.0.1:9",
                 "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1", "--window-size=1280,1000", "about:blank"]
-        self.pid = os.posix_spawn(CHROME, args, os.environ, file_actions=[
+        self.pid = os.posix_spawn(CHROME, args, browser_env(profile), file_actions=[
             (os.POSIX_SPAWN_DUP2, cmd_r, 3), (os.POSIX_SPAWN_DUP2, res_w, 4), (os.POSIX_SPAWN_DUP2, null, 0),
             (os.POSIX_SPAWN_DUP2, null, 1), (os.POSIX_SPAWN_DUP2, null, 2)])
         for fd in (cmd_r, res_w, null):

@@ -1,0 +1,11 @@
+policy,family_clustered,selected_inflation,largest_candidate_fallback,selection_outer_per_cell,criterion,registered
+full_page,False,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+full_page,True,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+rho_kappa,False,2.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+rho_kappa,True,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+rho_only,False,1.5,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+rho_only,True,2.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+kappa_only,False,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+kappa_only,True,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+per_pair,False,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False
+per_pair,True,3.0,False,60,worst controlled-unit selection rate <=1.5%; otherwise largest candidate,False

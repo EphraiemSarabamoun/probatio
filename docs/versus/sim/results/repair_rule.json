@@ -1,0 +1,29 @@
+{
+  "version": "versus-reference-draft-4",
+  "rule": "bounded_scenario_union",
+  "selection_passed": true,
+  "validation_passed": true,
+  "cells_per_stream": 538,
+  "selection_pages": 53800,
+  "validation_pages": 71200,
+  "selection_seed": 21000000,
+  "validation_seed": 22000000,
+  "power_method": "exact_lattice_convolution",
+  "bootstrap_seed": 2026111117,
+  "bootstrap_replicates": 10000,
+  "worst_validation_upper95": 0.03699349820698568,
+  "worst_cell": {
+    "a": 0.1,
+    "base": "W",
+    "erratic_count": 1,
+    "kind": "near",
+    "names": 2,
+    "noisy": false,
+    "variant": "V1"
+  },
+  "marginal_inflation": 1.0,
+  "fitted_constants": false,
+  "registered": false,
+  "live_calibrated": false,
+  "status": "synthetic_audit_passed_pending_independent_review"
+}

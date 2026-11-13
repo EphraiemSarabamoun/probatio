@@ -4942,7 +4942,9 @@ def rescore_folder(out, bank=None, ordo_bank=None, now=None):
 def main_rescore(folder):
     """--rescore FOLDER from the command line (rescore_command has refused any other option): rescore the folder
     (rescore_folder) and print its scorecard and the result files' paths, as a run prints them. A file the folder
-    does not let it read is one plain line too."""
+    does not let it read is one plain line too. A versus folder (it holds versus-run.json) is versus_run's."""
+    if (Path(folder) / VERSUS_RUN_FILE).is_file():
+        return import_versus_run().rescore_main(folder)
     try:
         results = rescore_folder(folder)
     except OSError as e:
@@ -5667,6 +5669,14 @@ def lock_folder(out, busy):
     return lock
 
 
+def refuse_versus_folder(out):
+    """Refuse a folder holding a versus run (versus-run.json) by reading alone, before a v3, v4 or comparison run takes
+    the folder's lock (claim), so the refusal writes nothing, not even run.lock. check_resume refuses it again under the
+    lock; a versus run's own folder is versus_run's."""
+    if (out / VERSUS_RUN_FILE).exists():
+        raise SystemExit(VERSUS_FOLDER_LINE.format(display(out)))
+
+
 def check_resume(out, meta):
     """Refuse to resume into a folder made with other settings, which would mix two runs; else record this one.
     The two records' resume identities (resume_identity) must match key for key, a key either one holds included:
@@ -5679,6 +5689,8 @@ def check_resume(out, meta):
     rewritten. Returns the meta the run goes on under, which scoring, the page and the card read: meta itself, or for
     a retired recipe whose plan is this one (same_plan) meta with the recipe run.json records, so the card and run.json
     name one recipe."""
+    if (out / VERSUS_RUN_FILE).exists():            # a versus run's folder: its runs are versus_run's alone
+        raise SystemExit(VERSUS_FOLDER_LINE.format(display(out)))
     path = out / "run.json"
     if path.exists():
         old = json.loads(path.read_text(encoding="utf-8"))
@@ -6400,6 +6412,18 @@ def import_live():
     return live
 
 
+def import_versus_run():
+    """versus_run.py beside probatio.py: the versus command (--versus) and the rescore of a versus folder, imported
+    only for them."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    try:
+        import versus_run
+    except ImportError as e:
+        raise SystemExit(f"--versus needs versus_run.py beside probatio.py ({display(e)}). Restore it from git.")
+    return versus_run
+
+
 def import_ui():
     """ui.py beside probatio.py: the --ui page, imported only for --ui."""
     if str(HERE) not in sys.path:
@@ -6954,6 +6978,7 @@ def execute_run(a, opts, bank, ordo_bank, run, meta, out, watch=None, label=None
     written by ordo.write_results into out/ordo/. A rerun resumes. The live line shows the progress on stderr (label
     names the run when the command has several); with --watch the page shows the run (watch_view) and its final
     card as soon as it is scored."""
+    refuse_versus_folder(out)
     out.mkdir(parents=True, exist_ok=True)
     run_lock = claim(out)
     try:
@@ -7102,6 +7127,7 @@ def main_v4(argv):
                                        "followup": c.get("followup"), "meta": c["meta"]}) + "\n")
             print(f"  rendered items: {display(out / 'rendered.jsonl')}")
         return
+    refuse_versus_folder(out)
     out.mkdir(parents=True, exist_ok=True)
     single = {"kind": "single", "calls": calls, "roster": roster}           # the run as main_compare's runs read
     watch = import_live().Watch(names=[tab_label(single)]) if a.watch else None
@@ -7158,11 +7184,18 @@ def wants_v4(argv):
     return not wants_v3(argv)
 
 
+VERSUS_RUN_FILE = "versus-run.json"     # a versus run folder's saved identity (versus.RUN_FILE, which a test holds equal)
+VERSUS_FOLDER_LINE = ("{} holds a versus run (versus-run.json); a v3, v4 or ordo run starts in a folder of its own: "
+                      "pass another --out.")
+
+
 def main(argv=None):
     global LOCAL
     folder = rescore_command(sys.argv[1:] if argv is None else argv)    # before v3's parser or v4's can see it
     if folder is not None:
         return main_rescore(folder)
+    if any(w == "--versus" or w.startswith("--versus=") for w in (sys.argv[1:] if argv is None else argv)):
+        return import_versus_run().main(sys.argv[1:] if argv is None else argv)      # a versus run is versus_run's
     if wants_v4(sys.argv[1:] if argv is None else argv):
         return main_v4(sys.argv[1:] if argv is None else argv)
     a = parse_args(argv)
@@ -7190,6 +7223,7 @@ def main(argv=None):
         f"-{a.arm}" if a.arm != "neutral" else "") + suffix
     # absolute, since the Codex homes inside it are handed to a CLI that runs in another folder
     out = (Path(a.out) if a.out else HERE / "results" / run_name).resolve()
+    refuse_versus_folder(out)
     out.mkdir(parents=True, exist_ok=True)
     run_lock = claim(out)               # taken before anything in out is read or written, held to the end
     try:

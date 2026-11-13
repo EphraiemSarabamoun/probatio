@@ -18,6 +18,10 @@ the exact command, its plan and its run.
     Session.check   the real `--dry-run` of that argv in a subprocess: every guard probatio has and its preflight,
                     with no model call beyond the CLI's version probe; then probatio's own resume check, read only,
                     for each results folder that already holds a run (resume_refusals)
+    versus          once the rows hold two or three names of different types, one question: your names against
+                    each other (versus_run's command, `--versus TYPE=NAME`, the default) or the types in general
+                    (today's comparison). build_versus_command, versus_preview, Session.check_versus and
+                    Session.run_versus are its own small functions beside v4's; nothing of v4's path changes
     Runner          one run at a time: the checked argv (with --watch unless it is chosen off) in a subprocess,
                     its watch link (probatio's own line, and only with --watch), the last lines of its output, its
                     results folders and scorecards, and Stop
@@ -115,7 +119,31 @@ TEXT_REFUSED = ("there is a character that is not text (a lone surrogate) in {},
 FIELD_WORDS = {"agent": "the agent", "model": "the model", "tier": "the length", "classes": "the classes",
                "memory": "the memory choice", "auto_memory": "the auto memory choice", "effort": "the effort",
                "config_dir": "the config folder",
-               "jobs": "the jobs", "watch": "the watch choice", "types": "the types"}
+               "jobs": "the jobs", "watch": "the watch choice", "types": "the types", "versus": "the question",
+               "strangers": "the comparison choice"}
+# versus (docs/versus/DESIGN.md 9): once the rows hold two or three names of different types, the form asks one
+# question, its first answer the default: the names against each other (versus_run's command) or the types in general
+# (today's comparison, unchanged). Every sentence of it is here, and the page reads them with the defaults.
+VERSUS_FIELD = "versus"                     # the form's field for the question's answer
+VERSUS_ANSWERS = ("names", "types")         # the answers, the default first
+VERSUS_FLAG = "--versus"                    # versus_run.VERSUS_OPTION, as build_versus_command writes it, one word
+VERSUS_WORDS = {
+    "question": "compare",
+    "names": "Your names against each other",
+    "names_line": "asks questions in which your names want the same thing, and shows which one your agent sided with",
+    "types": "The types in general, with invented entities",
+    "types_line": ("scores how your agent treats people, organizations and governments as kinds; your names are not "
+                   "compared with each other"),
+    "strangers": "comparison",
+    "strangers_line": "Also ask about an unfamiliar roster, for comparison; on doubles the questions.",
+    "length_line": "Check shows the calls and the time; a versus run is quick or standard, with no full length.",
+}
+NEEDS_VERSUS_TIER = "choose quick or standard (a versus run has no full length)"
+# What the page reads from a versus run's output: the preflight's total (its questions and episodes, the time and the
+# rates) and its result line, the run's folder (versus_run's TOTAL_LINE and RESULTS_LINE).
+VERSUS_TOTAL = re.compile(r"^\s+all\s+(\d+) questions\s+(\d+) episodes\s+(.+?)(?: \((.+)\))?$")
+VERSUS_RESULT_LINE = re.compile(r"^(Results): (\S.*)$")
+FOLDER_UNREAD = "Check could not read where the run would write from the dry run's preflight; check again"
 
 
 # ---- the defaults, from probatio ---------------------------------------------------------------------------------------
@@ -147,8 +175,27 @@ def defaults():
         "classes": list(P.V4_CLASSES), "memory": list(P.MEMORY_MODES), "efforts": list(P.EFFORTS),
         "auto_memory": [a.auto_memory, AUTO_MEMORY_OFF],
         "labels": {"cross": P.CROSS_LABEL}, "names_role": P.names_said(None, "standard")[0],
-        "program": shlex.join(PROGRAM), "boundary": BOUNDARY,
+        "program": shlex.join(PROGRAM), "boundary": BOUNDARY, "versus": versus_defaults(),
     }
+
+
+@functools.lru_cache(maxsize=None)
+def versus_command():
+    """versus_run.py, the versus command (probatio's import_versus_run), imported once: its parser, its words and
+    the functions the page asks about a versus command."""
+    return P.import_versus_run()
+
+
+def versus_defaults():
+    """What a versus run starts from, read from versus_run's own parser and never typed here: each option's default
+    (the parser with the one option it requires, an agent, which this never sends), its lengths, memory and strangers
+    choices (each default first), the question's answers and the page's words for it (VERSUS_WORDS)."""
+    VR = versus_command()
+    a, acts = VR.parser().parse_args(["--agent", "claude"]), {x.dest: x for x in VR.parser()._actions}
+    first = lambda dest: [getattr(a, dest)] + [c for c in acts[dest].choices if c != getattr(a, dest)]  # noqa: E731
+    return {"default": {k: getattr(a, k) for k in ("tier", "memory", "strangers", "effort", "jobs")},
+            "tiers": list(acts["tier"].choices), "memory": first("memory"), "strangers": first("strangers"),
+            "answers": list(VERSUS_ANSWERS), "words": VERSUS_WORDS}
 
 
 # ---- the form as a command line (pure) ---------------------------------------------------------------------------------
@@ -249,9 +296,12 @@ def required(form, base=None):
     shows (lists_shown: a comparison shows only the controls), since an edited list below its LIST_COUNTS minimum is
     refused (an over-full list is a wrong value, probatio's); and at least one class, since an empty --class is
     refused. A comparison's named targets are optional. Only fields left empty count: a value given but
-    wrong is probatio's to refuse, in its own words. Pure; base is defaults()."""
+    wrong is probatio's to refuse, in its own words. A versus run needs an agent and one of its own lengths
+    (versus_required). Pure; base is defaults()."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
+    if versus_chosen(form, base):
+        return versus_required(form, base)
     needs = [] if text_of(form.get("agent")) else [NEEDS_AGENT]
     types = types_of(form, base)
     targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
@@ -267,6 +317,16 @@ def required(form, base=None):
     picked = form.get("classes")
     if isinstance(picked, list) and not [k for k in P.V4_CLASSES if k in picked]:
         needs.append(NEEDS_CLASS)
+    return needs
+
+
+def versus_required(form, base):
+    """What a versus form still needs: an agent, and a length the versus run has (quick or standard), since the form
+    keeps the length chosen before the question and a versus run has no full (NEEDS_VERSUS_TIER). Pure."""
+    needs = [] if text_of(form.get("agent")) else [NEEDS_AGENT]
+    tier = text_of(form.get("tier")) or base["versus"]["default"]["tier"]
+    if tier in P.USER_TIERS and tier not in base["versus"]["tiers"]:
+        needs.append(NEEDS_VERSUS_TIER)
     return needs
 
 
@@ -325,6 +385,80 @@ def target_words(value):
     return [f"--target={value}"] if value.startswith("-") else ["--target", value]
 
 
+def versus_rows(form, base):
+    """The names the form's rows hold when they ask the question: {type: name} in probatio's type order when the
+    chosen types' rows hold two or three names of different types (no row more than one), else None. Rows of one
+    type, a single name and four names keep today's form."""
+    targets = form.get("targets") if isinstance(form.get("targets"), dict) else {}
+    rows = {t: names_of(targets.get(t)) for t in types_of(form, base)}
+    if any(len(names) > 1 for names in rows.values()):
+        return None
+    named = {t: names[0] for t, names in rows.items() if names}
+    return named if len(named) in (2, 3) else None
+
+
+def versus_answer(form):
+    """The question's answer: the form's VERSUS_FIELD when it is one of VERSUS_ANSWERS, else the default, the
+    first."""
+    value = text_of(form.get(VERSUS_FIELD))
+    return value if value in VERSUS_ANSWERS else VERSUS_ANSWERS[0]
+
+
+def question_of(form, base):
+    """The question's state for the page, {"answer": ...}, while the rows ask it (versus_rows), else None."""
+    return {"answer": versus_answer(form)} if versus_rows(form, base) else None
+
+
+def versus_chosen(form, base):
+    """The names a versus run compares, when the rows ask the question and its answer is the first (your names
+    against each other); else None, and the form writes what it writes today."""
+    names = versus_rows(form, base)
+    return names if names and versus_answer(form) == VERSUS_ANSWERS[0] else None
+
+
+def build_versus_command(form, names, base):
+    """A versus run's argv, pure, with only the options that change something (versus_run's own defaults, read in
+    versus_defaults): --agent; --versus TYPE=NAME for each row in the rows' order, each name through probatio's name
+    guard in its form (row_name, as today's rows); --tier quick (a length outside the page's own is refused as
+    today, TIER_REFUSED, and full is what required asks to change); --memory, --strangers on, --effort, --model,
+    --config-dir and --jobs as chosen; --watch unless the watch choice is off. Nothing that belongs only to the
+    other runs is written, whatever the form holds: classes, rosters, auto memory. FormRefused for a NUL."""
+    v, argv = base["versus"]["default"], []
+    agent = text_of(form.get("agent"))
+    if agent:
+        argv += ["--agent", agent]
+    for t, n in names.items():
+        argv += [VERSUS_FLAG, f"{t}={row_name(n, t)}"]
+    tier = text_of(form.get("tier")) or v["tier"]
+    if tier not in P.USER_TIERS:
+        raise FormRefused(TIER_REFUSED)
+    if tier != v["tier"]:
+        argv += ["--tier", tier]
+    for key, flag in (("memory", "--memory"), ("strangers", "--strangers"), ("effort", "--effort")):
+        value = text_of(form.get(key))
+        if value and value != v[key]:
+            argv += [flag, value]
+    model = text_of(form.get("model"))
+    if model:
+        argv += ["--model", model]
+    folder = text_of(form.get("config_dir"))
+    if folder:
+        argv += ["--config-dir", folder]
+    jobs = text_of(str(form["jobs"])) if form.get("jobs") is not None else ""
+    if jobs and jobs != str(v["jobs"]):
+        argv += ["--jobs", jobs]
+    if form.get("watch") not in (False, "off"):
+        argv.append(WATCH)
+    if any("\x00" in word for word in argv):
+        raise FormRefused(NUL_REFUSED)
+    return argv
+
+
+def is_versus(argv):
+    """Whether an argv the page built is a versus run's (build_versus_command writes VERSUS_FLAG as its own word)."""
+    return VERSUS_FLAG in argv
+
+
 def build_command(form, base=None):
     """The form as probatio's argv, with only the flags that change something (an option at its parser default is
     left out), and the entities file its roster edits need, as text, or None. base is defaults(). A single-type run
@@ -353,6 +487,9 @@ def build_command(form, base=None):
     field = not_text(form)
     if field:
         raise FormRefused(TEXT_REFUSED.format(field))
+    names = versus_chosen(form, base)
+    if names:                                       # the question answered "your names": versus_run's command
+        return build_versus_command(form, names, base), None
     default, types = base["default"], types_of(form, base)
     argv = []
     agent = text_of(form.get("agent"))
@@ -502,6 +639,66 @@ def page_words(message):
     return None
 
 
+def template_pattern(template):
+    """A line template of versus_run's ("{folder} holds ...") as a pattern of the whole line, each {field} a named
+    group, so the page reads the command's own words from their one home."""
+    parts = re.split(r"\{(\w+)\}", template)
+    return re.compile("^" + "".join(re.escape(x) if i % 2 == 0 else f"(?P<{x}>.+?)" for i, x in enumerate(parts))
+                      + "$")
+
+
+# versus_run's refusals whose advice names --out, which the page does not write (it always uses the default results
+# folder): the page's words for each, by the name of the command's constant; the command's own line stays, verbatim,
+# in the whole preflight (told).
+VERSUS_PAGE_WORDS = {
+    "V4_FOLDER_LINE": ("{folder} holds a probatio v3, v4 or ordo run, and a versus run starts in a folder of its own: "
+                       "move or rename that folder"),
+    "STRAY_REPLIES_LINE": ("{folder} holds replies but no versus-run.json, so they belong to no versus run: move or "
+                           "rename that folder"),
+    "RESUME_LINE": ("{folder} holds another versus run: {what} differs ({theirs} there, {mine} here). To continue "
+                    "that run, set the page back to its settings; to start a new one, move or rename that folder"),
+    "FOLDER_UNUSABLE": ("the results folder {folder} cannot be used ({why}), and the page always writes there: make "
+                        "it usable, or run the command from a terminal with --out"),
+}
+
+
+def versus_page_words(message):
+    """The page's words for a versus refusal whose advice names --out (VERSUS_PAGE_WORDS), read with the command's
+    own templates (template_pattern), or None for a message the page shows as it is. A folder is named as the page
+    names it (shown), and every other part as the command quoted it."""
+    VR = versus_command()
+    for name, words in VERSUS_PAGE_WORDS.items():
+        m = template_pattern(getattr(VR, name)).match(message or "")
+        if m:
+            return words.format(**{k: shown(v) if k == "folder" else v for k, v in m.groupdict().items()})
+    return None
+
+
+def versus_folder(preflight, folder):
+    """What a versus dry run's preflight says of the results folder (its last folder line, versus_run's FOLDER_FRESH,
+    FOLDER_RESUME or FOLDER_REFUSED): (state, why), why the command's refusal or None; FOLDER_UNREAD as the why of
+    "unread" when no such line names folder, the one the page has prepared, so Check never approves a folder it did
+    not see."""
+    VR, said = versus_command(), None
+    for state, template in (("fresh", VR.FOLDER_FRESH), ("resume", VR.FOLDER_RESUME), ("refused", VR.FOLDER_REFUSED)):
+        for line in preflight.splitlines():
+            m = template_pattern(template).match(line)
+            if m and m.group("folder") == P.display(folder):
+                said = (state, m.groupdict().get("why"))
+    return said or ("unread", FOLDER_UNREAD)
+
+
+def refusal_in_words(said, preflight, words):
+    """A refusal as Check shows it, (error, plan), with the page's words when words (page_words or
+    versus_page_words) has some, probatio's own message kept in the whole preflight; else the message itself, cut
+    as a whole (capped) and then kept whole in the preflight too."""
+    mine = words(said)
+    if mine:
+        return mine, told(preflight, said)
+    error = P.capped(said)
+    return error, (preflight if error == said else told(preflight, said))
+
+
 def told(preflight, *messages):
     """The whole preflight with probatio's own messages after it, as a terminal shows them: stdout, then each
     refusal."""
@@ -510,13 +707,9 @@ def told(preflight, *messages):
 
 def refusal(said, preflight):
     """A refusal of probatio's as Check shows it, (error, plan): the page's words with probatio's own message kept in
-    the whole preflight (page_words), or the message itself, within the display cap as a whole (capped), kept whole
-    in the preflight too when the cap cut it."""
-    words = page_words(said)
-    if words:
-        return words, told(preflight, said)
-    error = P.capped(said)
-    return error, (preflight if error == said else told(preflight, said))
+    the whole preflight (page_words), or the message itself, cut as a whole (capped) and then kept whole in the
+    preflight too (refusal_in_words)."""
+    return refusal_in_words(said, preflight, page_words)
 
 
 def parser_error(argv):
@@ -551,12 +744,15 @@ def preview(form, base=None, redactor=None, env=None):
     quick the scorecard's own quick-tier sentence)."""
     base = base or defaults()
     form = form if isinstance(form, dict) else {}
-    missing = form_needs(form, base, env)
+    missing, question = form_needs(form, base, env), question_of(form, base)
     try:
         argv, entities = build_command(form, base)
     except FormRefused as e:
-        return refused(str(e), missing)
-    types, redactor = types_of(form, base), redactor or live.ViewRedactor()
+        return with_question(refused(str(e), missing), question)
+    redactor = redactor or live.ViewRedactor()
+    if versus_chosen(form, base):
+        return versus_preview(argv, missing, question, redactor)
+    types = types_of(form, base)
     reply = {"argv": argv, "command": command_text(argv), "words": command_words(argv),
              "entities": entities_view(entities), "labels": [], "roster": None, "missing": missing,
              "needs": needs_line(missing), "error": parser_error(argv) or unshown(argv, redactor)}
@@ -577,7 +773,58 @@ def preview(form, base=None, redactor=None, env=None):
     reply["error"] = reply["error"] or roster_unshown(entities, redactor)
     if reply["error"]:                   # probatio's message or the page's: one value, within the cap as a whole
         reply["error"] = P.capped(reply["error"])
-    return reply
+    return with_question(reply, question)
+
+
+def with_question(reply, question):
+    """A reply with the question's state for the page (question_of) while the rows ask it; any other reply is
+    exactly today's."""
+    return reply if question is None else dict(reply, question=question)
+
+
+def versus_preview(argv, missing, question, redactor):
+    """preview's answer for a versus form: the command, versus_run's own parser on it (versus_parser_error, verbatim)
+    or unshown's message, the bank's status as the preflight prints it (versus_label), what the form still needs, and
+    the question's state. A versus command has no roster file and no comparison sentence."""
+    return {"argv": argv, "command": command_text(argv), "words": command_words(argv), "entities": None,
+            "labels": [versus_label()], "roster": None, "missing": missing, "needs": needs_line(missing),
+            "error": versus_parser_error(argv) or unshown(argv, redactor), "names_said": [], "question": question}
+
+
+def versus_parser_error(argv):
+    """versus_run's own parser on argv, in this process, and its reading of the --versus values (parse,
+    versus_names): None when it accepts the command line, else its message verbatim. Every other guard runs in
+    Check's dry run."""
+    VR, err = versus_command(), io.StringIO()
+    with PARSE_LOCK, contextlib.redirect_stderr(err):
+        try:
+            VR.versus_names(VR.parse(argv).versus)
+        except SystemExit as e:
+            return exit_message(e.code, err.getvalue())
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def versus_label():
+    """The versus bank's status as the preflight prints it (versus_run.bank_status, whose BANK_STATUSES are the
+    words: the shipped bank's is "registered bank: reviewed and frozen, not yet validated on live agents (pilot: not
+    calibrated)" until its manifest is marked validated), for the labels under the command; read once."""
+    VR = versus_command()
+    return VR.bank_status(VR.load_bank(VR.parser().parse_args(["--agent", "claude"])))
+
+
+def versus_summary(text):
+    """A versus dry run's totals as the confirm step states them, from its own preflight lines: the questions and
+    episodes of every arm added up as calls, the time, the 45-minute hint and the rates. None for a value it does
+    not print."""
+    calls, time_, hint, rates = None, None, None, None
+    for line in text.splitlines():
+        m = VERSUS_TOTAL.match(line)
+        if m:
+            calls, time_, rates = int(m.group(1)) + int(m.group(2)), m.group(3), m.group(4)
+        elif TIME_HINT.match(line):
+            hint = TIME_HINT.match(line).group(1)
+    return {"calls": calls, "time": time_, "hint": hint, "rates": rates}
 
 
 def plan_summary(text):
@@ -705,6 +952,32 @@ def prepared(argv):
     a = P.parse_args_v4(absolute(argv))
     runs = P.prepare_runs(a, "--target-type" in argv)[4]     # as main_v4 tells it; the page writes it as one word
     return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
+
+
+def versus_prepared(argv):
+    """A versus argv's run as versus_run prepares it, in this process and with no call to any CLI: its results folder
+    (run_folder) and its plan's versus fingerprint (every call whole), from the command's own parse, names, bank,
+    name checks and plan. A refusal is SystemExit with the command's own message (stderr is the page's, never
+    printed)."""
+    VR, err = versus_command(), io.StringIO()
+    with PARSE_LOCK, contextlib.redirect_stderr(err):
+        try:
+            a = VR.parse(argv)
+            names = VR.versus_names(a.versus)
+            bank, ordo_bank = VR.load_bank(a), VR.ordo.load_ordo_bank()
+            VR.check_names(bank, names, a.strangers_on)
+            plan_ = VR.VS.plan(bank, names, a.tier, VR.arms_of(a), ordo_bank)
+            return VR.run_folder(a, names), plan_.identity["versus_fingerprint"]
+        except SystemExit as e:
+            raise SystemExit(exit_message(e.code, err.getvalue())) from None
+        except VR.VS.VersusError as e:
+            raise SystemExit(P.display(str(e), cap=None)) from None
+
+
+def versus_holds_run(folder):
+    """Whether a results folder holds what versus_run's folder_state reads before it lets a run start there (a
+    run.json, a versus-run.json or replies), so the page must ask the command about it."""
+    return any((Path(folder) / f).exists() for f in ("run.json", versus_command().VS.RUN_FILE, "replies.jsonl"))
 
 
 def shown(path):
@@ -878,6 +1151,21 @@ def memory_people_of(a, argv):
     return P.memory_people(got[4]) if got else []
 
 
+VERSUS_AUTO_MEMORY = "as-configured"        # versus_run.main's auto memory: a versus run measures the agent as it is
+
+
+def versus_people(a):
+    """The named person of a versus command, for the memory block's name note, as its preflight reads it
+    (versus_run.memory_people over the resolved names); [] when the command's names are refused (the preview and
+    Check say why)."""
+    VR = versus_command()
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return VR.memory_people(VR.VS.resolve_names(VR.versus_names(a.versus)))
+    except (SystemExit, VR.VS.VersusError):
+        return []
+
+
 def memory_answer(argv):
     """What the block shows for argv, as probatio's preflight would print it: {"report": memory_report's facts (the
     folder, where it came from, each file's path, size and title, the total and the name notes; no hash), "empty":
@@ -885,10 +1173,13 @@ def memory_answer(argv):
     only), "missing": the folder typed when it is not one}; {"report": None} for a command probatio's parser refuses
     or with no agent (the preview says why); {"error": probatio's refusal} for a memory file the run cannot read. Every
     string from the filesystem is displayed (probatio's display); a candidate whose name display changes has no
-    "path", so a click never puts a changed path into the field ("escaped" says why)."""
+    "path", so a click never puts a changed path into the field ("escaped" says why). A versus command is read by
+    versus_run's own parser, with its auto memory as configured and its person's name note (versus_people), as its
+    preflight reads them."""
+    versus = is_versus(argv)
     try:
         with contextlib.redirect_stderr(io.StringIO()):
-            a = P.parse_args_v4(argv)
+            a = versus_command().parse(argv) if versus else P.parse_args_v4(argv)
     except SystemExit:
         return {"report": None}
     if a.agent is None:
@@ -897,8 +1188,9 @@ def memory_answer(argv):
     if not P.config_is_folder(folder) and source == "option":
         return {"report": None, "missing": P.display(P.tilde(folder))}
     try:
-        report = P.memory_report(a.agent, str(Path(a.workdir).resolve()), a.memory, a.auto_memory, folder, source,
-                                 memory_people_of(a, argv))
+        report = P.memory_report(a.agent, str(Path(a.workdir).resolve()), a.memory,
+                                 VERSUS_AUTO_MEMORY if versus else a.auto_memory, folder, source,
+                                 versus_people(a) if versus else memory_people_of(a, argv))
     except SystemExit as refused:               # a memory file the run cannot read: probatio's own line, calm
         return {"error": P.capped(P.refusal_text(refused.code))}
     files = [{"path": P.display(f["path"]), "shown": f["shown"], "size": P.size_words(f["bytes"]),
@@ -945,13 +1237,16 @@ class Runner:
     (WATCH_LINK, only when argv has --watch, the first), the newest TAIL lines, each run's result lines, the held
     page's line, and its exit code. A result line counts only when its path lies inside one of the run's own folders
     (own), and the run is finished only on exit 0 with a scorecard: a CLI's text in the output names no result. A
-    process that cannot start raises subprocess's ValueError or OSError."""
+    process that cannot start raises subprocess's ValueError or OSError. reading says which lines are its results and
+    which one marks it scored (V4_READING, or VERSUS_READING for a versus run, whose one result line is its folder)."""
 
-    def __init__(self, program, argv, folders, env):
+    def __init__(self, program, argv, folders, env, reading=None):
+        self.reading = reading or V4_READING
         self.argv, self.folders = list(argv), [str(f) for f in folders]
         self.roots = [Path(f).resolve() for f in folders]
         self.watching = WATCH in self.argv
         self.lines, self.results, self.watch, self.held = deque(maxlen=TAIL), [], None, False
+        self.said = None                                # the last line the run printed before any held page's
         self.stopping, self.code, self.lock = False, None, threading.Lock()
         self.started = time.strftime("%H:%M")
         self.proc = subprocess.Popen([*program, *self.argv], cwd=P.HERE, env=env, stdin=subprocess.DEVNULL,
@@ -969,11 +1264,13 @@ class Runner:
                 link = WATCH_LINK.match(line) if self.watching and self.watch is None else None
                 if link:
                     self.watch = link.group(1)
-                result = RESULT_LINE.match(line)
+                result = self.reading.line.match(line)
                 if result and self.own(result.group(2)):
                     self.results.append([result.group(1), result.group(2)])
                 if line.lstrip().startswith(HELD_LINE):
                     self.held = True
+                elif line.strip() and not self.held:
+                    self.said = line
         self.proc.stdout.close()
         code = self.proc.wait()
         with self.lock:
@@ -1004,20 +1301,41 @@ class Runner:
 
     def status(self):
         """running, stopping, scored (scored, its live page held until Stop), finished (exit 0 with a scorecard),
-        stopped or failed."""
-        scored = any(kind == "Scorecard" for kind, _ in self.results)
+        refused (a versus run's live page held after the run ended in a refusal, and after its Stop), stopped or
+        failed."""
+        scored = any(kind == self.reading.scored for kind, _ in self.results)
+        refused = self.reading.refusal and self.held and not scored
         if self.code is None:
-            return "stopping" if self.stopping else "scored" if self.held and scored else "running"
+            return "stopping" if self.stopping else "scored" if self.held and scored else \
+                "refused" if refused else "running"
         if self.code == 0 and scored:
             return "finished"
+        if refused:
+            return "refused"
         return "stopped" if self.stopping else "failed"
+
+    def refusal(self, status):
+        """For a versus run that failed or was refused, the one line it ended with (the refusal probatio printed),
+        else None. A v4 run's state carries no such field."""
+        return self.said if status in ("failed", "refused") else None
 
     def state(self):
         with self.lock:
-            return {"status": self.status(), "command": command_text(self.argv), "watch": self.watch,
+            status = self.status()
+            extra = {"refusal": self.refusal(status)} if self.reading.refusal else {}
+            return {"status": status, "command": command_text(self.argv), "watch": self.watch,
                     "folders": [shown(f) for f in self.folders],
                     "results": [[kind, shown(path)] for kind, path in self.results],
-                    "lines": list(self.lines), "code": self.code, "started": self.started}
+                    "lines": list(self.lines), "code": self.code, "started": self.started, **extra}
+
+
+# What a run's output names as its results, by family: the line and the kind that marks it scored. A v4 run prints
+# "Scorecard: ..." and "Report: ..." (RESULT_LINE); a versus run prints "Results: FOLDER" (VERSUS_RESULT_LINE).
+# refusal: whether the run's state names the line a failed or refused run ended with (a versus run's: a card its page
+# refuses ends the run in one line, which the form shows as it is).
+Reading = namedtuple("Reading", "line scored refusal")
+V4_READING = Reading(RESULT_LINE, "Scorecard", False)
+VERSUS_READING = Reading(VERSUS_RESULT_LINE, "Results", True)
 
 
 # What the last passing Check approved, and the only thing Run may start: the exact argv, the exact bytes of its roster
@@ -1088,6 +1406,8 @@ class Session:
             why = unshown(argv, self.redactor) or roster_unshown(entities, self.redactor)
             if why:                         # before any snapshot is written
                 return dict(reply, ok=False, plan="", summary=None, error=why)
+            if is_versus(argv):             # versus_run's own dry run and its folder line (check_versus)
+                return self.check_versus(reply, argv)
             try:
                 snapshot = write_snapshot(entities) if entities else None
             except SnapshotRefused as e:
@@ -1121,6 +1441,78 @@ class Session:
             self.checked = Approval(tuple(argv), snapshot, tuple(fingerprint for _, fingerprint in plans), proc.stdout)
         return dict(reply, ok=True, plan=proc.stdout, summary=plan_summary(proc.stdout), error=None)
 
+    def dry_run(self, argv):
+        """argv's real --dry-run in a subprocess in probatio's folder, with the run's environment: (proc, None), or
+        (None, the reply's error) when it took longer than CHECK_SECONDS or could not start."""
+        try:
+            return subprocess.run([*self.program, *argv, "--dry-run"], cwd=P.HERE, env=self.child_env(),
+                                  stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=CHECK_SECONDS), None
+        except subprocess.TimeoutExpired:
+            return None, (f"the dry run took longer than {CHECK_SECONDS} s; run the command with --dry-run in a "
+                          "terminal to see why")
+        except (ValueError, OSError) as e:
+            return None, not_started("dry run", e)
+
+    def check_versus(self, reply, argv):
+        """Check for a versus command (inside check's gate, after its form checks): versus_run's real --dry-run
+        (dry_run), its refusal in the page's words where its advice names --out (versus_page_words) with its own line
+        kept in the whole preflight; then its run prepared in this process (versus_prepared: the folder and the plan's
+        versus fingerprint) and the dry run's own line on that folder (versus_folder): a folder the command would
+        refuse is named in the page's words and approves nothing. On a pass the approval binds the argv and the
+        fingerprint, and the totals come from the preflight (versus_summary)."""
+        proc, error = self.dry_run(argv)
+        if proc is None:
+            return dict(reply, ok=False, plan="", summary=None, error=error)
+        if proc.returncode != 0:
+            error, plan = refusal_in_words(exit_message(None, proc.stderr), proc.stdout, versus_page_words)
+            return dict(reply, ok=False, plan=plan, summary=None, error=error)
+        try:
+            folder, fingerprint = versus_prepared(argv)
+        except SystemExit as e:
+            error, plan = refusal_in_words(exit_message(e.code), proc.stdout, versus_page_words)
+            return dict(reply, ok=False, plan=plan, summary=None, error=error)
+        state, why = versus_folder(proc.stdout, folder)
+        if state in ("refused", "unread"):
+            return dict(reply, ok=False, plan=proc.stdout, summary=None, error=versus_page_words(why) or why)
+        self.checked = Approval(tuple(argv), None, (fingerprint,), proc.stdout)
+        return dict(reply, ok=True, plan=proc.stdout, summary=versus_summary(proc.stdout), error=None)
+
+    def versus_refusal(self, argv, folder):
+        """Whether argv's results folder would refuse its versus run now: None while the folder holds nothing the
+        command reads before a run (versus_holds_run), else versus_run's own dry run asked again (dry_run,
+        versus_folder) and (the page's words, the command's line) when it refuses."""
+        if not versus_holds_run(folder):
+            return None
+        proc, error = self.dry_run(argv)
+        if proc is None or proc.returncode != 0:
+            said = error or exit_message(None, proc.stderr)
+            return versus_page_words(said) or said, said
+        state, why = versus_folder(proc.stdout, folder)
+        return (versus_page_words(why) or why, why) if state in ("refused", "unread") else None
+
+    def run_versus(self, argv):
+        """Run for a versus command (inside run's gate, once the approval holds this argv): its run prepared again
+        (versus_prepared), its fingerprint the approved one, the folder asked about again just before the start
+        (versus_refusal: a folder that took a run since Check refuses the Run, in the page's words, with the
+        command's own line after the Check's preflight), then the Runner, reading a versus run's results line."""
+        approved = self.checked
+        try:
+            folder, fingerprint = versus_prepared(argv)
+        except SystemExit as e:
+            return {"error": exit_message(e.code)}
+        if (fingerprint,) != approved.fingerprints:
+            return {"error": "the plan is no longer the one Check approved; check again"}
+        blocked = self.versus_refusal(argv, folder)
+        if blocked:
+            return {"error": blocked[0], "plan": told(approved.preflight, blocked[1])}
+        with self.lock:
+            try:
+                self.runner = Runner(self.program, list(approved.argv), [folder], self.child_env(), VERSUS_READING)
+            except (ValueError, OSError) as e:
+                return {"ok": False, "error": not_started("run", e)}
+            return {"run": self.runner.state()}
+
     def run(self, request):
         """Start the form's command exactly as shown and checked (--watch included unless chosen off), once it is
         confirmed, only when it is the command the last Check passed, while no run of the page's is going, and only
@@ -1143,6 +1535,8 @@ class Session:
             if approved is None or approved.argv != tuple(argv) or \
                     approved.entities != (entities.encode("utf-8") if entities else None):
                 return {"error": "check this command first: Run starts only the command the last Check passed"}
+            if is_versus(argv):
+                return self.run_versus(argv)
             try:
                 if entities and snapshot_bytes(entities) != approved.entities:
                     raise SnapshotRefused(f"{entities_path(entities)} is not the roster Check approved; check again")
@@ -1265,7 +1659,7 @@ h2 .aside { font-size:12.5px; font-weight:400; color:var(--muted); margin-left:a
 .pill { font-size:12.5px; color:var(--ink2); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
 .pill::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--muted); }
 .pill.running::before, .pill.scored::before { background:var(--good); }
-.pill.stopped::before, .pill.failed::before, .pill.lost::before { background:var(--bad); }
+.pill.stopped::before, .pill.failed::before, .pill.lost::before, .pill.refused::before { background:var(--bad); }
 .pill.finished::before { background:var(--ink2); }
 .layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,420px); gap:56px; align-items:start; }
 .layout > * { min-width:0; }
@@ -1322,6 +1716,12 @@ details.small > summary { color:var(--muted); font-size:12.5px; margin:10px 0 0;
 .note { color:var(--muted); font-size:12.5px; margin:4px 0 0; }
 .flag { margin:4px 0 0; font-size:12.5px; } .flag .label { color:var(--pending); font-weight:600; }
 .flag .hint { color:var(--muted); }
+.answers { display:grid; gap:6px; }
+button.answer { display:block; width:100%; text-align:left; padding:8px 12px; border-radius:10px; font-weight:400; }
+button.answer b { display:block; font-weight:600; }
+button.answer .line { display:block; font-size:12.5px; color:var(--ink2); margin-top:2px; }
+button.answer[aria-checked=true], button.answer[aria-checked=true]:hover { background:var(--accent-soft);
+  color:var(--accent-text); } button.answer[aria-checked=true] .line { color:var(--accent-text); }
 .roster { margin:14px 0 4px; } .roster .top { display:flex; align-items:baseline; gap:10px; margin:0 0 6px; }
 .roster .top b { font-weight:500; } .roster .top b::first-letter { text-transform:uppercase; }
 .lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
@@ -1353,6 +1753,7 @@ pre.cmd span.long { white-space:normal; overflow-wrap:anywhere; }
 .kv { margin:6px 0 0; font-size:12.5px; color:var(--ink2); overflow-wrap:anywhere; } .kv span { color:var(--muted); }
 .kv code { font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 .runbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 4px; }
+.refusal { color:var(--bad); margin:6px 0 8px; overflow-wrap:anywhere; }
 .runbar a { color:var(--accent-text); font-weight:600; text-underline-offset:2px; } .runbar .pill { margin-left:0; }
 .empty { color:var(--muted); margin:0; }
 footer { margin-top:48px; color:var(--muted); font-size:12.5px; }
@@ -1427,7 +1828,42 @@ function fresh() {
   for (const t of D.types) { rosters[t] = defaultRoster(t); targets[t] = names(D.rosters[t].targets).join("\\n"); }
   return {types: [d.type], targets, rosters, agent: d.agent, tier: d.tier, classes: d.classes.slice(),
           memory: d.memory, auto_memory: d.auto_memory, effort: d.effort, model: d.model || "", watch: D.watch[0],
-          jobs: String(d.jobs), config_dir: ""};    // watch's choices come default first; "" is the CLI's own folder
+          jobs: String(d.jobs), config_dir: "",     // watch's choices come default first; "" is the CLI's own folder
+          versus: D.versus.answers[0], strangers: D.versus.default.strangers};    // the question's answer, its default
+}
+// ---- versus: the question, once the rows hold two or three names of different types (the server says so: said's
+// "question"), and the form a versus run takes while its first answer is chosen
+const versusMode = () => !!(said && said.question) && F.versus === D.versus.answers[0];
+function question() {                     // the question's two answers, each with its line; built once per measure()
+  const W = D.versus.words, list = el("div", "answers"), box = row(W.question, list);
+  box.id = "question"; box.hidden = true;
+  list.setAttribute("role", "radiogroup");
+  for (const a of D.versus.answers) {
+    const b = el("button", "answer");
+    b.type = "button"; b.value = a; b.id = "answer-" + a; b.setAttribute("role", "radio");
+    add(b, el("b", null, W[a]), el("span", "line", W[a + "_line"]));
+    b.addEventListener("click", () => { if (F.versus !== a) { F.versus = a; changed(); } });
+    list.appendChild(b);
+  }
+  return box;
+}
+function mode() {                         // show the question while the rows ask it; hide what a versus run does not take
+  const q = $("question"), vs = versusMode();
+  if (q) {
+    q.hidden = !(said && said.question);
+    q.querySelectorAll("button.answer").forEach(b => b.setAttribute("aria-checked", String(F.versus === b.value)));
+  }
+  for (const [id, hide] of [["against", vs], ["row-classes", vs], ["row-auto", vs], ["row-strangers", !vs]]) {
+    const e = $(id);
+    if (e) e.hidden = hide;
+  }
+  const tiers = $("tiers");
+  if (tiers) tiers.querySelectorAll("button").forEach(b => { b.hidden = vs && !D.versus.tiers.includes(b.value); });
+  const length = $("lengthnote");
+  if (length) length.textContent = vs ? D.versus.words.length_line : "Check shows the calls and the time.";
+  for (const id of ["namesnote", "quicknote"]) { const e = $(id); if (e && vs) e.hidden = true; }
+  const role = $("namesnote");
+  if (role && !vs) role.hidden = false;
 }
 // ---- the form
 function choices(key, values, opts) {      // a segmented choice; opts: multi, after (on click), def (tagged "default")
@@ -1498,7 +1934,7 @@ function measure() {
   if (cross) {                                       // what a name does in a comparison, and at quick what it measures
     const role = el("p", "note", D.names_role), quick = el("p", "note");
     role.id = "namesnote"; quick.id = "quicknote"; quick.hidden = true;
-    add(s, role, quick);
+    add(s, question(), role, quick);
   }
 }
 function coded(box, text) {               // text with `command` spans as code, the way the scorecard writes them
@@ -1551,7 +1987,8 @@ function renderMemory() {                 // /memory's answer: probatio's own me
   }
 }
 async function refreshMemory() {          // asked again only when what the memory depends on changed
-  const key = JSON.stringify([F.agent, F.config_dir, F.memory, F.auto_memory, F.types, F.targets.individual || ""]);
+  const key = JSON.stringify([F.agent, F.config_dir, F.memory, F.auto_memory, F.types, F.targets.individual || "",
+                              versusMode()]);
   if (key === memKey) return;
   memKey = key; const n = ++memAsked;
   if (!F.agent) { mem = null; renderMemory(); return; }
@@ -1642,16 +2079,20 @@ function how() {
   const note = el("div", "def");
   note.id = "modelnote";
   add(s, add(row("model", modelChoice()), note)); modelNote();
-  add(s, row("length", choices("tier", D.tiers.map(t => [t, t]), {after: how, def: d.tier}),
-    "Check shows the calls and the time."));
+  const tiers = choices("tier", D.tiers.map(t => [t, t]), {after: how, def: d.tier}), length = el("div", "def");
+  tiers.id = "tiers"; length.id = "lengthnote";
+  add(s, add(row("length", tiers), length));
   const [more, sum] = fold("more", "more", "More options");
   sum.id = "moresum";
-  add(more,
-    row("classes", choices("classes", D.classes.map(k => [k, CLASS_WORDS[k] || k,
+  const classes = row("classes", choices("classes", D.classes.map(k => [k, CLASS_WORDS[k] || k,
       planned.includes(k) ? null : "not asked at " + F.tier]), {multi: true}),
-      planned.length < D.classes.length ? "At " + F.tier + ", only " + planned.join(" and ") + "." : null),
+      planned.length < D.classes.length ? "At " + F.tier + ", only " + planned.join(" and ") + "." : null);
+  const strangers = row(D.versus.words.strangers, choices("strangers", D.versus.strangers.map(v => [v, v]),
+      {def: D.versus.default.strangers}), D.versus.words.strangers_line);
+  classes.id = "row-classes"; strangers.id = "row-strangers"; strangers.hidden = true;
+  add(more, classes,
     row("memory", choices("memory", D.memory.map(m => [m, m]), {def: d.memory}),
-      "Both asks each item with and without your memory files."),
+      "Both asks each item with and without your memory files."), strangers,
     row("effort", choices("effort", D.efforts.map(e => [e, e]), {def: d.effort})),
     row("watch", choices("watch", D.watch.map(w => [w, w]), {def: D.watch[0]}),
       "On opens a live view in your browser; off still shows the run's output here."),
@@ -1661,16 +2102,18 @@ function how() {
     row("auto memory", choices("auto_memory", D.auto_memory.map(m => [m, m]), {def: d.auto_memory}),
       "Claude Code's own saved notes (Claude Code only): leave as configured to measure your agent as it is; " +
       "off, in both conditions, is the calibration's setting."));
-  s.appendChild(more); moreSummary();
+  more.lastChild.id = "row-auto";
+  s.appendChild(more); moreSummary(); mode();
 }
 function moreSummary() {                   // More options' closed line: what differs from the defaults
   const box = $("moresum");
   if (!box) return;
-  const d = D.default, diff = [];
-  if (!same(F.classes, D.classes)) diff.push("classes " + F.classes.join(", "));
-  for (const [key, word, base] of [["memory", "memory", d.memory], ["effort", "effort", d.effort],
-                                   ["watch", "watch", D.watch[0]], ["auto_memory", "auto memory", d.auto_memory]])
-    if (F[key] !== base) diff.push(word + " " + F[key]);
+  const d = D.default, diff = [], vs = versusMode();        // a versus run shows only what it takes
+  if (!vs && !same(F.classes, D.classes)) diff.push("classes " + F.classes.join(", "));
+  for (const [key, word, base, shown] of [["memory", "memory", d.memory, true],
+      ["strangers", D.versus.words.strangers, D.versus.default.strangers, vs], ["effort", "effort", d.effort, true],
+      ["watch", "watch", D.watch[0], true], ["auto_memory", "auto memory", d.auto_memory, !vs]])
+    if (shown && F[key] !== base) diff.push(word + " " + F[key]);
   if (String(F.jobs).trim() !== String(d.jobs)) diff.push("jobs " + String(F.jobs).trim());
   box.textContent = diff.length ? diff.join(" · ") : "defaults";
   box.classList.toggle("changed", diff.length > 0);
@@ -1727,7 +2170,7 @@ function render() {
     !plan || !plan.ok ? "check first" : stale ?
     "the command changed: check it again" : "";
   $("actions").hidden = confirming && ready;                 // while confirming, Start the run is the one primary
-  if (D) moreSummary();
+  if (D) { mode(); moreSummary(); }
   renderConfirm(ready); renderPlan(stale);
 }
 function renderConfirm(ready) {
@@ -1773,7 +2216,7 @@ function preflight(text) {                // the dry run's whole output, in a fo
 }
 const RUN_WORDS = {running: "running", stopping: "stopping: the calls already running finish first",
   scored: "scored; its live page stays up until you stop it", finished: "finished", stopped: "stopped; the same " +
-  "command resumes it", failed: "failed"};
+  "command resumes it", failed: "failed", refused: "refused: no page was written"};
 function renderRun() {
   const box = $("runbox"), out = box.querySelector("pre"), keep = !out || out.scrollHeight - out.scrollTop -
     out.clientHeight < 8;
@@ -1795,6 +2238,7 @@ function renderRun() {
     bar.appendChild(stop);
   }
   box.appendChild(bar);
+  if (run.refusal) box.appendChild(el("p", "refusal", run.refusal));      // the line a versus run ended with
   const kv = (k, v) => add(el("div", "kv"), el("span", null, k + " "), el("code", null, v));
   box.appendChild(kv("started " + run.started + ":", run.command));
   for (const f of run.folders) box.appendChild(kv("results folder", f));

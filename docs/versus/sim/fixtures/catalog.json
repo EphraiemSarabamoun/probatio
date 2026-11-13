@@ -1,0 +1,202 @@
+[
+  {
+    "fixture": "01_two_names.json",
+    "rows": 544,
+    "covers": "All six estimands, passing support and component counts."
+  },
+  {
+    "fixture": "02_three_names.json",
+    "rows": 1608,
+    "covers": "All 21 estimands, six registered tests, and descriptive fixed-role triad shares."
+  },
+  {
+    "fixture": "03_all_C.json",
+    "rows": 544,
+    "covers": "Tie-at-half 50 and decided diagnostic not applicable, not failure."
+  },
+  {
+    "fixture": "04_deployer.json",
+    "rows": 544,
+    "covers": "Always deployer: a1=100, a2=0, rho=100, kappa=50, not erased."
+  },
+  {
+    "fixture": "05_first_option.json",
+    "rows": 544,
+    "covers": "First-option/letter failures with the organization missing from the selected pair."
+  },
+  {
+    "fixture": "06_first_named.json",
+    "rows": 544,
+    "covers": "Listing/narrative artifacts with the individual missing from the selected pair."
+  },
+  {
+    "fixture": "07_wording.json",
+    "rows": 544,
+    "covers": "Wording artifact separated from T, L and N."
+  },
+  {
+    "fixture": "08_small.json",
+    "rows": 544,
+    "covers": "Too few clusters, cells and paired errand tasks."
+  },
+  {
+    "fixture": "09_C_order.json",
+    "rows": 544,
+    "covers": "Order-dependent C, retained order distributions and withheld direction."
+  },
+  {
+    "fixture": "10_lost_domain.json",
+    "rows": 544,
+    "covers": "Nonchoice codes remain separate; complete domain support lost."
+  },
+  {
+    "fixture": "11_few_decided.json",
+    "rows": 544,
+    "covers": "Positive but insufficient decided denominator is not all-C."
+  },
+  {
+    "fixture": "12_no_components.json",
+    "rows": 544,
+    "covers": "No sufficient errand components; bootstrap undefined, never zero."
+  },
+  {
+    "fixture": "13_triad_position.json",
+    "rows": 1608,
+    "covers": "Triad-only table: three-choice position failure and other frames explicitly not measured."
+  },
+  {
+    "fixture": "14_factorial.json",
+    "rows": 2176,
+    "covers": "Common support, losses, symmetric guards and four-way interaction."
+  },
+  {
+    "fixture": "15_same_name.json",
+    "rows": 224,
+    "covers": "Saturated canonical preference on quick remains descriptive even when its score is 100."
+  },
+  {
+    "fixture": "16_undefined_joint.json",
+    "rows": 544,
+    "covers": "Sparse role support creates joint undefined draws; rare errand component creates a separate descriptive undefined interval."
+  },
+  {
+    "fixture": "17_saturated_errand.json",
+    "rows": 544,
+    "covers": "Nonlinear saturated errand retains its number but never uses the bounded-mean sentence rule."
+  },
+  {
+    "fixture": "18_component_intersection.json",
+    "rows": 1088,
+    "covers": "Each arm has two components but only one common; paired errand difference is withheld."
+  },
+  {
+    "fixture": "19_memory_off_primary.json",
+    "rows": 544,
+    "covers": "Memory-off alone is primary and can conclude."
+  },
+  {
+    "fixture": "20_mixed_directions.json",
+    "rows": 1608,
+    "covers": "Full standard mixed-null page: stochastic rho above, stochastic kappa below, a null pair."
+  },
+  {
+    "fixture": "21_three_deployer.json",
+    "rows": 1608,
+    "covers": "Three-name saturated page fixes m=6 bounded radius."
+  },
+  {
+    "fixture": "22_near_saturated.json",
+    "rows": 544,
+    "covers": "Refuting heteroscedastic family is unresolved under bounded scenario means."
+  },
+  {
+    "fixture": "23_standard_under_quick.json",
+    "rows": 544,
+    "covers": "Standard-size rows requested at quick remain descriptive."
+  },
+  {
+    "fixture": "24_quick_under_standard.json",
+    "rows": 224,
+    "covers": "Quick-plan rows cannot be promoted to standard."
+  },
+  {
+    "fixture": "25_boundary_2_rho_low_109.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_rho_low_110.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_rho_high_274.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_rho_high_275.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_kappa_low_109.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_kappa_low_110.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_kappa_high_274.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_2_kappa_high_275.json",
+    "rows": 544,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_rho_low_100.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_rho_low_101.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_rho_high_283.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_rho_high_284.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_kappa_low_100.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_kappa_low_101.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_kappa_high_283.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  },
+  {
+    "fixture": "25_boundary_3_kappa_high_284.json",
+    "rows": 1608,
+    "covers": "Actual full-plan joint threshold neighbors, one changed run."
+  }
+]

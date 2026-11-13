@@ -15,9 +15,15 @@ Two views read the run, and neither writes anything in its results folder:
       ViewRedactor   every free-text field passes it before it is serialized (calibration/redact.py's contract)
       Provisional    one coalescing worker per run scores the full plan on one snapshot with the final scorers; the
                      final card replaces it the moment the run is scored
+    VersusWatch    --watch for a versus run (versus_run.py), chosen by the run's family: its own page (VIEW_VERSUS),
+                   on the same server, with counts and no score while the run goes, and the command's own answer
+                   lines once it ends
+      VersusView     a RunView that reads the same files the same way, and counts each arm's and row's planned,
+                     answered and valid calls and what each answer chose (versus_counts); it never scores
 
-probatio.py imports this module for a v4 run (import_live), and this module imports probatio's helpers, as ordo.py
-does, so the dependency runs one way at import time. Section numbers refer to the design of the quick run and the
+probatio.py imports this module for a v4 run (import_live), and versus_run.py through it for a versus run; this
+module imports probatio's helpers, as ordo.py does, so the dependency runs one way at import time (it never imports
+versus: versus_run hands the view what it needs). Section numbers refer to the design of the quick run and the
 run you can watch (revision 2, section 4).
 
 Standard library only, Python 3.9 or later.
@@ -1099,7 +1105,20 @@ def run_facts(meta, kind, roster=None):
         facts.update(target=roster["T"]["full"], target_type=roster["type"], control=roster["X"]["full"])
     elif kind == "cross":
         facts.update(compare=meta.get("compare"))
+    return shown_facts(facts)
+
+
+def shown_facts(facts):
+    """facts with every text value displayed (probatio's display: one token, every unseen character escaped, cut at
+    DISPLAY_CHARS): the one rule for the facts a --watch page shows, v4's (run_facts) and a versus run's
+    (VersusWatch.start), since each is read from a record or a CLI and is outside text."""
     return {k: display(v) if isinstance(v, str) else v for k, v in facts.items()}
+
+
+def shown_rosters(rosters):
+    """{roster: {type: name}} with every name displayed (display), as roster_names displays v4's: the names a versus
+    page counts its answers by."""
+    return {arm: {t: display(name) for t, name in parties.items()} for arm, parties in rosters.items()}
 
 
 def version_of(cli):
@@ -1123,6 +1142,13 @@ def roster_names(roster=None, rosters=None):
             if isinstance(x.get("key"), str) and isinstance(x.get("full"), str)}
 
 
+def announce(stream, url, boundary):
+    """The page's address on stderr, once, before the first call, with its boundary sentence: the line ui.py reads the
+    link from (WATCH_LINK there), the same for every family's page."""
+    stream.write(f"  watch it live: {url}\n  {boundary}\n")
+    stream.flush()
+
+
 class Watch:
     """--watch for one command: the page, with a tab for each run of the command (names, in order), each a RunView
     from the moment its run starts (start) and given its final card the moment it is scored (finish). The URL is
@@ -1133,9 +1159,7 @@ class Watch:
         self.names, self.views, self.lock = [plain_label(n) for n in names], [], threading.Lock()
         self.server = serve_page(VIEW_V4, self.state)
         self.redactor = ViewRedactor(extra=(self.server.token,))
-        stream = stream or sys.stderr
-        stream.write(f"  watch it live: {self.server.url}\n  {BOUNDARY}\n")
-        stream.flush()
+        announce(stream or sys.stderr, self.server.url, BOUNDARY)
 
     def start(self, name, out, calls, facts, names, components, line=None, score=None, rows=None):
         """The next run of the command starts: its view, running. score(done) and rows(card, final) give its
@@ -1160,6 +1184,191 @@ class Watch:
         waiting = [{"name": n, "status": "waiting"} for n in self.names[len(views):]]
         return {"runs": [v.state() for v in views] + waiting, "boundary": BOUNDARY, "moves": MOVES,
                 "midline": MIDLINE_NOTE}
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+# ---- the versus page (docs/versus/DESIGN.md 8; counts while it runs, the command's own lines once it ends) ------------
+# A versus run is scored only when it is complete: its estimator refuses an incomplete table, so the page never shows a
+# provisional index, share, interval or sentence. While the run goes it shows, per arm and row, how many calls are
+# planned, answered (came back without an error) and valid (a question whose reply parsed to one of its own letters, an
+# errand whose record is whole, a bound that parsed), and what each valid question chose, named as the page names it:
+# the party as rendered in that arm's roster, the lottery, a tie's label by its place; a reply that came back and did
+# not parse is unreadable. When the run ends it shows the lines the command prints, the folder's path among them.
+VERSUS_ROWS = (("allocation", "stated allocation"), ("conflict", "forced conflicts"), ("triad", "the triad"),
+               ("errand", "errands"), ("tie", "checks: the tie controls"), ("bound", "checks: the bounds"))
+ANSWERED_FRAMES = ("allocation", "conflict", "triad", "tie")        # the rows whose answers are counted by choice
+TIE_PLACES = {"first_label": "first label", "second_label": "second label"}
+LOTTERY, UNREADABLE = "the lottery", "unreadable"
+VERSUS_BOUNDARY = ("Shows counts of the run's answers, never what the agent wrote. Local to this machine; "
+                   "secret-shaped text is redacted.")
+VERSUS_WORDS = {   # every sentence the versus page shows, in one place; the page's script carries them (VIEW_VERSUS)
+    "title": "probatio · versus live", "waiting": "Waiting for the run to start.",
+    "counts": "counts so far: a versus result is computed only when the run is complete",
+    "answer": "The answer", "refused": "The run ended in a refusal, and no page was written",
+    "heads": ["", "planned", "answered", "valid", "answers so far"],
+    "final_heads": ["", "planned", "answered", "valid", "answers"], "calls": "calls", "errors": "errors",
+    "left": "left", "tier": "tier", "memory": "memory", "effort": "effort", "strangers": "unfamiliar roster",
+    "none": "not counted by answer", "unreadable_lines": "unreadable lines", "lost": "the run has stopped serving "
+    "this page", "boundary": VERSUS_BOUNDARY, "under_minute": "under a minute", "about": "about",
+    "minutes": "min", "hours": "hours",
+}
+
+
+def chosen_choice(call, rec):
+    """The choice a committed question's reply parsed to: the row's own choice whose letter is the reply's answer, or
+    None (no answer, or one the row does not offer)."""
+    answer = rec.get("answer")
+    if not isinstance(answer, str):
+        return None
+    return next((c for c in call["row"].get("choices") or [] if c.get("label") == answer), None)
+
+
+def answer_word(call, choice, rosters):
+    """What the page calls a choice: a tie's label by its place (TIE_PLACES) or the lottery; any other question's
+    party as rendered in the call's own roster arm (rosters), or the lottery."""
+    if choice.get("maps_to") == "lottery" or choice.get("side") == "lottery":
+        return LOTTERY
+    if call["meta"].get("frame") == "tie":
+        return TIE_PLACES.get(choice.get("side"))
+    return rosters.get(call["meta"].get("roster"), {}).get(choice.get("maps_to"))
+
+
+def call_valid(call, rec, facts):
+    """Whether a committed record counts as valid: a question's reply parsed to one of its own letters
+    (chosen_choice), an errand's record is whole (its captured episode_facts), a bound's reply parsed (ordo's
+    question_unit reads it so)."""
+    frame = call["meta"].get("frame")
+    if frame == "errand":
+        return bool(facts and facts.get("valid"))
+    if frame in ANSWERED_FRAMES:
+        return chosen_choice(call, rec) is not None
+    return rec.get("outcome") is not None
+
+
+def answer_order(rosters, roster):
+    """The order a row lists its answers in: the arm's parties in the run's type order, the tie's places, the lottery,
+    unreadable last."""
+    return [*rosters.get(roster, {}).values(), *TIE_PLACES.values(), LOTTERY, UNREADABLE]
+
+
+def versus_counts(calls, done, facts_of, arms, rosters, arm_of):
+    """The page's table, pure: for each arm (arms: (label, words) in order) and each row of VERSUS_ROWS it plans, the
+    planned, answered and valid calls and, for a question row, each answer's count, every answer the row can give
+    listed from the start at 0 (answer_order). done is the committed records by call key, facts_of each committed
+    errand's episode_facts; arm_of names a call's arm (versus.arm_label). Nothing here is a share or an estimate."""
+    cells = {}
+    for c in calls:
+        frame = c["meta"].get("frame")
+        cell = cells.setdefault((arm_of(c), frame), {"planned": 0, "answered": 0, "valid": 0,
+                                                       "answers": {} if frame in ANSWERED_FRAMES else None})
+        cell["planned"] += 1
+        if cell["answers"] is not None:
+            for choice in c["row"].get("choices") or []:
+                cell["answers"].setdefault(answer_word(c, choice, rosters), 0)
+            cell["answers"].setdefault(UNREADABLE, 0)
+    by_key = {key(c): c for c in calls}
+    for k, rec in done.items():
+        call = by_key.get(k)
+        if call is None or rec.get("error"):
+            continue
+        cell = cells[(arm_of(call), call["meta"].get("frame"))]
+        cell["answered"] += 1
+        valid = call_valid(call, rec, facts_of.get(k))
+        cell["valid"] += valid
+        if cell["answers"] is not None:
+            word = answer_word(call, chosen_choice(call, rec), rosters) if valid else UNREADABLE
+            cell["answers"][word] = cell["answers"].get(word, 0) + 1
+    out = []
+    for label, words in arms:
+        roster = label.split(":")[0]
+        rows = []
+        for frame, row in VERSUS_ROWS:
+            cell = cells.get((label, frame))
+            if cell is None:
+                continue
+            order = answer_order(rosters, roster)
+            answers = None if cell["answers"] is None else sorted(
+                ([w, n] for w, n in cell["answers"].items() if w is not None),
+                key=lambda wn: order.index(wn[0]) if wn[0] in order else len(order))
+            rows.append({"row": row, "planned": cell["planned"], "answered": cell["answered"],
+                         "valid": cell["valid"], "answers": answers})
+        out.append({"arm": words, "rows": rows})
+    return out
+
+
+class VersusView(RunView):
+    """What the versus page knows of its run: a RunView over the same folder, reading replies.jsonl through
+    CommittedLines and each committed errand's episode_facts once (capture), with the same fixed sentences for a read
+    that fails. It draws no errand cards, so it reads no other errand record (read_errands does nothing), has no
+    provisional scorer, and its state is versus_counts' table, the live line's progress, and, once the run is
+    scored, the command's own answer lines (answer, set by VersusWatch.finish), or the one line of a run that ended
+    in a refusal (refusal, set by VersusWatch.refuse)."""
+
+    def __init__(self, name, out, calls, facts, arms, rosters, arm_of, redactor, line=None, clock=time.monotonic,
+                 now=time.localtime):
+        super().__init__(name, out, calls, facts, {}, {}, redactor, line, None, clock, now)
+        self.arms, self.rosters, self.arm_of, self.answer = list(arms), rosters, arm_of, None
+        self.refusal = None
+
+    def read_errands(self):
+        """Nothing: the versus page shows no errand cards."""
+
+    def state(self):
+        """The whitelisted state of the run for /state: its name, status and facts, the progress, the table
+        (versus_counts), the answer lines once it is scored (else None), the refusal a run ended in (else None),
+        and the reader's problems."""
+        self.refresh()
+        with self.lock:
+            return {"name": self.redact.brief(self.name, 120), "status": self.status, "facts": self.facts,
+                    "progress": self.progress(),
+                    "arms": versus_counts(self.calls, self.done, self.facts_of, self.arms, self.rosters, self.arm_of),
+                    "answer": list(self.answer) if self.answer is not None else None, "refusal": self.refusal,
+                    "unreadable_lines": self.replies.unreadable, "problems": list(self.problems.values())}
+
+
+class VersusWatch:
+    """--watch for a versus command: one run, one page (VIEW_VERSUS) on the server v4's Watch uses (serve_page), its
+    address printed once on stderr before the first call (announce), as v4's is. start gives it the run's view, every
+    outside string in it displayed here, where the page's data is built (the name by plain_label, the facts by
+    shown_facts, the rosters' names by shown_rosters); finish hands it the command's answer lines the moment the run
+    is scored, refuse the one line of a run that ended in a refusal, each displayed again as the terminal's backstop
+    does (uncut: the strings inside are already displayed). It serves for the life of the process."""
+
+    def __init__(self, name, stream=None):
+        self.name, self.view, self.lock = plain_label(name), None, threading.Lock()
+        self.server = serve_page(VIEW_VERSUS, self.state)
+        self.redactor = ViewRedactor(extra=(self.server.token,))
+        announce(stream or sys.stderr, self.server.url, VERSUS_BOUNDARY)
+
+    def start(self, out, calls, facts, arms, rosters, arm_of, line=None):
+        """The run starts: its view (VersusView), running, its facts and names displayed."""
+        view = VersusView(self.name, out, calls, shown_facts(facts), arms, shown_rosters(rosters), arm_of,
+                          self.redactor, line)
+        view.status = "running"
+        with self.lock:
+            self.view = view
+        return view
+
+    def finish(self, view, lines):
+        """The run is scored: its answer lines, as the command prints them, are the page's from now on."""
+        with view.lock:
+            view.status, view.last_refresh = "finished", None
+            view.answer = [display(str(x), cap=None) for x in lines]
+
+    def refuse(self, view, line):
+        """The run ended in a refusal (the page refused the card's claims, or a result file could not be written):
+        that one line is the page's from now on, and no answer is shown."""
+        with view.lock:
+            view.status, view.last_refresh = "refused", None
+            view.answer, view.refusal = None, display(str(line), cap=None)
+
+    def state(self):
+        with self.lock:
+            view = self.view
+        return {"run": view.state() if view is not None else {"name": self.name, "status": "waiting"}}
 
     def close(self):
         self.server.shutdown()
@@ -1473,6 +1682,144 @@ async function tick() {
   } catch (err) {
     const pill = document.getElementById("pill");
     pill.className = "pill stopped"; pill.textContent = "the run has stopped serving this page";
+  }
+}
+tick(); setInterval(tick, 1000);
+</script></body></html>
+"""
+# The versus page: the facts, the progress bar and its numbers, the one line on what the counts are, then per arm a
+# table of its rows (planned, answered, valid, and what each answer chose so far); once the run is scored, the
+# command's own answer lines above it, as the terminal prints them. No score, share or interval is drawn: the page has
+# none until the command prints its answer. Its sentences are VERSUS_WORDS, carried into the script as W; every node is
+# built with textContent, never innerHTML, and the token is read from location.search, never embedded.
+VIEW_VERSUS = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>probatio versus live</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<style>
+""" + PAGE_BASE + """main { max-width:1080px; margin:0 auto; padding:20px 16px 40px; }
+header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+h1 { font-size:20px; margin:0; font-weight:650; }
+h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink2); margin:26px 0 10px;
+  font-weight:600; }
+.pill { font-size:13px; color:var(--ink2); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
+.pill::before { content:""; width:9px; height:9px; border-radius:50%; background:var(--muted); }
+.pill.running::before { background:var(--good); }
+.pill.stopped::before, .pill.refused::before { background:var(--bad); }
+.pill.finished::before { background:var(--ink2); }
+.names { font-size:16px; font-weight:600; margin:14px 0 2px; overflow-wrap:anywhere; }
+.facts { color:var(--ink2); margin:2px 0 0; overflow-wrap:anywhere; }
+.bar { height:8px; background:var(--grid); border-radius:4px; overflow:hidden; margin:14px 0 8px; }
+.bar i { display:block; height:100%; width:0; background:var(--ink2); border-radius:4px; }
+.nums { font-variant-numeric:tabular-nums; color:var(--ink); }
+.note { color:var(--ink2); font-size:13px; margin:10px 0 0; }
+.answer { background:var(--band); border-radius:10px; padding:10px 12px; margin:0; white-space:pre-wrap;
+  overflow-wrap:anywhere; font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+th { text-align:left; font-weight:500; color:var(--muted); font-size:12.5px; padding:4px 10px 4px 0;
+  border-bottom:1px solid var(--line); }
+td { padding:6px 10px 6px 0; border-bottom:1px solid var(--line); vertical-align:baseline; }
+td.n, th.n { text-align:right; white-space:nowrap; } td.row { font-weight:600; }
+td.ans { color:var(--ink2); } td.ans .none { color:var(--muted); } td.ans .a { white-space:nowrap; }
+.empty { color:var(--muted); padding:8px 0; }
+.problems { color:var(--muted); font-size:12.5px; margin-top:12px; } .problems div { margin:2px 0; }
+footer { margin-top:30px; padding-top:12px; border-top:1px solid var(--line); color:var(--ink2); font-size:13px; }
+@media (max-width:700px) {
+  thead th:last-child { display:none; }
+  thead tr, tbody tr { display:grid; grid-template-columns:minmax(0,1fr) repeat(3,64px); column-gap:8px; }
+  tbody tr { border-bottom:1px solid var(--line); padding:6px 0; } th, td { border:0; padding:2px 0; }
+  td.ans { grid-column:1 / -1; font-size:13px; }
+}
+</style></head>
+<body><main>
+<header><h1 id="title"></h1><span class="pill" id="pill">connecting</span></header>
+<div id="run"><p class="empty" id="waiting"></p></div>
+<footer id="foot"></footer>
+</main>
+<script>
+"use strict";
+const W = """ + json.dumps(VERSUS_WORDS, ensure_ascii=True).replace("</", "<\\/") + """;
+document.getElementById("title").textContent = W.title;
+document.getElementById("waiting").textContent = W.waiting;
+document.getElementById("foot").textContent = W.boundary;
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = String(text);
+  return e;
+}
+function add(parent, ...kids) { for (const k of kids) if (k) parent.appendChild(k); return parent; }
+function minutes(s) {
+  if (s === null || s === undefined) return null;
+  if (s < 60) return W.under_minute;
+  const m = s / 60;
+  return m < 90 ? W.about + " " + Math.round(m) + " " + W.minutes : W.about + " " + (m / 60).toFixed(1) + " " + W.hours;
+}
+function clock(s) {
+  s = Math.floor(s || 0);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+  return Math.floor(s / 3600) + "h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + "m";
+}
+function table(arm, final) {
+  const box = el("section");
+  box.appendChild(el("h2", null, arm.arm));
+  const t = el("table"), head = el("tr");
+  (final ? W.final_heads : W.heads).forEach((h, i) => head.appendChild(el("th", i && i < 4 ? "n" : null, h)));
+  t.appendChild(add(el("thead"), head));
+  const body = el("tbody");
+  for (const r of arm.rows) {
+    const tr = el("tr");
+    add(tr, el("td", "row", r.row), el("td", "n", r.planned), el("td", "n", r.answered), el("td", "n", r.valid));
+    const ans = el("td", "ans");
+    if (r.answers === null) ans.appendChild(el("span", "none", W.none));
+    else r.answers.forEach((a, i) => add(ans, i ? document.createTextNode(" · ") : null,
+      el("span", "a", a[0] + " " + a[1])));             // a name and its count stay on one line
+    body.appendChild(add(tr, ans));
+  }
+  t.appendChild(body);
+  return add(box, t);
+}
+function render(s) {
+  const r = s.run, pill = document.getElementById("pill"), run = document.getElementById("run");
+  pill.className = "pill " + r.status; pill.textContent = r.status;
+  if (r.status === "waiting") { run.replaceChildren(el("p", "empty", W.waiting)); return; }
+  const f = r.facts, p = r.progress, box = el("div");
+  box.appendChild(el("div", "names", f.names));
+  box.appendChild(el("div", "facts", [f.agent + " " + f.cli, f.model, W.effort + " " + f.effort, f.tier + " " +
+    W.tier, W.memory + " " + f.memory, W.strangers + " " + f.strangers].filter(Boolean).join(" · ")));
+  if (f.bank) box.appendChild(el("div", "facts", f.bank));            // the bank's status, as the preflight says it
+  const bar = add(el("div", "bar"), el("i"));
+  bar.firstChild.style.width = (p.total ? 100 * p.done / p.total : 0) + "%";
+  box.appendChild(bar);
+  const nums = [p.done + " / " + p.total + " " + W.calls];
+  if (p.errors) nums.push(p.errors + " " + W.errors);
+  if (p.elapsed_seconds !== null) nums.push(clock(p.elapsed_seconds));
+  const left = p.done < p.total ? minutes(p.left_seconds) : null;
+  if (left && r.status === "running") nums.push(left + " " + W.left);
+  if (p.quota) nums.push(p.quota);
+  box.appendChild(el("div", "nums", nums.join(" · ")));
+  const final = r.answer !== null && r.answer !== undefined;
+  if (final) add(box, el("h2", null, W.answer), el("pre", "answer", r.answer.join("\\n")));
+  else if (r.refusal) add(box, el("h2", null, W.refused), el("pre", "answer", r.refusal));
+  else box.appendChild(el("p", "note", W.counts));
+  for (const arm of r.arms) box.appendChild(table(arm, final));
+  if (r.problems.length || r.unreadable_lines) {
+    const pr = el("div", "problems");
+    if (r.unreadable_lines) pr.appendChild(el("div", null, W.unreadable_lines + ": " + r.unreadable_lines));
+    for (const x of r.problems) pr.appendChild(el("div", null, x));
+    box.appendChild(pr);
+  }
+  run.replaceChildren(box);
+}
+async function tick() {
+  try {
+    const res = await fetch("/state" + location.search, {cache: "no-store"});
+    if (!res.ok) throw new Error(String(res.status));
+    render(await res.json());
+  } catch (err) {
+    const pill = document.getElementById("pill");
+    pill.className = "pill stopped"; pill.textContent = W.lost;
   }
 }
 tick(); setInterval(tick, 1000);
