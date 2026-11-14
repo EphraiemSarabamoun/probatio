@@ -263,6 +263,20 @@ class Stubbed(unittest.TestCase):
         self.tmp.rmdir()
 
 
+def link_chain(at, n, where):
+    """at made the last of a chain of n links with no loop, each to the one before and the first to a folder that is
+    not there, the others in where: a path the system will not follow past its limit (ELOOP), and one that Python's
+    resolve before 3.13 cannot follow either (RecursionError, past about a thousand)."""
+    where.mkdir(parents=True, exist_ok=True)
+    before = where / "the-end"
+    for i in range(n - 1):
+        link = where / f"link-{i}"
+        link.symlink_to(before)
+        before = link
+    at.parent.mkdir(parents=True, exist_ok=True)
+    at.symlink_to(before)
+
+
 class Served:
     """The page on loopback for one test (a Session, or the given actions), with requests that set the Host, the
     token and the headers as given."""
@@ -1916,6 +1930,55 @@ class TestCheckAndRun(Stubbed):
             session.program = program
         self.assertEqual(self.s.state()["run"], None)
 
+    def test_a_run_folder_that_cannot_be_resolved_is_a_refusal(self):
+        """The run's folder turned into a link to itself just before Run starts the run (the race made certain: at
+        Run's last look at its folders, resume_refusals) cannot be resolved (Runner, through resolved): Run answers
+        as it answers a process that cannot start, with ELOOP's words, and starts no process; never a connection
+        closed unanswered."""
+        self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])
+        real = U.resume_refusals
+
+        def looping(argv, plans, env):
+            said = real(argv, plans, env)
+            self.folder.parent.mkdir(parents=True, exist_ok=True)
+            self.folder.symlink_to(self.folder)
+            return said
+        with mock.patch.object(U, "resume_refusals", looping):
+            reply = self.s.post("/run", {"form": MOZILLA, "confirmed": True})
+        self.assertEqual(reply, {"ok": False, "error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertFalse((self.tmp / "pid").exists())                           # no process started
+        with self.assertRaises(OSError) as raised:                              # Runner itself, as the review called it
+            U.Runner([sys.executable, "-c", "raise SystemExit(5)"], [], [self.folder], self.env)
+        self.assertEqual(raised.exception.errno, errno.ELOOP)
+        self.folder.unlink()
+
+    def test_a_link_loop_already_at_the_run_folder_is_a_refusal(self):
+        """The run's folder made a link to itself after Check passed, already there when Run is pressed: preparing
+        the run again (prepared, through probatio's own run_folder) cannot resolve it, and Run answers as for a run
+        that cannot start, with ELOOP's words; nothing starts, and the form's server answers afterwards."""
+        self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])
+        self.folder.parent.mkdir(parents=True, exist_ok=True)
+        self.folder.symlink_to(self.folder)
+        reply = self.s.post("/run", {"form": MOZILLA, "confirmed": True})
+        self.assertEqual(reply, {"error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertFalse((self.tmp / "pid").exists())                           # no process started
+        self.assertIn("command", self.s.post("/command", {"form": MOZILLA}))   # the server still answers
+        self.folder.unlink()
+
+    def test_a_long_chain_of_links_at_the_run_folder_is_a_refusal(self):
+        """The run's folder made the last of a chain of 1,100 links (no loop) after Check passed: Run answers as for a
+        run that cannot start, with ELOOP's words, on every Python (resolve raising RecursionError before 3.13, a look
+        at the folder as named on any); nothing starts, and the form's server answers afterwards."""
+        self.assertTrue(self.s.post("/check", {"form": MOZILLA})["ok"])
+        link_chain(self.folder, 1100, self.tmp / "chain")
+        reply = self.s.post("/run", {"form": MOZILLA, "confirmed": True})
+        self.assertEqual(reply, {"error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertFalse((self.tmp / "pid").exists())                           # no process started
+        self.assertIn("command", self.s.post("/command", {"form": MOZILLA}))   # the server still answers
+
     def test_closing_the_page_stops_its_run(self):
         _, pid = self.start()
         out = io.StringIO()
@@ -1966,6 +2029,78 @@ class TestRunFolders(unittest.TestCase):
                 want = [Path(f) for f, _ in U.prepared(argv)]
                 self.assertEqual(self.folder_main_uses(argv, d), want[:1], form)      # the first run starts first
                 self.assertTrue(all(f.is_relative_to(Path(d).resolve() / "results") for f in want), want)
+
+
+class TestUnresolvable(unittest.TestCase):
+    """The one test of a run's folder that cannot be resolved (cannot_resolve), on every Python: resolve failing, or a
+    look at the folder (os.stat) meeting ELOOP; and what the form's prepare paths do with it."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="probatio-ui-unresolvable-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_what_cannot_be_resolved(self):
+        folder, other = self.tmp / "a-folder", self.tmp / "another"
+        folder.mkdir()
+        other.mkdir()
+        (self.tmp / "a-link").symlink_to(folder, target_is_directory=True)
+        (self.tmp / "loop").symlink_to(self.tmp / "loop")
+        link_chain(self.tmp / "chain-41", 41, self.tmp / "c41")
+        link_chain(self.tmp / "chain-1100", 1100, self.tmp / "c1100")
+        link_chain(self.tmp / "chain-30", 30, self.tmp / "c30")           # under every system's limit (macOS 32, Linux 40)
+        for path, unresolvable in ((folder, False), (self.tmp / "not-there", False),
+                                   (self.tmp / "no" / "parent", False), (self.tmp / "a-link", False),
+                                   (self.tmp / "chain-30", False),
+                                   (Path(tempfile.gettempdir()), False), (P.HERE, False),
+                                   (self.tmp / "loop", True), (self.tmp / "chain-41", True),
+                                   (self.tmp / "chain-1100", True)):
+            with self.subTest(path=path.name):
+                self.assertEqual(U.cannot_resolve(path), unresolvable)
+        self.assertEqual(U.looping(self.tmp / "loop"), True)                  # the look alone sees a loop
+        self.assertEqual(U.looping(self.tmp / "not-there"), False)
+
+    def test_preparing_raises_what_does_not_come_from_resolving_a_folder(self):
+        """A RuntimeError or RecursionError raised anywhere but in a command's run_folder is raised as before."""
+        def raising(error):
+            raise error
+        for error in (RecursionError("deep"), RuntimeError("Symlink loop from 'not a folder'")):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(type(error)):
+                    U.preparing(raising, error)
+        with self.assertRaises(SystemExit) as stop:                             # an OSError is answered, by its words
+            U.preparing(raising, OSError(errno.EACCES, os.strerror(errno.EACCES)))
+        self.assertEqual(stop.exception.code, f"the run could not start ({os.strerror(errno.EACCES)})")
+
+    def test_a_run_folder_too_long_a_chain_is_refused_where_the_form_prepares_it(self):
+        """prepared, through probatio's prepare_runs and run_folder, on every Python."""
+        with mock.patch.object(P, "HERE", self.tmp):
+            argv = U.build_command(MOZILLA)[0]
+            [(folder, _)] = U.prepared(argv)
+            link_chain(folder, 1100, self.tmp / "chain")
+            with self.assertRaises(SystemExit) as stop:
+                U.prepared(argv)
+        self.assertEqual(stop.exception.code, f"the run could not start ({os.strerror(errno.ELOOP)})")
+
+    def test_the_folder_as_named_is_the_one_run_folder_resolves(self):
+        """folder_named holds the commands' own folder rule: resolved, it is run_folder's folder, for v4 with and
+        without --out, one run or several, and for versus with and without --out."""
+        VR = U.versus_command()
+        with mock.patch.object(P, "HERE", self.tmp):
+            for form in (MOZILLA, dict(MOZILLA, targets={"organization": "Mozilla\nWikimedia"})):
+                for out in ([], ["--out", str(self.tmp / "elsewhere")]):
+                    a = P.parse_args_v4(U.absolute(U.build_command(form)[0] + out))
+                    runs = P.prepare_runs(a, False)[4]
+                    many = len(runs) > 1
+                    for run in runs:
+                        with self.subTest(form=form["targets"], out=bool(out), run=run["name"]):
+                            self.assertEqual(U.folder_named(a, run["name"], many).resolve(),
+                                             P.run_folder(a, run, many))
+            for out in ([], ["--out", str(self.tmp / "versus-elsewhere")]):
+                a = VR.parse(["--agent", "claude", "--versus", "individual=Jane Doe", "--versus",
+                              "organization=Acme Corp", "--tier", "quick", *out])
+                names = VR.versus_names(a.versus)
+                with self.subTest(versus=True, out=bool(out)):
+                    self.assertEqual(U.folder_named(a, VR.run_name(a, names)).resolve(), VR.run_folder(a, names))
 
 
 # ---- nothing secret on the page --------------------------------------------------------------------------------------------

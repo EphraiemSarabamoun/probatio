@@ -259,11 +259,13 @@ class TestMoments(Finished):
         card, _ = VR.result_card(self.full, VS.load_bank(VS.BANK, VS.VERSUS_MANIFEST_SHA256, development=True),
                                  ordo.load_ordo_bank())
         lines = VR.answer_lines(card, self.full)
-        self.assertEqual(lines, VP.answer_lines(card) + [P.display(card["trust"]), f"Results: {P.display(self.full)}"])
+        self.assertEqual(lines, VP.answer_lines(card) + [P.display(card["trust"]), f"Results: {P.display(self.full)}",
+                                                         f"Page: {P.display(self.full / VP.HTML_FILE)}"])
         end.watch.finish(end.view, lines)
         s = end.state()
         self.assertEqual((s["run"]["status"], s["run"]["answer"], s["run"]["refusal"]), ("finished", lines, None))
-        self.assertEqual(s["run"]["answer"][-1], f"Results: {P.display(self.full)}")
+        self.assertEqual(s["run"]["answer"][-2:], [f"Results: {P.display(self.full)}",
+                                                   f"Page: {P.display(self.full / VP.HTML_FILE)}"])
         self.assertTrue(all(r["answered"] == r["planned"] for r in by_row(s).values()))
 
     def recounted(self, m, n):
@@ -439,14 +441,16 @@ class TestCommand(unittest.TestCase):
         state = watch.state()["run"]
         self.assertEqual(state["status"], "finished")
         self.assertEqual(printed.splitlines()[-len(state["answer"]):], state["answer"])
-        self.assertEqual(state["answer"][-1], f"Results: {self.tmp / 'out'}")
+        self.assertEqual(state["answer"][-2:], [f"Results: {self.tmp / 'out'}",
+                                                f"Page: {self.tmp / 'out' / VP.HTML_FILE}"])
         self.assertTrue(all(r["answered"] == r["planned"] for a in state["arms"] for r in a["rows"]))
         card = json.loads((self.tmp / "out" / "scorecard.json").read_text(encoding="utf-8"))
         with self.as_the_run():
             own = VP.answer_lines(card)                     # the real page's own lines, then the trust and the folder
             made = VP.files(card)
         self.assertEqual([f for f in made if not (self.tmp / "out" / f).is_file()], [])    # the real page's files
-        self.assertEqual(state["answer"], own + [P.display(card["trust"]), f"Results: {self.tmp / 'out'}"])
+        self.assertEqual(state["answer"], own + [P.display(card["trust"]), f"Results: {self.tmp / 'out'}",
+                                                 f"Page: {self.tmp / 'out' / VP.HTML_FILE}"])
         self.assertIsNone(state["refusal"])
 
     def test_a_card_the_page_refuses_ends_the_page_in_its_one_line(self):
@@ -476,7 +480,7 @@ class TestCommand(unittest.TestCase):
         out = self.tmp / "out\x1b[2J\nprobatio: done"
         watch, printed, _ = self.run_main(out)
         state = watch.state()["run"]
-        self.assertEqual(state["answer"][-1], f"Results: {P.display(out)}")
+        self.assertEqual(state["answer"][-2:], [f"Results: {P.display(out)}", f"Page: {P.display(out / VP.HTML_FILE)}"])
         self.assertNotIn("\x1b", json.dumps(state, ensure_ascii=False))
         self.assertIn(f"Results: {P.display(out)}", printed)
         port, token = watch.server.server_address[1], watch.server.token

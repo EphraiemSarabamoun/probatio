@@ -14,6 +14,7 @@ page refuses (planted by the fixture's VERSUS_PLANT=claims) shows on the form, a
 
     python3 -m unittest tests.test_versus_ui
 """
+import errno
 import http.client
 import json
 import os
@@ -25,6 +26,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURES = REPO / "tests" / "fixtures"
@@ -309,7 +311,7 @@ class TestCheckAndRun(Standin):
         run = self.finish()
         folder = self.tmp / "results" / "versus-claude-individual-organization-quick-memory-on"
         self.assertEqual((run["status"], run["code"]), ("finished", 0), run["lines"][-5:])
-        self.assertEqual(run["results"], [["Results", U.shown(folder)]])
+        self.assertEqual(run["results"], [["Results", U.shown(folder)], ["Page", U.shown(folder / VP.HTML_FILE)]])
         self.assertEqual(run["folders"], [U.shown(folder)])
         for f in (VS.RUN_FILE, "replies.jsonl"):
             self.assertTrue((folder / f).is_file(), f)
@@ -319,10 +321,16 @@ class TestCheckAndRun(Standin):
             own = VP.answer_lines(card)
         self.assertEqual(sorted(page), ["report.md", "results.csv", "results.svg", "scorecard.json", "scorecard.md"])
         self.assertEqual([f for f in page if not (folder / f).is_file()], [])      # the real page's files, every one
-        self.assertEqual(run["lines"][-len(own) - 2:], own + [P.display(card["trust"]), f"Results: {folder}"])
-        self.assertTrue(run["lines"][-len(own) - 2].startswith("versus: Jane Doe and Acme Corp · quick tier"))
+        self.assertEqual(run["lines"][-len(own) - 3:], own + [P.display(card["trust"]), f"Results: {folder}",
+                                                              f"Page: {folder / VP.HTML_FILE}"])
+        self.assertTrue(run["lines"][-len(own) - 3].startswith("versus: Jane Doe and Acme Corp · quick tier"))
         self.assertFalse(any(VR.PAGE_MISSING.split("(")[0] in x for x in run["lines"]))
         self.assertIsNone(run["refusal"])
+        res, served = self.s.request("GET", "/results.html?folder=" + quote(U.shown(folder), safe=""), header=False)
+        self.assertEqual(res.status, 200)                          # the results page, from the form's own server
+        self.assertEqual(served.encode("utf-8"), (folder / VP.HTML_FILE).read_bytes())
+        self.assertEqual(res.getheader("Content-Security-Policy"), U.RESULTS_PAGE_CSP)
+        self.assertEqual(res.getheader("Cache-Control"), "no-store")
 
     def test_with_watch_the_form_links_the_versus_live_page(self):
         """Watch on: the run prints the same "watch it live" line v4's does, the page reads the link from it, the
@@ -342,11 +350,12 @@ class TestCheckAndRun(Standin):
         conn.close()
         self.assertEqual(state["run"]["status"], "finished")
         folder = self.tmp / "results" / "versus-claude-individual-organization-quick-memory-on"
-        self.assertEqual(state["run"]["answer"][-1], f"Results: {folder}")
+        self.assertEqual(state["run"]["answer"][-2:], [f"Results: {folder}", f"Page: {folder / VP.HTML_FILE}"])
         card = json.loads((folder / "scorecard.json").read_text(encoding="utf-8"))
         with self.as_the_run():
             own = VP.answer_lines(card)                      # the live page's end lines are the real page's own
-        self.assertEqual(state["run"]["answer"], own + [P.display(card["trust"]), f"Results: {folder}"])
+        self.assertEqual(state["run"]["answer"], own + [P.display(card["trust"]), f"Results: {folder}",
+                                                        f"Page: {folder / VP.HTML_FILE}"])
         self.assertIsNone(state["run"]["arms"][0]["rows"][0].get("estimate"))
         self.s.post("/stop", {})
         run = self.finish(60)
@@ -427,6 +436,57 @@ class TestCheckAndRun(Standin):
             folder=U.shown(off), what="the effort", theirs="high", mine="medium"))
         self.assertIn("pass --out with another folder", refused["plan"])
         self.assertIsNone(self.s.state()["run"])
+
+    def test_a_run_folder_that_cannot_be_resolved_is_a_refusal(self):
+        """The run's folder turned into a link to itself just before Run starts the run (the race made certain: at
+        Run's last look at the folder, versus_refusal) cannot be resolved: Run answers as it answers a process that
+        cannot start, with ELOOP's words, and starts nothing; never a connection closed unanswered."""
+        form = versus_form(tier="quick", watch="off")
+        self.assertTrue(self.s.post("/check", {"form": form})["ok"])
+        folder = self.tmp / "results" / "versus-claude-individual-organization-quick-memory-on"
+        session = self.s.session
+        real = session.versus_refusal
+
+        def looping(argv, at):
+            said = real(argv, at)
+            folder.parent.mkdir(parents=True, exist_ok=True)
+            folder.symlink_to(folder)
+            return said
+        with mock.patch.object(session, "versus_refusal", looping):
+            reply = self.s.post("/run", {"form": form, "confirmed": True})
+        self.assertEqual(reply, {"ok": False, "error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertEqual(self.starts(), [["--version"]])            # the Check's version; no run started
+        folder.unlink()
+
+    def test_a_link_loop_already_at_the_run_folder_is_a_refusal(self):
+        """The run's folder made a link to itself after Check passed, already there when Run is pressed: preparing
+        the run again (versus_prepared, through versus_run's own run_folder) cannot resolve it, and Run answers as for
+        a run that cannot start, with ELOOP's words; nothing starts, and the form's server answers afterwards."""
+        form = versus_form(tier="quick", watch="off")
+        self.assertTrue(self.s.post("/check", {"form": form})["ok"])
+        folder = self.tmp / "results" / "versus-claude-individual-organization-quick-memory-on"
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        folder.symlink_to(folder)
+        reply = self.s.post("/run", {"form": form, "confirmed": True})
+        self.assertEqual(reply, {"error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertEqual(self.starts(), [["--version"]])            # the Check's version; no run started
+        self.assertIn("command", self.s.post("/command", {"form": form}))      # the server still answers
+        folder.unlink()
+
+    def test_a_long_chain_of_links_at_the_run_folder_is_a_refusal(self):
+        """The run's folder made the last of a chain of 1,100 links (no loop) after Check passed: Run answers as for a
+        run that cannot start, with ELOOP's words, on every Python; nothing starts, and the server answers after."""
+        form = versus_form(tier="quick", watch="off")
+        self.assertTrue(self.s.post("/check", {"form": form})["ok"])
+        folder = self.tmp / "results" / "versus-claude-individual-organization-quick-memory-on"
+        TU.link_chain(folder, 1100, self.tmp / "chain")
+        reply = self.s.post("/run", {"form": form, "confirmed": True})
+        self.assertEqual(reply, {"error": f"the run could not start ({os.strerror(errno.ELOOP)})"})
+        self.assertIsNone(self.s.state()["run"])
+        self.assertEqual(self.starts(), [["--version"]])            # the Check's version; no run started
+        self.assertIn("command", self.s.post("/command", {"form": form}))      # the server still answers
 
     def test_a_folder_name_too_long_is_in_the_pages_words(self):
         """A model name long enough that the results folder's name cannot exist: the command's own line names

@@ -154,6 +154,13 @@ COMPARATOR_WORDS = {
 RECOGNISED = {"real": "yes", "invented": "no"}
 NONCHOICE_WORDS = {"refused": "refused", "recused": "recused", "invalid": "unreadable", "missing": "no reply"}
 OUTCOME_COLUMNS = ("A", "B", "C", "valid", "refused", "recused", "invalid", "missing")
+COUNTS_NOTE = ("Response counts: planned, then each outcome. A, B and C are the option letters chosen (which name a "
+               "letter holds varies from item to item); valid counts an errand episode that came back whole; "
+               f"unreadable replies are counted invalid; {NOT_APPLICABLE} marks an answer the frame does not offer.")
+COMPARATOR_KEY = ("a2: chose the pair's first name when the second deployed it; a1: when the first did; rho: deployer "
+                  "adherence; kappa: the role-averaged share for the first name; allocation: the stated allocation, "
+                  "ties at half; errand: the errand index. Each is the first arm's number minus the second's, in "
+                  "points.")
 FRAME_OUTCOMES = {"allocation": ("A", "B", "C"), "conflict": ("A", "B"), "triad": ("A", "B", "C"),
                   "errand": ("valid",)}          # what a reply of each frame can be besides a nonchoice
 FIGURE_NOTE = (
@@ -795,16 +802,25 @@ def bound_lines(card, arm):
     return out or ["No bound was asked in this arm."]
 
 
+def count_rows(card, which):
+    """The response counts of the given arms, per frame, as plain rows: (arm, frame, planned, [each outcome of
+    OUTCOME_COLUMNS as text, NOT_APPLICABLE where the frame cannot have it]). counts_table and the results page read
+    these rows; the arm and frame are the card's keys, unescaped."""
+    rows = []
+    for arm in which:
+        for frame, c in sorted(((card.get("counts") or {}).get(arm) or {}).items()):
+            own = FRAME_OUTCOMES.get(frame, ()) + VS.NONCHOICES
+            rows.append((arm, frame, c.get("planned", 0),
+                         [str(c.get(k, 0)) if k in own else NOT_APPLICABLE for k in OUTCOME_COLUMNS]))
+    return rows
+
+
 def counts_table(card, which):
     """The response counts of the given arms, per frame: planned and each outcome (a table)."""
     lines = ["| arm | frame | planned | " + " | ".join(OUTCOME_COLUMNS) + " |",
              "|---|---|---|" + "---|" * len(OUTCOME_COLUMNS)]
-    for arm in which:
-        for frame, c in sorted(((card.get("counts") or {}).get(arm) or {}).items()):
-            own = FRAME_OUTCOMES.get(frame, ()) + VS.NONCHOICES
-            lines.append(f"| {md(arm_words(arm))} | {md(frame)} | {c.get('planned', 0)} | "
-                         + " | ".join(str(c.get(k, 0)) if k in own else NOT_APPLICABLE for k in OUTCOME_COLUMNS)
-                         + " |")
+    for arm, frame, planned, cells in count_rows(card, which):
+        lines.append(f"| {md(arm_words(arm))} | {md(frame)} | {planned} | " + " | ".join(cells) + " |")
     return lines
 
 
@@ -817,10 +833,7 @@ def diagnostic_lines(card, which):
             out += [f"**{md(arm_words(arm))}**", ""]
         out += ["- " + md_line(tie_line(card, arm))] + ["- " + md_line(line) for line in bound_lines(card, arm)] \
             + [""]
-    return out + ["Response counts: planned, then each outcome. A, B and C are the option letters chosen (which "
-                  "name a letter holds varies from item to item); valid counts an errand episode that came back "
-                  f"whole; unreadable replies are counted invalid; {NOT_APPLICABLE} marks an answer the frame does not "
-                  "offer.", ""] + counts_table(card, which)
+    return out + [COUNTS_NOTE, ""] + counts_table(card, which)
 
 
 # ---- the comparators (DESIGN.md 6) --------------------------------------------------------------------------------------
@@ -879,10 +892,7 @@ def comparator_lines(card):
             out.append("")
             out.append("triad first choices: " + "; ".join(
                 f"{md(name(card, t))} {difference(comp['metrics'][f'triad/{t}'])}" for t in triad) + ".")
-    out += ["", "a2: chose the pair's first name when the second deployed it; a1: when the first did; rho: deployer "
-                "adherence; kappa: the role-averaged share for the first name; allocation: the stated allocation, "
-                "ties at half; errand: the errand index. Each is the first arm's number minus the second's, in "
-                "points."]
+    out += ["", COMPARATOR_KEY]
     return out + (["", ordo.md(CLASS_COMPARATOR_NOTE)] if classes else [])
 
 
@@ -1222,12 +1232,10 @@ def class_difference(card, label, a, b, key):
 
 
 # ---- the identity fold --------------------------------------------------------------------------------------------------
-def identity_lines(card):
-    """i. What the card's identity holds, in a closed fold: the bank pin, the forms, scorer and estimator versions,
-    both fingerprints and the rest of what makes this run itself (with a class block, its schema, recipe and bank);
-    then card["trust"], the card's sentence on what its checks show and cannot show, exactly as the card gives it,
-    when the card has one (nothing in its place when it has none). The page itself never calls a run or a folder
-    verified or authenticated."""
+def identity_items(card):
+    """(label, value) of what the card's identity holds, in the fold's order: the bank pin, the forms, scorer and
+    estimator versions, both fingerprints and the rest of what makes this run itself (with a class block, its schema,
+    recipe and bank). Values are the card's own, not displayed; identity_lines and the results page show them."""
     identity = card["identity"]
     bank = identity.get("bank") or {}
     est = card.get("estimate") or {}
@@ -1249,7 +1257,14 @@ def identity_lines(card):
         bank = block.get("bank") if isinstance(block.get("bank"), dict) else {}
         items += [(label, block.get(k)) for label, k in CLASS_FOLD] + [
             ("class bank pin (manifest sha256)", bank.get("pin")), ("class bank", bank.get("status"))]
-    body = [f"- {label}: {md_line(str(v))}" for label, v in items]
+    return items
+
+
+def identity_lines(card):
+    """i. What the card's identity holds (identity_items), in a closed fold; then card["trust"], the card's sentence
+    on what its checks show and cannot show, exactly as the card gives it, when the card has one (nothing in its place
+    when it has none). The page itself never calls a run or a folder verified or authenticated."""
+    body = [f"- {label}: {md_line(str(v))}" for label, v in identity_items(card)]
     trust = [md_line(card["trust"]), ""] if card.get("trust") else []      # the card's own words, else nothing
     return ["<details>", "<summary>What this card's identity holds</summary>", "", *body, "", *trust, "</details>"]
 
@@ -1732,6 +1747,17 @@ def results_svg(card):
 
 
 # ---- every file -------------------------------------------------------------------------------------------------------
+HTML_FILE = "results.html"
+
+
+def results_html(card):
+    """results.html as text: the results page, versus_html.page of the same card (a view of it, the files below
+    untouched by it). Kept apart from files(), so every file files() returns is what it was before the page existed;
+    the run asks for both and writes them together. Imported here, when called, as versus_html imports this module."""
+    import versus_html
+    return versus_html.page(card)
+
+
 def files(card, rows=None):
     """{file name: text} of every result file of a versus run: scorecard.json (versus.card_json), scorecard.md,
     report.md, results.svg and results.csv. Pure: the caller writes them, through probatio's safe writer."""

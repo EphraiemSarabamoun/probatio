@@ -314,6 +314,7 @@ The two conditions keep v3's meaning for a normal user.
 | `report.md` | every component's target and control levels, counts and abstentions, by condition, and the errand diagnostics by cell |
 | `results.csv` | one row per component and per red flag and validity check, per condition, with point, interval and n |
 | `results.svg` | the three class scores with intervals, one row per class and condition (v3's `<g class="row">` convention, for the tests) |
+| `results.html` | the results page (`single_html.py`, added 2026-11-13): the same scorecard drawn as figures, every line and number one scorecard.md prints (both read `scorecard_lines`), one self-contained file that loads nothing; `--rescore` writes it too |
 | `run.json`, `replies.jsonl`, `episodes/` (world, record, `followup.json`, `transcript.jsonl`), `run.lock`, `rendered.jsonl` (dry run with `--out`) | as v3, plus the bank hash, the roster and the plan and item fingerprints |
 
 The scorecard's head reads, for example:

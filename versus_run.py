@@ -17,8 +17,9 @@ rescore_main() when FOLDER holds versus-run.json. The flow of a run:
     -> [--dry-run stops here]  ->  claim (v4's lock)  ->  versus.begin_run (identity, memory, launch)
     -> [--watch: live.VersusWatch prints its address before the first call; watch_view starts its counts]
     -> probatio.run_calls (v4's runner: questions, errands, bounds; v4's live line, quota and launch records)
-    -> versus.score and versus.table  ->  versus_page.files written through probatio.replace_results
-    -> answer_lines printed (versus_page.answer_lines, the trust sentence, the folder), then with --watch the
+    -> versus.score and versus.table  ->  versus_page.files and versus_page.results_html (results.html, the
+       results page) written through probatio.replace_results
+    -> answer_lines printed (versus_page.answer_lines, the trust sentence, the folder, the page), then with --watch the
        same lines on the page, which stays up until Ctrl-C (probatio.hold_page)
 
 A resume is the same command on the same folder (resume_refusal names the first thing that differs otherwise); a
@@ -84,6 +85,7 @@ FOLDER_FRESH = "  folder {folder}: starts fresh"
 FOLDER_RESUME = "  folder {folder}: resumes the run it holds ({n} of {total} calls answered)"
 FOLDER_REFUSED = "  folder {folder}: refused: {why}"
 RESULTS_LINE = "Results: {folder}"
+PAGE_LINE = "Page: {page}"                     # the results page (versus_page.HTML_FILE), printed when it was written
 RESCORED_LINE = ("rescored {at} by probatio {by} (versus scorer {scorer}) from this folder's saved replies and "
                  "records, with no agent called; the run was scored by probatio {scored_by}")
 # what may never be a result file's name: what the run itself keeps in its folder
@@ -525,10 +527,15 @@ def result_card(out, bank, ordo_bank):
 
 
 def page_files(card, rows):
-    """{file name: bytes} of the page versus_page.files returns, each name a plain file name the run itself does not
-    keep (RUN_KEEPS), else one plain line: a page that names a run file or a path would overwrite the run. This is the
-    one place the page's files become bytes, and each goes through probatio's own writers here (export_bytes)."""
-    files = page_call("files", card, rows)
+    """{file name: bytes} of the page versus_page.files returns, and the results page beside them when the page
+    module makes one (html_name: versus_page.results_html, written as versus_page.HTML_FILE), each name a plain file
+    name the run itself does not keep (RUN_KEEPS), else one plain line: a page that names a run file or a path would
+    overwrite the run. This is the one place the page's files become bytes, and each goes through probatio's own
+    writers here (export_bytes)."""
+    files = dict(page_call("files", card, rows))
+    name = html_name()
+    if name:
+        files[name] = page_call("results_html", card)
     out = {}
     for name, text in files.items():
         if not isinstance(name, str) or not name or Path(name).name != name or name.startswith(".") or \
@@ -536,6 +543,15 @@ def page_files(card, rows):
             raise SystemExit(BAD_PAGE_FILE.format(name=P.display(name)))
         out[name] = export_bytes(name, text)
     return out
+
+
+def html_name():
+    """The results page's file name when the run's page module makes one (versus_page.HTML_FILE beside its
+    results_html), else None: a page from before the results page, or the command tests' stand-in, writes none and
+    the run prints no line for it."""
+    module = page()
+    name = getattr(module, "HTML_FILE", None)
+    return name if callable(getattr(module, "results_html", None)) and isinstance(name, str) else None
 
 
 def page_call(name, *args):
@@ -581,14 +597,17 @@ def answer_lines(card, out, rescored=False):
     """The lines a run prints when it ends, and a rescore after it, in their one order: versus_page.answer_lines
     (through page_call, so a card whose claims do not match its estimates is the page's one-line refusal); for a
     rescore, its rescored line; the card's trust sentence when it carries one (what the checks on a folder can and
-    cannot show, versus.py's one constant); then the folder (display), its line cut as a whole (capped). The --watch
-    page shows these same lines."""
+    cannot show, versus.py's one constant); then the folder (display), its line cut as a whole (capped), and the
+    results page beside it when the page module writes one (PAGE_LINE, cut the same way). The --watch page shows these
+    same lines."""
     lines = list(page_call("answer_lines", card))
     if rescored:
         lines.append(RESCORED_LINE.format(**{k: P.display(v) for k, v in card["rescored"].items()}))
     if card.get("trust"):
         lines.append(P.display(card["trust"]))
-    return lines + [P.capped(RESULTS_LINE.format(folder=P.display(out)))]
+    lines.append(P.capped(RESULTS_LINE.format(folder=P.display(out))))
+    name = html_name()
+    return lines + ([P.capped(PAGE_LINE.format(page=P.display(Path(out) / name)))] if name else [])
 
 
 def print_answer(card, out, rescored=False):

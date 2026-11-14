@@ -42,7 +42,7 @@ flowchart TD
     L --> N
     M --> O["score_run: units, components, class scores, bootstrap, Class III, red flags, validity"]
     N --> O
-    O --> P["write_scorecard: scorecard.json, units.jsonl, scorecard.md, report.md, results.csv, results.svg"]
+    O --> P["write_scorecard: scorecard.json, units.jsonl, scorecard.md, report.md, results.csv, results.svg, results.html"]
 ```
 
 The calls are planned and rendered before anything runs. Each item's conditions sit side by side in a seeded shuffle, as in v3, so drift during the run hits both alike, and the plan's fingerprint goes into run.json, so a resume refuses a changed bank, roster or rendering. Scoring reads what the run saved in its folder, so a finished run can be scored again without calling a model.
@@ -104,7 +104,11 @@ The calls are planned and rendered before anything runs. Each item's conditions 
 - Intervals: `item_fingerprint` seeds `bootstrap_seed`, and `Bootstrap` gives B = 2,000 draws per labelled cluster list, shared by every condition and cell; `levels`, `replicates` and `ci_of` make the interval, null when fewer than 95% of B replicates are defined.
 - The rest: `class_iii_validity` is section 7's decision tree (REPORT_LEG holds only claude, so a Codex run's Class III reads unverified); `rf1`, `rf2`, `rf2c` and `rf3` are the red flags (`rf3` applies section 8's insufficient-first precedence over its planned cells, keeping a measured cell's counts in the note); `diagnostics` gives the N0 against U and O against U contrasts; `memory_difference` gives `--memory both`'s deltas through `class1_contrast` and `errand_contrast`, which re-check the guards on the common items or tasks; `validity_checks` makes V1 to V11, with `init_facts` (V1 compares exact abstention fractions with ABSTENTION_GAP). `score_condition` assembles one condition and `scorecard_record` and `rounded` the top level.
 
-**The outputs.** `write_scorecard` writes scorecard.json (INTERFACES 6, schema 4.2 adds the recipe, the recorded tier word and the run time; 4.1: each class's `ci_reason` and Class III's `believed` estimate, and the top-level `default_favour` notes, which `score_run` fills from the rounded card with `favour_notes`), units.jsonl (`unit_line`, INTERFACES 7), scorecard.md (`scorecard_md`, with `favour_notes`), report.md (`report_v4`), results.csv (`scorecard_rows`) and results.svg (`scorecard_svg`, each row a `<g class="row">` as in v3, which the tests read).
+**The outputs.** `write_scorecard` writes scorecard.json (INTERFACES 6, schema 4.2 adds the recipe, the recorded tier word and the run time; 4.1: each class's `ci_reason` and Class III's `believed` estimate, and the top-level `default_favour` notes, which `score_run` fills from the rounded card with `favour_notes`), units.jsonl (`unit_line`, INTERFACES 7), scorecard.md (`scorecard_md`, with `favour_notes`), report.md (`report_v4`), results.csv (`scorecard_rows`), results.svg (`scorecard_svg`, each row a `<g class="row">` as in v3, which the tests read) and results.html, the results page (`single_html.render`, below).
+
+**One builder for scorecard.md and its page.** `scorecard_lines(card, extras, memory)` builds every line and cell of scorecard.md once, as named parts: the head line, the rescored, quick and labels lines, each condition's class lines as their parts (`class_parts`: score, interval, raw, status and the line itself), the flags and validity lines, the run time, memory both's difference rows, the Components and Red flags tables' cells, the diagnostics, the validity checks and the notes. `scorecard_text` (which `scorecard_md` calls) only joins them, so scorecard.md is byte for byte what it was; `write_scorecard` builds them once from the shown card and hands the same parts to the page. `print_results` and main_v4's own print end with a `Page:` line when the folder has the page; `RESULT_FILES` lists it, so `--rescore` keeps a replaced page under previous/ and writes a folder's first.
+
+**The single-target page (single_html.py).** A thin module over results_kit: `render(lines, shown)`, with lines `scorecard_lines`' parts and shown the shown card (for the bars' geometry only). The head (title, scorecard.md's head line, chips: tier, memory, a custom roster's labels, a rescore, the README's status words), a teaser of three class panels (each condition's score large with its interval; small bars against the even line at 0), "By class" (a bar per condition, memory on accent and memory off orange, its setup note report.md's "How to read this", word for word), "Components" (the target's and the control's level per share-valued component; records examined printed, never a bar), memory both's difference rows, the highlighted box (scorecard.md's head block as it prints it: a single target's verdict lines), the notes and the README's status sentence, and the foot (red flags, diagnostics, validity checks, the closing sentence, the identity). It formats no number and writes no result sentence. tests/test_single_html.py checks every line of the fenced block and the notes once on the page, the tables cell for cell, the class numbers against scorecard.json with an independent rounding, the bars, the README and report.md passages, a hostile name, the rescores and a legacy folder.
 
 ## Comparing types and your own rosters (ordo.py)
 
@@ -285,6 +289,9 @@ The v4 additions keep planning and scientific decisions separate from subject ex
 | tools/build_versus_classes.py, tools/versus_classes_admit.py | the class bank's builder (registered or --development) and the admission of the second readings into review records |
 | bank/versus-classes/src/, bank/versus-classes/ | the Class I templates with their fixed text and review records, and the built registered class bank (pinned in versus_classes.py; not validated) |
 | versus_run.py | the versus command: its arguments, preflight, calls, resume, rescore and result lines (versus_run, below) |
+| single_html.py | results.html, the results page of a single-target run, from scorecard_lines' parts and the shown card (one builder for scorecard.md and its page, below) |
+| results_kit.py | the parts every results page shares: words, CSP, COLOURS, the one escaping function, the markup and figure helpers, the drawing data, the shell, the stylesheet and the base script (the results pages, below) |
+| versus_html.py | results.html, the results page of a versus run, drawn from the card alone (the results page, below) |
 | tests/test_versus_*.py | versus's forms, bank, plan, scoring, invariants, the complete synthetic fixture, the renderer, the command (test_versus_run.py), the page (test_versus_page.py; a card with a class block, test_versus_page_classes.py), the command with its page (test_versus_integration.py), its live page (test_versus_watch.py) and the form's question (test_versus_ui.py) |
 | tests/fixtures/versus_rules.py, versus_agent.py, versus_page_standin.py, run_versus.py, run_versus_here.py | the stand-in answering rules, the stand-in `claude` the command's tests put on PATH, a stand-in page, the command as probatio.py's own `__main__` with that page, and the command with the real page and the working directory as probatio's folder (the form's and the live page's tests) |
 | calibration/tests/ | the harness's tests, on fake CLIs (`fakes.py`) and one recorded real stream (`fixtures/`); no model calls. `test_regressions.py` holds one test per Codex probe of part 1, `test_reverify.py` one per probe of its re-verification, `test_world_pins.py` the world server's pins; the analysis tests use planted scorecards. `test_ordo_pilot.py` runs the whole frozen pilot on `fake_ordo_claude.py` (through `ordo_fakes.py`'s scratch host) |
@@ -355,8 +362,8 @@ flowchart TD
   PF --> EX["execute: folder_state (read only), claim, versus.begin_run with launch_record"]
   EX --> RC["probatio.run_calls: v4's runner, live line, quota and launch records"]
   RC --> SC["result_card: versus.score and versus.table on the folder and the bank"]
-  SC --> WR["page_files (versus_page.files) -> write_results (probatio.check_targets, replace_results)"]
-  WR --> PA["answer_lines: versus_page.answer_lines, the trust sentence when the card has one, the folder; printed"]
+  SC --> WR["page_files (versus_page.files and results_html) -> write_results (probatio.check_targets, replace_results)"]
+  WR --> PA["answer_lines: versus_page.answer_lines, the trust sentence when the card has one, the folder, the page; printed"]
   EX -.->|--watch| SW["start_watch: live.VersusWatch prints the address line before any call"]
   SW -.-> WV["watch_view: live.VersusView counts what lands (page_facts, arm_words, arm_rosters)"]
   PA -.->|--watch| WF["VersusWatch.finish(answer_lines), then probatio.hold_page until Ctrl-C"]
@@ -415,6 +422,88 @@ flowchart LR
 **Where things live.** Every phrase the page or the terminal prints is a constant at the top of the module; `ROUNDING` states the one rounding rule (half up to a whole number, `probatio.whole`) and `num`, `share` and `signed` apply it. Every outside string goes through `probatio.display` before it enters a line (one token, escaped and cut past 512 characters), then through ordo's `md` in Markdown prose; the agent's label in the head (`launch_parts`, "Claude Code 2.1.309") is cut as a whole (`capped`), while the head line and the sentences, which join several tokens, are not; the answer block sits in a fence one backtick longer than any run inside it (`fenced`). The figure reuses ordo's `text`, `fit`, `text_px`, `esc` and chrome tokens, written as plain class rules (`svg_style`, no CSS variables, so librsvg draws it too), and `figure_points` is the one list both the SVG and the CSV are made from. The CSV holds no outside string: a pair is its two types.
 
 **Tests.** tests/test_versus_page.py: cards of stand-in agents run through probatio's `run_calls` and `versus.score` (the first half's five, plus a fair coin, a strong and a weak leaner toward the person, and followers of the job wording and the narrative order; the stand-ins run with one job, and each repeat of a prompt gets its own coin, because the fixture bank's scenarios repeat one text), what each page says and never says, a refused card, quick, two and three names, one arm and four, memory off alone, a codebook and none, the launch, the trust sentence, every number against the card, the CSV against the figure, every estimator reason code against the page's words, hostile names (a newline, escape sequences, markup, a right-to-left override, 10,000 characters) in every file with the SVG parsed, long names fitted to their boxes, and golden files. The goldens are tests/fixtures/versus_page/: two frozen cards and every file made from them; after reading a diff, `python3 tests/test_versus_page.py --write-goldens` rebuilds them. tests/test_versus_page_classes.py puts hand-made class blocks (`hand_classes`, by the interface, never the scorer; Class II copied from an errand estimand planted on the stand-in card, `plant_errands`) on those cards: the layout (classes first, then today's lines unchanged), the terminal's class lines, report.md's tables and comparator columns, the CSV rows, the unchanged figure, every number of the block, the terminal and the tables against the card by an independent half-up rounding, every status and validity word, the quick tier, a flipped pair, a pair key never read, a number not ok whatever value it carries, every way a block can fail to match its card, the claims and the trust sentence untouched, hostile and long names and a hostile reason, the docs, and its own goldens (tests/fixtures/versus_page/classes_*; `python3 tests/test_versus_page_classes.py --write-goldens`).
+
+## The results page (versus_html.py)
+
+Every kind's results page is a thin module over **`results_kit.py`**, which holds what they share: the structural words,
+the policy (`CSP`), the colours (`COLOURS`, from which the stylesheet's custom properties are made), the one escaping
+function for the markup (`text`) and the inert data block (`data_block`), the markup and figure helpers (`tag`, `table`,
+`figure`, `numbers`, `setup`, `pills`, `teaser_panel`, `takeaway`, `identity_table`), the drawing data (`bar`, `stack`,
+`state`, `row`, `tinted`), the shell (`document`, with an optional second stylesheet and script for a page that draws
+more, never an edit of the base ones) and `as_bytes`. versus_html.py re-exports the kit's parts its tests read; the
+split changed no byte of the head-to-head page. The drawing rule, one for both pages, changed since on purpose: an
+interval is drawn exactly from its lower endpoint to its upper one (`interval`: its width is `calc(hi% - lo%)`), with a
+thin cap centred on each endpoint (`point`; one cap when they meet; at 0 or 100 a cap overhangs the track by half its
+thickness), a bar is exactly as long as its value, a bar of 0 is a dot centred on 0, and a stacked bar's segments run
+from boundary to boundary, each boundary the running count's share rounded to 0.01 (`stack`), so they tile and end at
+100 when the counts are the whole; nothing is widened to be seen. tests/test_results_kit.py holds every page of both
+kinds to what 54333d6 renders but for the drawing rule's lines and the stacks' geometry (within 0.01), masked on both
+sides, and runs the kit's script in node against a DOM stub to check every drawn mark, in every tab, against its own
+numbers.
+
+`versus_html.py` draws results.html, the results page of a versus run, from the card alone. Its one interface is
+`render(card) -> bytes`; `versus_page.results_html(card)` (beside `files()`, which it leaves as it was) hands the run its
+text, and `versus_run.page_files` writes it with the other files through the one writer, so every run and every
+`--rescore` writes it, and `answer_lines` prints `Page: <folder>/results.html` after `Results: <folder>` when the page
+module makes one (the command tests' stand-in page makes none). It is a view, not a second scorer: every number is
+printed by versus_page's own formatting, every result sentence is one of versus_page's builders (`head_lines`,
+`pair_block`'s lines, `supports_lines`, `unresolved_lines`, `not_measured_lines`, `pair_class_line`, `class_number`,
+`validity_text`, `comparator_label`, `difference`, `identity_items`, `count_rows`, ...), and its own words are structure
+only (`TITLE`, the figure titles, table headers, the setup lines quoted from docs/versus/CLASSES.md, and three notes:
+an @1 card's `NO_CLASSES`, `ERRAND_IS_CLASS2`, `PAGE_IS_VIEW`).
+
+```mermaid
+flowchart LR
+  C["the card"] --> CL["claims (ClaimsMismatch first, as every page file)"]
+  CL --> S["sections: head, class_part (teaser, by_class, sets), roles (conflicts, allocation, triad, errands), arms_figure (comparators), conclusions, foot"]
+  S --> HT["markup: every outside string through text() (display, then html.escape)"]
+  S --> FG["figures: drawing data per figure (bars, stacks, status words)"]
+  FG --> DB["data_block: JSON, every angle bracket and ampersand a unicode escape"]
+  HT & DB --> D["document: CSP meta, STYLE (colours from COLOURS), the data block, SCRIPT"]
+  D --> R["render: probatio.export_text, UTF-8"]
+```
+
+**Readable without scripts.** Each figure carries its numbers in an open table (`numbers`); the script (`SCRIPT`)
+draws bars, tabs, legends and hovers from the data block, inserts every string as a text node, and folds the tables
+under "Show the numbers". A class number whose status is not ok, or a role metric with no estimate, is drawn as its
+words, never as a bar. The page loads nothing: inline style and script, the system font, a `data:` icon, no link, and a
+Content-Security-Policy (`CSP`) that forbids every request. The same card gives the same bytes in any key order (the
+comparators follow the estimator's own order, `comparator_place`).
+
+**A pair's direction is decided once** (`toward_party`). The class block may hold a pair record toward either of its
+names, so every figure takes a pair's numbers through `toward_party`, which returns the record read toward the party
+the figure's row names: its own first name for By class and Class I set by set (the text page's lines, word for word;
+`named_pairs`), the page's first name for the arms side by side (`pair_toward`). Read the other way, every class,
+group and component number turns (100 minus it, its interval reflected) and protection's two parts are exchanged and
+turned. A record that already points that way is returned as it is, so such a card's page is unchanged.
+
+**The form** (ui.py) serves it: `Session.files` gives `live.serve_page` one more GET route,
+`/results.html?t=TOKEN&folder=F`, which serves `F/results.html` only when F is, string for string, a folder of the
+form's own run; the path read is the run's, never the request's, read from that folder pinned (`read_results_page`: the
+folder opened with O_DIRECTORY and O_NOFOLLOW and checked by fstat to carry the identity the run recorded, its device
+and inode taken by `folder_identity` when the run was launched or listed it; `results.html` opened relative to that
+descriptor without following a link; a regular file of at most 16 MB, served only if, when asked after the read, the
+system reports that `results.html` in the pinned folder still names that file and that the file has one name,
+`named_alone`), with the page's CSP as a header and `Cache-Control: no-store`. A second name removed at the moment of
+the check (likeliest in a tight loop) can, rarely, get past both checks (a few requests in three thousand in our probe),
+which gains a writer nothing it could not do by copying the file in where making a hard link needs the access a copy
+needs, as on Linux by default. A folder moved or linked into the run's place is refused while the run's folder exists;
+the pin names a folder, not its history, so a folder made after the run's folder was deleted can carry its identity
+wherever it was made, and is then served as the run's. The request's folder is matched against the run's folders as the
+form lists them (`placed`); a folder that cannot be resolved at that moment (swapped for a link mid-request, or before
+Python 3.13 a link loop: `resolved` returns None) matches nothing and gets the ordinary 404 (on 3.13 a loop is matched
+and refused where the folder is opened without following a link, the same 404), and `/state` shows such a folder as
+given (`shown`), so neither route ever closes the connection unanswered. The same route, the same pinning and the same
+refusal serve a single-target run's page. The form's run box offers "Open the results page" once the run is scored or
+finished, for each of the run's folders whose page its output named (the `Page:` line: `VERSUS_RESULT_LINE` for a versus
+run, `RESULT_LINE` for a single-target run, since step 2 of the results pages).
+
+**Tests.** tests/test_versus_html.py: real cards of five stand-in rules over two and three names, both tiers, memory on,
+off and both and the unfamiliar roster, plus a refused card; each table cell computed again from the card with an
+independent rounding, every other line checked to be the text page's or the page's own words, every bar where its
+number says; hostile names, the data block, external references, the CSP, determinism; an @1 folder made by the
+previous release's own command and an @2 folder, rescored by this code and by ba64fad's (from git): every file but
+results.html byte for byte; and the form's route with each refusal.
 
 ## The form's versus question (ui.py)
 

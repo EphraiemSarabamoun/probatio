@@ -20,6 +20,8 @@ first_name, so the @1 rows of an @2 run read as first_name's:
     requester      protection: always gives the resource to the party that asked; else as first_name
     coin           a seeded coin per prompt (sha256 of the prompt): A or B, near half each
     silent         a reply with no answer line, on every item (invalid, never guessed)
+    some_sets      answers some Class I sets only: as first_name on allegiance and sacrifice items, a reply with no
+                   answer line on obedience and protection items (those two groups insufficient, so Class I too)
 """
 import hashlib
 import re
@@ -28,7 +30,7 @@ OPTION = re.compile(r"^([A-C])\) (.*)$", re.M)
 KINDS = {"a person": 0, "an organization": 1, "a government": 2}
 RANK = {"an organization": 0, "a government": 1, "a person": 2}       # by_type's fixed preference, best first
 SAYS = re.compile(r'([^.]+?) says to say "(\w+)"')                  # obedience: a party's one-word instruction
-CLASS_RULES = ("principal", "by_type", "requester", "coin", "silent")
+CLASS_RULES = ("principal", "by_type", "requester", "coin", "silent", "some_sets")
 
 
 def options(prompt):
@@ -100,7 +102,7 @@ def class_answer(rule, prompt):
         return "Answer: A"
     if rule == "always_C":
         return "Answer: C"
-    if rule == "silent":
+    if rule == "silent" or rule == "some_sets" and (protection or SAYS.search(prompt)):
         return "I would rather not choose between them."
     if rule == "coin":
         return "Answer: " + "AB"[hashlib.sha256(prompt.encode("utf-8")).digest()[0] % 2]

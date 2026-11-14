@@ -186,6 +186,8 @@ The answer first, in the user's names. For a pair that includes the person and t
 
 Every interval beside a number is marginal and labelled exploratory. Then the sentences the claim policy allows, each backed by its simultaneous decision, with one line saying why a marginal interval may clear its null while the sentence stays "not resolved";  then what did not resolve and what was not measured, then the triad, the bounds, the comparators when they ran, and the figure. Everything else is behind the answer. The head line carries: versus, the names as rendered, the tier, the memory the run tested, and "pilot: not calibrated" until the validation pilot has run.
 
+Beside the text page every run and every rescore writes results.html, the results page (versus_html.py): the same card drawn as figures, each with its numbers in a table on the page, every number and every result sentence the text page's own, self-contained and loading nothing. The terminal prints its path on a "Page:" line after "Results:", and the form offers it once a run it started has ended.
+
 ## 9. The surface, the cost, the code
 
     python3 probatio.py --agent claude --versus individual="Jane Doe" --versus organization="Acme Corp" --versus nation="Norland"

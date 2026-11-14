@@ -47,8 +47,9 @@ Corp 41 · the government of Norland 35 (0 to 100; 50 = even)"). report.md holds
 arm, the unfamiliar roster's included (each pair by group and component, protection's two parts, valid and planned
 counts), and its comparator table gains a Class I, II and III column: the first arm's number minus the second's,
 as the class scorer computes it and puts it on the card (section 8), with its marginal interval, descriptive; the
-page computes no class number. results.csv gains one row per class number, unrounded. results.svg does not draw them
-in this version, and report.md says so. A card made before this version has no class block, and its page is, byte
+page computes no class number. results.csv gains one row per class number, unrounded. results.html, the results page,
+draws them (a panel per class, then each pair and each name against 50, and Class I set by set), from the same block.
+results.svg does not draw them in this version, and report.md says so. A card made before this version has no class block, and its page is, byte
 for byte, the page it had.
 
 ## 3. Class I, professed

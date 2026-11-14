@@ -3,7 +3,7 @@ probatio.py's own __main__ exactly as a user runs it, with no stand-in page anyw
 beside probatio.py is the one imported), on the stand-in agent CLI (tests/fixtures/versus_agent.py, first on PATH as
 `claude`) and the complete synthetic bank the other tests use (--bank, tests/test_versus_fixture.py). The test checks
 that the real page's files are written, that the lines printed at the end are versus_page.answer_lines' own followed
-by the trust sentence and the folder, that the page's head names the agent and model of card["launch"] and its last
+by the trust sentence, the folder and the results page, that the page's head names the agent and model of card["launch"] and its last
 fold holds card["trust"], and that a rescore of the folder writes the same files again with the rescored line in the
 head. The command's other tests (test_versus_run.py) keep the stand-in page, since they assert what the command alone
 controls. No network, no model.
@@ -39,8 +39,13 @@ AGENT = FIXTURES / "versus_agent.py"
 OB = ordo.load_ordo_bank()
 TWO = ("--versus", "individual=Jane Doe", "--versus", "organization=Acme Corp")
 THREE = TWO + ("--versus", "nation=Norland")
-PAGE_FILES = ("report.md", "results.csv", "results.svg", "scorecard.json", "scorecard.md")
+PAGE_FILES = ("report.md", "results.csv", "results.html", "results.svg", "scorecard.json", "scorecard.md")
 MEMORY = ("# Invented notes\n\n" + "A line of notes the stand-in never reads.\n" * 50).encode("utf-8")
+
+
+def made_files(card, rows):
+    """Every file the real page makes of a card: versus_page.files and the results page (results_html)."""
+    return dict(VP.files(card, rows), **{VP.HTML_FILE: VP.results_html(card)})
 
 
 class CommandWithItsPage(unittest.TestCase):
@@ -98,9 +103,10 @@ class CommandWithItsPage(unittest.TestCase):
                 rows = VS.table(out, bank, OB)
                 written = self.page_text(out)
                 with self.as_the_run():
-                    made, answer, head = VP.files(card, rows), VP.answer_lines(card), VP.head_lines(card)[0]
+                    made, answer, head = made_files(card, rows), VP.answer_lines(card), VP.head_lines(card)[0]
                 self.assertEqual(written, made)                       # the real page's files, every one of them
-                printed = answer + [VS.TRUST, f"Results: {P.display(out)}"]
+                printed = answer + [VS.TRUST, f"Results: {P.display(out)}",
+                                    f"Page: {P.display(out / VP.HTML_FILE)}"]
                 self.assertEqual(stdout.splitlines()[-len(printed):], printed)
                 self.assertEqual(written["scorecard.md"].count(head), 1)
                 launch = card["launch"]
@@ -120,7 +126,7 @@ class CommandWithItsPage(unittest.TestCase):
                 self.assertEqual({k: v for k, v in again.items() if k != "rescored"}, card)
                 rewritten = self.page_text(out)
                 with self.as_the_run():
-                    remade, rescored_head = VP.files(again, rows), VP.head_lines(again)
+                    remade, rescored_head = made_files(again, rows), VP.head_lines(again)
                 self.assertEqual(rewritten, remade)                   # the same files, from the rescored card
                 line = P.display(P.rescored_line(again["rescored"]))
                 self.assertTrue(any(x.startswith(line) for x in rescored_head[1:]), rescored_head)
@@ -163,7 +169,7 @@ class ClassesThroughTheCommand(CommandWithItsPage):
                 self.assertEqual(PC.numbers_in(x.rsplit(" (0 to 100", 1)[0] for x in answer[1:4]),
                                  PC.expected_numbers(card, arm, "terminal"))
                 printed = stdout.splitlines()
-                self.assertEqual(printed[-len(answer) - 2:-2], answer)    # then the trust sentence and the folder
+                self.assertEqual(printed[-len(answer) - 3:-3], answer)    # then the trust sentence, folder, page
                 pairs = card["classes"]["arms"][arm]["pairs"]
                 self.assertTrue(all(p["class1"]["value"] == 100.0 for p in pairs.values()))   # first_name: 100
                 if tier == "quick":
@@ -175,7 +181,7 @@ class ClassesThroughTheCommand(CommandWithItsPage):
                 self.assertEqual({k: v for k, v in again.items() if k != "rescored"}, card)
                 rows = VS.table(out, bank, OB)
                 with self.as_the_run():
-                    self.assertEqual(self.page_text(out), VP.files(again, rows))   # the same files, rescored
+                    self.assertEqual(self.page_text(out), made_files(again, rows))   # the same files, rescored
 
 
 if __name__ == "__main__":

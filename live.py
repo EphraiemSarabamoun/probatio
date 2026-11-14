@@ -948,7 +948,7 @@ MAX_BODY = 65536                    # bytes a POST may carry
 DECIMAL = re.compile(r"[0-9]+")     # a Content-Length a POST may give: ASCII digits only (str.isdigit takes "²")
 
 
-def serve_page(page, state, redactor=None, port=0, actions=None):
+def serve_page(page, state, redactor=None, port=0, actions=None, files=None):
     """Serve one page and its state on 127.0.0.1 from a background thread for the life of the process; returns the
     server, with .url (holding the token) and .token. Every request must carry the token (?t=, compared with
     hmac.compare_digest) and a Host of 127.0.0.1:PORT or localhost:PORT (a DNS-rebinding page has neither), else 403;
@@ -964,7 +964,12 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
     preflight, and OPTIONS is 405), with a JSON object of at most MAX_BODY bytes as application/json (else 411 for a
     Content-Length that is not ASCII decimal digits, or 413, before the body is read; 415, or 400 for a body that is
     not a JSON object or nests too deep to parse, after). A refused request reaches no action. Without actions, POST
-    is 405 like every other method but GET, as before."""
+    is 405 like every other method but GET, as before.
+
+    files, only for a page that serves a file it chose itself (ui.py's results page), maps each further path to a
+    function of the request's query ({name: [values]}, the token's own checks passed first) that returns (body bytes,
+    content type, Content-Security-Policy) or None for 404. Such a path takes GET alone; its response carries the
+    security headers with its own policy in place of the page's. Without files, nothing else is served, as before."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, urlsplit
     token = secrets.token_urlsafe(24)
@@ -972,7 +977,7 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
     if token not in redactor.values:
         redactor = ViewRedactor(extra=(token, *redactor.values))
     policy, body_page = content_policy(page), page.encode("utf-8")
-    actions = dict(actions or {})
+    actions, files = dict(actions or {}), dict(files or {})
     methods = "GET, POST" if actions else "GET"
 
     class Page(BaseHTTPRequestHandler):
@@ -980,7 +985,8 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
         error_message_format, error_content_type = "%(code)d %(message)s\n", "text/plain; charset=utf-8"
 
         def end_headers(self):
-            for name, value in SECURITY_HEADERS + (("Content-Security-Policy", policy),):
+            own = getattr(self, "file_policy", None) or policy           # a served file's own policy, else the page's
+            for name, value in SECURITY_HEADERS + (("Content-Security-Policy", own),):
                 self.send_header(name, value)
             super().end_headers()
 
@@ -992,6 +998,7 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
             return len(given) == 1 and hmac.compare_digest(given[0].encode("utf-8"), token.encode("utf-8"))
 
         def do_GET(self):
+            self.file_policy = None
             if not self.allowed():
                 self.send_error(403)
                 return
@@ -1004,6 +1011,12 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
             elif path in actions:
                 self.refuse("POST")
                 return
+            elif path in files:
+                served = files[path](parse_qs(urlsplit(self.path).query))
+                if served is None:
+                    self.send_error(404)
+                    return
+                body, kind, self.file_policy = served
             else:
                 self.send_error(404)
                 return
@@ -1043,7 +1056,7 @@ def serve_page(page, state, redactor=None, port=0, actions=None):
                 self.send_error(403)
                 return
             path = urlsplit(self.path).path
-            if path in ("/", "/state"):
+            if path in ("/", "/state") or path in files:
                 self.refuse("GET")
                 return
             if path not in actions:

@@ -79,7 +79,7 @@ BOUNDARY = ("Local to this machine. Check makes no model call (only the CLI's ve
 # probatio's own line, whole (live.Watch prints it before any call), read only when the run's argv has --watch and
 # only the first time: text elsewhere in the output (a model's name, a CLI's error) never becomes the link.
 WATCH_LINK = re.compile(r"^  watch it live: (http://127\.0\.0\.1:\d+/\?t=[A-Za-z0-9_-]+)$")
-RESULT_LINE = re.compile(r"^(Scorecard|Report): (\S.*)$")
+RESULT_LINE = re.compile(r"^(Scorecard|Report|Page): (\S.*)$")   # a v4 run's files, then its results page
 HELD_LINE = "The live page stays up at "
 RUN_TOTAL = re.compile(r"^\s+all\s+\d+ items\s+(\d+) calls\s+(.+?)(?: \((.+)\))?$")
 CROSS_TOTAL = re.compile(r"^\s+\d+ units, (\d+) calls\s+(.+?)(?: \((.+)\))?$")
@@ -142,7 +142,7 @@ NEEDS_VERSUS_TIER = "choose quick or standard (a versus run has no full length)"
 # What the page reads from a versus run's output: the preflight's total (its questions and episodes, the time and the
 # rates) and its result line, the run's folder (versus_run's TOTAL_LINE and RESULTS_LINE).
 VERSUS_TOTAL = re.compile(r"^\s+all\s+(\d+) questions\s+(\d+) episodes\s+(.+?)(?: \((.+)\))?$")
-VERSUS_RESULT_LINE = re.compile(r"^(Results): (\S.*)$")
+VERSUS_RESULT_LINE = re.compile(r"^(Results|Page): (\S.*)$")   # the folder, then its results page (results.html)
 FOLDER_UNREAD = "Check could not read where the run would write from the dry run's preflight; check again"
 
 
@@ -948,17 +948,71 @@ def absolute(argv):
 def prepared(argv):
     """argv's runs as probatio prepares them (prepare_runs), with no call to any CLI: each run's results folder
     (run_folder) and plan fingerprint (plan_fingerprint), in run order. The entities file is read from probatio's
-    folder, the run's working directory."""
+    folder, the run's working directory. A folder that cannot be resolved is the refusal of a run that cannot start
+    (preparing, prepared_folder), as SystemExit like probatio's own refusals."""
     a = P.parse_args_v4(absolute(argv))
-    runs = P.prepare_runs(a, "--target-type" in argv)[4]     # as main_v4 tells it; the page writes it as one word
-    return [(P.run_folder(a, run, len(runs) > 1), P.plan_fingerprint(run["calls"])) for run in runs]
+    runs = preparing(P.prepare_runs, a, "--target-type" in argv)[4]     # as main_v4 tells it: written as one word
+    many = len(runs) > 1
+    return [(prepared_folder(folder_named(a, run["name"], many), P.run_folder, a, run, many),
+             P.plan_fingerprint(run["calls"])) for run in runs]
+
+
+def preparing(prepare, *args):
+    """prepare(*args), a command's own step that resolves a run's results folder (probatio's prepare_runs, through
+    check_run_folders, and run_folder; versus_run's run_folder), left as it is, or SystemExit with the form's refusal
+    of a run that cannot start (not_started) when the folder cannot be resolved: a RuntimeError raised while a
+    command's run_folder resolves it (resolving: before Python 3.13, a link loop, or a chain of links too long for
+    resolve's recursion, RecursionError; from 3.13 on resolve raises for neither, and the look at the folder finds
+    both before this step runs), said as unresolvable says it, or an OSError or ValueError, by
+    its own words. A RuntimeError from anywhere else, a RecursionError included, is not this and is raised as before.
+    The form's two prepare paths (prepared, versus_prepared) go through it, so a Check or a Run whose folder is a link
+    loop or a long chain of links is always answered."""
+    try:
+        return prepare(*args)
+    except RuntimeError as e:                   # RecursionError is one
+        if not resolving(e):
+            raise
+        raise SystemExit(not_started("run", unresolvable())) from None
+    except (OSError, ValueError) as e:
+        raise SystemExit(not_started("run", e)) from None
+
+
+def resolving(error):
+    """Whether error was raised while a command's own run_folder (probatio's or versus_run's) was resolving a run's
+    folder: one of their frames on its traceback. What resolving a folder raises, told from the same error raised
+    anywhere else."""
+    codes = {P.run_folder.__code__, versus_command().run_folder.__code__}
+    tb = error.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code in codes:
+            return True
+        tb = tb.tb_next
+    return False
+
+
+def folder_named(a, run_name, many=False):
+    """A run's results folder as its command names it, before anything resolves it: --out (each of many runs in its
+    own folder inside it), or results/<run name> in probatio's folder. probatio's and versus_run's run_folder resolve
+    exactly this (a test holds them together); the form looks at it as named (cannot_resolve) because resolving it
+    follows its links, a chain of any length on Python 3.13, where a look stops at the system's limit."""
+    if a.out and not many:
+        return Path(a.out)
+    return (Path(a.out) if a.out else P.HERE / "results") / run_name
+
+
+def prepared_folder(named, run_folder, *args):
+    """A run's folder as its command resolves it (run_folder(*args), through preparing), once a look at it as named
+    (cannot_resolve) finds it can be resolved; else SystemExit with the refusal of a run that cannot start."""
+    if cannot_resolve(named):
+        raise SystemExit(not_started("run", unresolvable()))
+    return preparing(run_folder, *args)
 
 
 def versus_prepared(argv):
     """A versus argv's run as versus_run prepares it, in this process and with no call to any CLI: its results folder
     (run_folder) and its plan's versus fingerprint (every call whole), from the command's own parse, names, bank,
     name checks and plan. A refusal is SystemExit with the command's own message (stderr is the page's, never
-    printed)."""
+    printed); a folder that cannot be resolved is the refusal of a run that cannot start (preparing)."""
     VR, err = versus_command(), io.StringIO()
     with PARSE_LOCK, contextlib.redirect_stderr(err):
         try:
@@ -967,11 +1021,123 @@ def versus_prepared(argv):
             bank, ordo_bank = VR.load_bank(a), VR.ordo.load_ordo_bank()
             VR.check_names(bank, names, a.strangers_on)
             plan_ = VR.VS.plan(bank, names, a.tier, VR.arms_of(a), ordo_bank)
-            return VR.run_folder(a, names), plan_.identity["versus_fingerprint"]
+            folder = prepared_folder(folder_named(a, VR.run_name(a, names)), VR.run_folder, a, names)
+            return folder, plan_.identity["versus_fingerprint"]
         except SystemExit as e:
             raise SystemExit(exit_message(e.code, err.getvalue())) from None
         except VR.VS.VersusError as e:
             raise SystemExit(P.display(str(e), cap=None)) from None
+
+
+# The results page a versus run writes (versus_page.HTML_FILE), served by the form under its token for a folder of its
+# own run, with the page's own policy (versus_html.CSP, which forbids every fetch) as a header and never cached (live's
+# security headers). The name and the policy are copied here so the form needs no import of the page to serve it; a
+# test checks they are the page's own.
+RESULTS_PAGE = "results.html"
+RESULTS_PAGE_PATH = "/" + RESULTS_PAGE
+RESULTS_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"
+RESULTS_PAGE_BYTES = 16 * 1024 * 1024              # a results page larger than this is not one the run wrote
+
+
+# The page is read from a pinned folder: the run's folder is opened as a directory without following a link, checked by
+# fstat to carry the identity the form recorded for its run (its device and inode, folder_identity, taken when the run
+# was launched or listed it), and results.html is opened relative to that descriptor, never by a second path lookup, so
+# a folder moved or linked into the run's place is refused while the run's folder exists. The pin names a folder, not
+# its history: a folder made after the run's folder was deleted can carry its identity wherever it was made, and is then
+# served as the run's. A file is served only if, when asked after the read, the system reports that results.html in the
+# pinned folder still names that file and that the file has one name (named_alone: a lookup relative to the pinned
+# descriptor that follows no link and only decides). A second name removed at the moment of the check (likeliest in a
+# tight loop) can, rarely, get past both checks (a few requests in three thousand in our probe), which gains a writer
+# nothing it could not do by copying the file in where making a hard link needs the access a copy needs, as on Linux by
+# default. A platform without these primitives serves no page.
+PINNED_OPEN = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd
+               and os.stat in os.supports_dir_fd and os.stat in os.supports_follow_symlinks)
+
+
+def folder_identity(folder):
+    """(device, inode) of folder when it is a real directory, read without following a link (lstat); None for a link,
+    a missing path or anything else. What the form records of a run's folder, and the one the page is read from."""
+    try:
+        info = os.lstat(folder)
+    except (OSError, ValueError):
+        return None
+    return (info.st_dev, info.st_ino) if stat.S_ISDIR(info.st_mode) else None
+
+
+def read_results_page(folder, identity):
+    """The bytes of folder/results.html, or None. folder must be absolute and identity its recorded (device, inode):
+    the folder is opened with O_DIRECTORY | O_NOFOLLOW (a link, or anything not a directory, is refused) and must
+    carry that recorded identity by fstat, so a folder moved or linked into the run's place is refused while the
+    run's folder exists (the pin names a folder, not its history: a folder made after the run's folder was deleted
+    can carry its identity wherever it was made, and is then read as the run's); results.html is opened relative to
+    it (dir_fd) with O_NOFOLLOW and O_NONBLOCK (a link is refused, a pipe is never waited on), must be a regular file
+    of at most RESULTS_PAGE_BYTES by fstat (read_regular), and is read from its descriptor; its bytes are returned
+    only if, when asked after the read, the system reports that results.html in the pinned folder still names that
+    file and that the file has one name (named_alone, which a second name removed at the moment of the check can,
+    rarely, get past). Both descriptors are closed. No recorded identity, or no pinning primitive: None."""
+    if identity is None or not PINNED_OPEN:
+        return None
+    try:
+        if not Path(folder).is_absolute():
+            return None
+        dfd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except (OSError, ValueError):
+        return None
+    try:
+        held = os.fstat(dfd)
+        if not stat.S_ISDIR(held.st_mode) or (held.st_dev, held.st_ino) != tuple(identity):
+            return None
+        try:
+            fd = os.open(RESULTS_PAGE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0),
+                         dir_fd=dfd)
+        except (OSError, ValueError):
+            return None
+        try:
+            body = read_regular(fd)
+            return body if body is not None and named_alone(dfd, fd) else None
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dfd)
+
+
+def named_alone(dfd, fd):
+    """Whether, when asked after the read, the system reports that results.html in the pinned folder (dfd) still
+    names the file read through fd and that the file has one name: the name, looked up again relative to the folder's
+    descriptor without following a link, has the same device and inode, and both reports give one link.
+    read_regular's fstat alone cannot say so: a second name taken away between the open and that fstat leaves one
+    link by then. Both checks read what the system reports, and while a name is being removed a lookup can, for a
+    moment, still find it after the file's link count has dropped. A second name removed at the moment of the check
+    (likeliest in a tight loop) can, rarely, get past both checks (a few requests in three thousand in our probe),
+    which gains a writer nothing it could not do by copying the file in where making a hard link needs the access a
+    copy needs, as on Linux by default."""
+    try:
+        named, held = os.stat(RESULTS_PAGE, dir_fd=dfd, follow_symlinks=False), os.fstat(fd)
+    except (OSError, ValueError):
+        return False
+    return (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino) and named.st_nlink == held.st_nlink == 1
+
+
+def read_regular(fd):
+    """The bytes behind an open descriptor when it is a regular file with exactly one name (st_nlink 1) of at most
+    RESULTS_PAGE_BYTES (fstat, before a byte of it is read), else None. probatio makes results.html a file of its own
+    (written new, written over, or a new one renamed over it by a rescore), never a link, so its page has one name
+    unless something else gives it a second; a hard link gives a file elsewhere the name results.html and has two,
+    and a page renamed over after it was opened has none."""
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > RESULTS_PAGE_BYTES:
+            return None
+        chunks, size = [], 0
+        while size <= RESULTS_PAGE_BYTES:
+            chunk = os.read(fd, 1 << 16)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except OSError:
+        return None
+    return b"".join(chunks) if size <= RESULTS_PAGE_BYTES else None
 
 
 def versus_holds_run(folder):
@@ -980,13 +1146,37 @@ def versus_holds_run(folder):
     return any((Path(folder) / f).exists() for f in ("run.json", versus_command().VS.RUN_FILE, "replies.jsonl"))
 
 
-def shown(path):
-    """A path as the page shows it: relative to probatio's folder when it is inside it, displayed (probatio's
-    display)."""
+def resolved(path):
+    """Path(path).resolve(), or None when it cannot be resolved at this moment: an OSError (a folder swapped for a link
+    between the lstat and the readlink behind resolve: EINVAL when it is a folder again, ENOENT when it is gone), before
+    Python 3.13 a link loop (pathlib's RuntimeError), a chain of links too long for resolve's recursion (RecursionError,
+    a RuntimeError) or a name no path can hold (ValueError). Python 3.13's non-strict resolve raises nothing on a loop
+    and follows a chain of any length: a look finds those (looping, cannot_resolve). A folder being changed under the
+    page is one it cannot name: a route that matches a request against a run's folders refuses it (placed), a reply that
+    names it shows it as given (shown), and neither ever drops the connection."""
     try:
-        return P.display(Path(path).resolve().relative_to(P.HERE))
+        return Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def placed(path):
+    """path as the page lists it (shown), or None when it cannot be resolved at this moment (resolved): what a
+    route matches a request's folder against, so a folder it cannot resolve matches nothing and is refused."""
+    where = resolved(path)
+    if where is None:
+        return None
+    try:
+        return P.display(where.relative_to(P.HERE))
     except ValueError:
         return P.display(path)
+
+
+def shown(path):
+    """A path as the page shows it: relative to probatio's folder when it is inside it, displayed (probatio's
+    display); displayed as given when it is outside it or cannot be resolved at this moment (placed)."""
+    listed = placed(path)
+    return P.display(path) if listed is None else listed
 
 
 # ---- a folder an earlier run holds: probatio's own resume check, read only ------------------------------------------
@@ -1223,6 +1413,35 @@ def memory_child():
 
 
 # ---- one run at a time ---------------------------------------------------------------------------------------------------
+def unresolvable():
+    """The error of a run's results folder that cannot be resolved (cannot_resolve: a link loop, a chain of links too
+    long, a folder changed under the lookup): OSError ELOOP, its one home. Runner raises it before any process starts
+    and the prepare paths refuse with its words (preparing, prepared_folder), so the form answers either as a run that
+    cannot start (not_started)."""
+    return OSError(errno.ELOOP, os.strerror(errno.ELOOP))
+
+
+def looping(path):
+    """Whether a look at path that follows its links (os.stat) meets ELOOP: a link loop, or a chain of links longer
+    than the system follows. A path not there yet (ENOENT, ENOTDIR), as a run's folder is before its run, and any
+    other answer are not this."""
+    try:
+        os.stat(path)
+    except OSError as e:
+        return e.errno == errno.ELOOP
+    except ValueError:
+        return False
+    return False
+
+
+def cannot_resolve(path):
+    """Whether a run's folder cannot be resolved, the one test of it: resolve fails at this moment (resolved gives None)
+    or a look at it meets ELOOP (looping). The look does not depend on resolve raising: Python 3.13's non-strict resolve
+    raises nothing on a loop and follows a chain of any length. Runner and the form's prepare paths refuse such a folder
+    (unresolvable); an ordinary folder, one not there yet and one outside probatio's folder pass."""
+    return resolved(path) is None or looping(path)
+
+
 def not_started(what, error):
     """Why a dry run or a run did not start, bounded: subprocess refused its command line (ValueError) or the system
     could not start it (OSError, by its errno's words); never the command."""
@@ -1234,16 +1453,22 @@ def not_started(what, error):
 class Runner:
     """One probatio run started by the page: program + argv in a subprocess in its own session (so a Ctrl-C at the
     page's terminal reaches the page, which passes one SIGINT on), its output read line by line: the --watch link
-    (WATCH_LINK, only when argv has --watch, the first), the newest TAIL lines, each run's result lines, the held
-    page's line, and its exit code. A result line counts only when its path lies inside one of the run's own folders
-    (own), and the run is finished only on exit 0 with a scorecard: a CLI's text in the output names no result. A
-    process that cannot start raises subprocess's ValueError or OSError. reading says which lines are its results and
-    which one marks it scored (V4_READING, or VERSUS_READING for a versus run, whose one result line is its folder)."""
+    (WATCH_LINK, only when argv has --watch, the first), the newest TAIL lines, each run's result lines, the held page's
+    line, and its exit code. A result line counts only when its path lies inside one of the run's own folders (own), and
+    the run is finished only on exit 0 with a scorecard: a CLI's text in the output names no result. A process that
+    cannot start raises subprocess's ValueError or OSError; so does a run whose folder cannot be resolved
+    (cannot_resolve: a link loop, a chain of links too long, a folder changed under the lookup), with ELOOP and before
+    any process starts, so the form answers it as it answers a process that cannot start. reading says which lines are
+    its results and which one marks it scored (V4_READING, or VERSUS_READING for a versus run, whose one result line is
+    its folder)."""
 
     def __init__(self, program, argv, folders, env, reading=None):
         self.reading = reading or V4_READING
         self.argv, self.folders = list(argv), [str(f) for f in folders]
-        self.roots = [Path(f).resolve() for f in folders]
+        if any(cannot_resolve(f) for f in self.folders):
+            raise unresolvable()
+        self.roots = [resolved(f) for f in self.folders]       # the run's folders, as own() compares result lines
+        self.identities = {f: folder_identity(f) for f in self.folders}    # a folder already there, as launched
         self.watching = WATCH in self.argv
         self.lines, self.results, self.watch, self.held = deque(maxlen=TAIL), [], None, False
         self.said = None                                # the last line the run printed before any held page's
@@ -1267,6 +1492,7 @@ class Runner:
                 result = self.reading.line.match(line)
                 if result and self.own(result.group(2)):
                     self.results.append([result.group(1), result.group(2)])
+                    self.record_folders()
                 if line.lstrip().startswith(HELD_LINE):
                     self.held = True
                 elif line.strip() and not self.held:
@@ -1275,6 +1501,19 @@ class Runner:
         code = self.proc.wait()
         with self.lock:
             self.code = code
+
+    def record_folders(self):
+        """Record the identity (folder_identity) of each of the run's folders not yet recorded, as the run lists its
+        results: the folder the results page is later read from must carry this identity (read_results_page). A
+        folder recorded at launch keeps that identity. Called under the lock."""
+        for f in self.folders:
+            if self.identities.get(f) is None:
+                self.identities[f] = folder_identity(f)
+
+    def identity(self, folder):
+        """The recorded (device, inode) of one of the run's folders, or None."""
+        with self.lock:
+            return self.identities.get(folder)
 
     def stop(self):
         """SIGINT to this run's process alone, as Ctrl-C would send it: the calls already running finish, no new one
@@ -1293,11 +1532,8 @@ class Runner:
     def own(self, path):
         """Whether path lies inside one of this run's own results folders, where probatio writes its scorecard and
         report; any other path on a result line is not this run's."""
-        try:
-            where = Path(path).resolve()
-        except (OSError, RuntimeError, ValueError):
-            return False
-        return any(where == root or root in where.parents for root in self.roots)
+        where = resolved(path)
+        return where is not None and any(where == root or root in where.parents for root in self.roots)
 
     def status(self):
         """running, stopping, scored (scored, its live page held until Stop), finished (exit 0 with a scorecard),
@@ -1330,7 +1566,9 @@ class Runner:
 
 
 # What a run's output names as its results, by family: the line and the kind that marks it scored. A v4 run prints
-# "Scorecard: ..." and "Report: ..." (RESULT_LINE); a versus run prints "Results: FOLDER" (VERSUS_RESULT_LINE).
+# "Scorecard: ...", "Report: ..." and, for a single target, "Page: FOLDER/results.html" (RESULT_LINE); a versus run
+# prints "Results: FOLDER" and "Page: FOLDER/results.html" (VERSUS_RESULT_LINE). Either reading's Page lines are what
+# the page offers "Open the results page" for.
 # refusal: whether the run's state names the line a failed or refused run ended with (a versus run's: a card its page
 # refuses ends the run in one line, which the form shows as it is).
 Reading = namedtuple("Reading", "line scored refusal")
@@ -1361,6 +1599,34 @@ class Session:
     def actions(self):
         return {"/command": self.command, "/memory": self.memory, "/check": self.check, "/run": self.run,
                 "/stop": self.stop}
+
+    def files(self):
+        """The one file the page serves besides itself: a versus run's results page (results_page)."""
+        return {RESULTS_PAGE_PATH: self.results_page}
+
+    def results_page(self, query):
+        """GET /results.html?t=TOKEN&folder=F: the results page (results.html) of the run folder F, where F is, string
+        for string, a folder this page's own run lists (its "folders", as the page shows them); (bytes, content type,
+        the results page's own CSP), or None for 404. The path read is the run's own folder, never one from the
+        request: a request's folder only picks among the run's, so a traversal, an absolute path or any folder the
+        page does not list is refused before the filesystem is touched, and read_results_page reads only from that
+        folder pinned by the identity the run recorded (Runner.identity), refusing a folder or a results.html that is
+        a link, a folder moved or linked into the run's place while the run's folder exists, and anything but a
+        regular file inside it; a results.html is served only if, when asked after the read, the system reports that
+        it still names that file and that the file has one name (named_alone, which a second name removed at the
+        moment of the check can, rarely, get past). The pin names a folder, not its history, so a folder made after
+        the run's folder was deleted can carry its identity wherever it was made, and is then served as the run's. A
+        run's folder that cannot be resolved at this moment (placed: one being swapped for a link, and before Python
+        3.13 a link loop) matches nothing: 404; on 3.13 a loop is matched and refused where the folder is opened
+        without following a link, the same 404."""
+        given = query.get("folder") or []
+        with self.lock:
+            runner = self.runner
+        if runner is None or len(given) != 1:
+            return None
+        folder = next((f for f in runner.folders if placed(f) == given[0]), None)
+        body = read_results_page(folder, runner.identity(folder)) if folder is not None else None
+        return None if body is None else (body, "text/html; charset=utf-8", RESULTS_PAGE_CSP)
 
     def child_env(self):
         """The environment of a dry run or a run: this process's (or the tests'), with Python's output unbuffered so
@@ -1594,8 +1860,8 @@ class Session:
 
 def serve(session):
     """The page for this session on loopback (live.serve_page), its token in the address, with the session given the
-    server's redactor, the one every reply passes."""
-    server = live.serve_page(PAGE, session.state, actions=session.actions())
+    server's redactor, the one every reply passes, and the one file it serves (the results page of its run)."""
+    server = live.serve_page(PAGE, session.state, actions=session.actions(), files=session.files())
     session.redactor = server.redactor
     return server
 
@@ -2243,6 +2509,14 @@ function renderRun() {
   box.appendChild(kv("started " + run.started + ":", run.command));
   for (const f of run.folders) box.appendChild(kv("results folder", f));
   for (const [kind, path] of run.results) box.appendChild(kv(kind.toLowerCase(), path));
+  if ((run.status === "finished" || run.status === "scored") && run.results.some(([k]) => k === "Page"))
+    for (const f of run.folders) {        // the results page of the run's own folder, served under the token
+      if (!run.results.some(([k, p]) => k === "Page" && p === f + "/results.html")) continue;   // a folder with none
+      const a = el("a", "pagelink", "Open the results page");
+      a.href = "/results.html?" + new URLSearchParams({t: TOKEN, folder: f}).toString();
+      a.target = "_blank"; a.rel = "noopener noreferrer";
+      box.appendChild(a);
+    }
   const pre = lined(el("pre", "out"), run.lines.join("\\n") || "(no output yet)");
   box.appendChild(pre);
   if (keep) pre.scrollTop = pre.scrollHeight;

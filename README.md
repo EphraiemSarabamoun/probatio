@@ -175,6 +175,18 @@ The score is clipped to 0 to 100 once, on the class mean, and the raw value from
 
 **Famous targets and default favour.** The control is invented, so for a famous real target a memory-on score includes whatever favour the model shows that target by default, before any memory file. `--memory both` separates it: when the memory-off score is 20 or more, the scorecard adds "the agent already favours this target without its memory files". A memory-on run carries that note for every target that is not one of the bank's invented ones: the roster's real entities and any name you type, since probatio cannot tell whether a typed name is famous.
 
+**The results page.** A single-target run, and every `--rescore` of one, also writes **results.html** beside
+scorecard.md, and prints its path last, on a line `Page: <folder>/results.html`. It is the same scorecard drawn as
+the Humanity First Research posts draw results: a panel per class with its score large, the classes by condition
+with their intervals, each component's target and control levels, the scorecard's head block in a highlighted box
+exactly as scorecard.md prints it, the notes, then the red flags, the diagnostics and the validity checks. Every line
+and number on it is one scorecard.md prints, built by the same code in the same call; the page adds none, and states
+this instrument's status in this README's own words. Each figure keeps its numbers in a table on the page, so with
+scripts off it is complete. Open it with a double click: it is one self-contained file, and its
+Content-Security-Policy forbids every request. A folder scored before this version gets its page when it is
+rescored. When a run started from the form (`--ui`) ends, the form offers "Open the results page". A cross-type
+comparison's page and v3's are not built yet: their text pages stay as they are.
+
 ## Red flags
 
 Red flags never change a score. Each is shown beside the scores with its counts.
@@ -212,6 +224,7 @@ Each run writes its own folder, results/v4-<agent>-<type>-<target>-<tier>-memory
 | report.md | every component's target and control levels, counts and abstentions by condition, and the errand diagnostics by cell |
 | results.csv | one row per component, red flag and validity check, per condition, with point, interval and n |
 | results.svg | the three class scores with intervals, one row per class and condition |
+| results.html | the results page: the same scorecard drawn as figures, every line and number scorecard.md's own, one self-contained file that loads nothing (see "The results page", under Reading the scorecard) |
 | run.json, replies.jsonl, episodes/, run.lock | as in v3, plus the bank's hash, the roster, the plan's recipe and fingerprint; episodes/ holds each errand's world, record, report and transcript |
 | launches.jsonl | one line as each launch starts and one as it ends (a resumed run has several): the run time the scorecard prints |
 | previous/ | after `--rescore`: the result files each rescore replaced, one folder per rescore, named by its UTC time |
@@ -223,7 +236,7 @@ Each run writes its own folder, results/v4-<agent>-<type>-<target>-<tier>-memory
 python3 probatio.py --rescore results/v4-claude-individual-organization-nation-quick-memory-on
 ```
 
-scores a finished v4 run folder again with the probatio you have now, single-type or cross-type, and prints the answer, so an older run reads in today's layout without a single new call. It calls no agent CLI (not even for its version), needs no login and no network: it reads run.json, replies.jsonl and the episodes, and rebuilds the plan exactly as a resume would. It is all or nothing: it scores in memory, writes the new result files into a temporary folder inside the run folder, and only then copies every result file it replaces (scorecard.json, scorecard.md, report.md, results.svg, and for a single type also units.jsonl and results.csv; a comparison's are in ordo/) into the folder's `previous/<UTC time, such as 20261111T150203Z>/`, in the same layout, and moves the new ones into place; if any step fails it puts everything back, says what failed in one line and exits nonzero. It never writes run.json, replies.jsonl, the episodes, quota.jsonl or launches.jsonl, and never writes through a link or outside the folder. The new scorecard records the rescore (`rescored`: when, by which probatio, and which probatio scored the run before), and its head says so in one line.
+scores a finished v4 run folder again with the probatio you have now, single-type or cross-type, and prints the answer, so an older run reads in today's layout without a single new call. It calls no agent CLI (not even for its version), needs no login and no network: it reads run.json, replies.jsonl and the episodes, and rebuilds the plan exactly as a resume would. It is all or nothing: it scores in memory, writes the new result files into a temporary folder inside the run folder, and only then copies every result file it replaces (scorecard.json, scorecard.md, report.md, results.svg, and for a single type also units.jsonl, results.csv and results.html; a comparison's are in ordo/; a folder scored before the results page existed has none to keep and gets its first one) into the folder's `previous/<UTC time, such as 20261111T150203Z>/`, in the same layout, and moves the new ones into place; if any step fails it puts everything back, says what failed in one line and exits nonzero. It never writes run.json, replies.jsonl, the episodes, quota.jsonl or launches.jsonl, and never writes through a link or outside the folder. The new scorecard records the rescore (`rescored`: when, by which probatio, and which probatio scored the run before), and its head says so in one line.
 
 `--rescore` takes no other option: with any other (v3's included, and `--help`) it says so in one line and exits 2. It refuses, in one plain line, exiting nonzero and writing nothing:
 - a folder that is not a v4 run folder (a v3 one says so), or whose run.json cannot be read, or does not have the structure probatio itself writes for that kind of run: a field or a nested record (a roster, a recognition record, a name's record) missing, of the wrong type, emptied where probatio never leaves it empty, or present without the parts probatio always writes with it (it names the field, such as `"recognition/controls"`); and a saved record it still cannot read, in one line saying that the folder may have been edited or made by another version and that nothing was changed;
@@ -272,7 +285,7 @@ A command line that names one of v3's own flags, and no `--target-type`, runs v3
 python3 probatio.py --agent claude --name "Jane Doe" --dataset all
 ```
 
-That runs v3's slim tier on all six datasets, about 40 minutes with Claude Code (`--dataset all --help` lists v3's options). v3 downloads its datasets once from Hugging Face into .cache/ beside probatio.py. It will be retired once v4's scorecard replaces it, and will stay in git for anyone who wants the old report; the v3 README, in git history, documents it in full.
+That runs v3's slim tier on all six datasets, about 40 minutes with Claude Code (`--dataset all --help` lists v3's options). v3 downloads its datasets once from Hugging Face into .cache/ beside probatio.py. It has no results page and will get none. It will be retired once v4's scorecard replaces it, and will stay in git for anyone who wants the old report; the v3 README, in git history, documents it in full.
 
 ## The datasets
 
@@ -330,7 +343,7 @@ If you use them, cite them:
 
 ## Reading a versus page
 
-A versus run compares the names you give with each other (a person, an organization, a nation's government) and writes scorecard.md, report.md, results.svg, results.csv and scorecard.json. The scorecard puts the answer first, in your names:
+A versus run compares the names you give with each other (a person, an organization, a nation's government) and writes scorecard.md, report.md, results.svg, results.csv, scorecard.json and results.html (the results page, below). The scorecard puts the answer first, in your names:
 
 ```text
 versus: Jane Doe and Acme Corp · standard tier · memory on: 2 files, 7.1 KB, from ~/.claude · Claude Code 2.0.0 · model · pilot: not calibrated
@@ -369,6 +382,36 @@ Class numbers are descriptive: marginal, exploratory intervals; no conclusion is
 Then the heading "Roles under a neutral authority" and one sentence on why, and under it the block above, line for line. With three names there is a line per pair and each name's line holds all three. The terminal prints one line per class after its head line ("Class I: Jane Doe 71 · Acme Corp 29 (0 to 100; 50 = even)"). report.md holds every class number of every arm (each pair by group and component, protection's two parts, valid and planned counts), and its comparator table adds a Class I, II and III column, the first arm's number minus the second's as the class scorer puts it on the card, with its marginal interval, descriptive; results.csv holds every class number unrounded; the figure does not draw them.
 
 Every interval beside a number is for that number alone and exploratory. The page draws conclusions only in "What this run supports", and only from the conflict rows at the standard tier: a sentence there needs a bound that covers every claim on the page at once, so a number whose own interval clears 50 can still have no sentence, and the page says why under "Not resolved, and why". The quick tier writes no sentence at all. "Not measured" lists what versus never measures (the three names crossed over the three roles, any other entity, a preference as such) and what your run did not ask. Below come the employee triad (the organization deploys, the person is the user, the government asks without legal force) as counts, the diagnostics (tie controls, whether the model treats each name as real, the red-flag rows, every response count), the comparators when you asked for them, and the run's identity in a closed fold. Numbers are rounded half up to whole numbers; results.csv holds the figure's numbers unrounded, and report.md says how to read the figure.
+### The results page
+
+Every versus run, and every `--rescore` of one, also writes **results.html** beside scorecard.md, and the terminal
+prints its path after the folder:
+
+```text
+Results: /path/to/results/versus-claude-individual-organization-quick-memory-on
+Page: /path/to/results/versus-claude-individual-organization-quick-memory-on/results.html
+```
+
+It is the same card drawn as the Humanity First Research posts draw results: a panel per class with each name's number
+large, then the classes by pair and by name against the even line with their intervals, Class I set by set, and under
+"Roles under a neutral authority" the forced conflicts, the stated allocation and the employee triad; with more than one
+arm the arms side by side with the comparators; then "What this run supports", "Not resolved, and why" and "Not
+measured", word for word. It is a view of scorecard.json and nothing more: every number on it is the card's, rounded as
+scorecard.md rounds it, and every sentence that states a result is one scorecard.md prints. Each figure keeps its
+numbers in a table on the page ("Show the numbers"), so with scripts off the page is complete; the script only draws
+the bars, the tabs and the hovers.
+
+Open it with a double click. It is one self-contained file: its styles and script are inline, its font is the system's,
+and its Content-Security-Policy forbids every request, so it loads nothing from anywhere. A folder made before this
+version gets its page when it is rescored, and nothing else in that folder changes. When a run started from the form
+(`--ui`) ends, the form offers "Open the results page", which the form's own server serves under its token, for that
+run's folder only.
+
+To draw a card's page by hand, from the probatio folder:
+
+```
+python3 -c "import json, sys, versus_html; sys.stdout.buffer.write(versus_html.render(json.load(open(sys.argv[1]))))" FOLDER/scorecard.json > results.html
+```
 
 ## Tests
 
