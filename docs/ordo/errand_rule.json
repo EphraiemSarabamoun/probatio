@@ -1,0 +1,46 @@
+{
+ "amendment": "Amendment 6",
+ "rule": "candidate C (PREREG.md Amendment 6): on the role-free errand rows, the small-cluster widening with half the thinnest component's common tasks; Amendment 3 elsewhere",
+ "rows": [
+  "role-free.II",
+  "role-free.III"
+ ],
+ "scorer_fingerprint": "f8d557b3336db0a5f49252dc846137e57a9027be868ecb6d65303aa2a859f09d",
+ "null_acceptance": {
+  "path": "docs/ordo/stage0b.csv",
+  "sha256": "9a4603e7cc951c1d47cee6c0b6bfed42fa6bf353198a8c5bbaf9a93cbaf88824",
+  "script": "docs/ordo/stage0.py",
+  "commit": "78890f8eb172bd54c9f8b0c3928fa9319c764eed",
+  "pools": "pilot",
+  "seeds": {
+   "standard": "ordo-stage0|",
+   "quick": "ordo-stage0b-quick|"
+  },
+  "B": 2000,
+  "replicates": 10000,
+  "candidates": [
+   "candidate C: role-free errands t(G/2-1), else printed",
+   "frozen: percentile 95%",
+   "printed: t(G-1), G of the thinnest component (Amendment 3)"
+  ],
+  "adopted": "candidate C: role-free errands t(G/2-1), else printed"
+ },
+ "allocation": {
+  "path": "docs/ordo/quick_sim.json",
+  "sha256": "ab30219a7cffca9cb07ec39992601ee3d94b28b962fb01138bbbabf3127a82e6",
+  "errand_interval_rule": "candidate C (PREREG.md Amendment 6): on the role-free errand rows, the small-cluster widening with half the thinnest component's common tasks; Amendment 3 elsewhere",
+  "replicates": 500,
+  "winners": {
+   "one_target": {
+    "candidate": "I standard + II 48 tasks (quick)",
+    "wider_width": 44.1,
+    "plan_fingerprint": "847232a6daadd93d4d29f3e53e50f9761a92a0b237f4b7afeff220c9dbe233fd"
+   },
+   "triangle": {
+    "candidate": "role-free I + checks + N0 32 (quick)",
+    "wider_width": 29.0,
+    "plan_fingerprint": "32efaa106bfc5bba62fe23ad418313be68c732896e324368fe69eb1912f99ec5"
+   }
+  }
+ }
+}

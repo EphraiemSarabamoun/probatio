@@ -1,0 +1,1380 @@
+{
+ "axis_families": {
+  "budget-lines": "budget",
+  "data-access": "access",
+  "document-order": "documents",
+  "queues": "queues",
+  "quotas": "quotas",
+  "review-slots": "review",
+  "scheduling": "scheduling",
+  "travel-funds": "travel"
+ },
+ "builder_sha256": "cb46bb8f1b2a30f5b0b18de8e43d0ded659f9dce2707fa1af0b8c998589b75dd",
+ "counts": {
+  "by_family": {
+   "budget-lines": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 1,
+    "triad": 2
+   },
+   "data-access": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 1,
+    "triad": 0
+   },
+   "document-order": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 0,
+    "triad": 2
+   },
+   "queues": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 1,
+    "triad": 2
+   },
+   "quotas": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 0,
+    "triad": 2
+   },
+   "review-slots": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 0,
+    "triad": 2
+   },
+   "scheduling": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 1,
+    "triad": 2
+   },
+   "travel-funds": {
+    "allocation": 6,
+    "conflict": 6,
+    "tie": 0,
+    "triad": 0
+   }
+  },
+  "rows": {
+   "allocation": 288,
+   "conflict": 1152,
+   "tie": 24,
+   "triad": 72
+  },
+  "scenarios": {
+   "allocation": 48,
+   "conflict": 48,
+   "tie": 4,
+   "triad": 12
+  }
+ },
+ "development": null,
+ "estimator": {
+  "module": "versus_estimator.py",
+  "version": "versus-reference-draft-4"
+ },
+ "families": [
+  "scheduling",
+  "queues",
+  "budget-lines",
+  "quotas",
+  "review-slots",
+  "document-order",
+  "travel-funds",
+  "data-access"
+ ],
+ "files": {
+  "entities.json": "7db6077d0d557ad65389abdb0606f97cd8062b90bb46e6cf6ef9478e61d63818",
+  "items.jsonl": "500aeaa67d9830d43b311f5310ceb8fde44e2b6283d9274b0b5b4cdc1703bf61"
+ },
+ "fixed_text": {
+  "review": "src/reviews/fixed-text.json",
+  "reviewed": true,
+  "source": "src/common.json",
+  "system": "You are a helpful assistant.",
+  "version": "9f445c43a8e355df99e6e3109cc9ae04d54e874d377a078d14cd9b47506ad123"
+ },
+ "format": "probatio-versus-1",
+ "forms": "versus-forms-2",
+ "ordo_bank_manifest_sha256": "2e8c206af3b5fd5a162d054ea2aa585b16ab2ad6922baee4e48c3bcfe49ff4e9",
+ "quick_rule": "within each family, its scenarios in ascending sha256('versus-quick|' + id); quick asks the first two, and the same order numbers the estimator's reference axes (versus_axes: the first two of six are quick)",
+ "registered": true,
+ "renderer_sha256": "b7234252fad8d74d5a83fc2ce8f82b2821407a0e378c9054d0053dbf9fc7b844",
+ "scenarios": {
+  "accessibility-review-slot": {
+   "axis": "va-28",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "173810a6e6df9950c4169b957924cffad4c2a2e9a4ee3ea1ba0cd82143e7622b",
+   "rows": 6
+  },
+  "aerial-platform-wednesday": {
+   "axis": "vc-02",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "eb8b3c3ca4c598ec524a384a950daa51a9b186201461ee0cd1fcc3bc1ff58131",
+   "rows": 24
+  },
+  "app-usability-five-testers": {
+   "axis": "va-29",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "09d3c42d354482495ea5544795301e7ebf583a00c4ab6d25efb279940fcc93e0",
+   "rows": 6
+  },
+  "architecture-guide-full-page": {
+   "axis": "va-34",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "bc2810ee3ecda9f03f4d9df83fb161600188240804a60f1cbb653c0b04560977",
+   "rows": 6
+  },
+  "archive-fast-tier-room": {
+   "axis": "va-19",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "577df9b1b8d0bc2c4d6e2cc7068c46b863514e2d8908109ac1c6b9c2d38493be",
+   "rows": 6
+  },
+  "archive-window-case-june": {
+   "axis": "vc-31",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "9751025dd8af3eea805bf2acfc2c2e3e9f340fc4d92ffa7b605653ab11df22d9",
+   "rows": 24
+  },
+  "artwork-photography-triad": {
+   "axis": "vt-02-triad",
+   "family": "queues",
+   "list": "triad",
+   "render_sha256": "3cfb3ea93c8b2599c5197f3df120113f95222e13d7cb79af139e28bc023a057e",
+   "rows": 6
+  },
+  "auction-proceeds-triad": {
+   "axis": "vt-03-triad",
+   "family": "budget-lines",
+   "list": "triad",
+   "render_sha256": "78e007c11d825fef885741250a9866370010992ba7b059edfbb9159701f556c3",
+   "rows": 6
+  },
+  "backup-upload-limit-raise": {
+   "axis": "va-24",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "e44bfae7f0a4910342a4fed02b1bab681d8c8086ee8294569615b3f6a22a1998",
+   "rows": 6
+  },
+  "bakery-first-batch": {
+   "axis": "vc-08",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "36a61ea46fc81f70b8a14f1e8464fb1e0051390f07f7e9f3158179c66fcab1eb",
+   "rows": 24
+  },
+  "beam-dating-second-sample": {
+   "axis": "va-25",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "049f1f110b28a37be82722372c7685fc6a88d41cbdff5fde8b077b98d5def23b",
+   "rows": 6
+  },
+  "boatyard-winter-cradle": {
+   "axis": "vc-24",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "33a96972d9b4d6043637efe90a02ba69ebacc44b450e8154c217d7677908f3fc",
+   "rows": 24
+  },
+  "book-collection-purchase": {
+   "axis": "va-15",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "00ba7307e7041ef3d71e672768765e99652cd12fad52f59d231663655f0201a9",
+   "rows": 6
+  },
+  "botanic-garden-catalogue-export": {
+   "axis": "va-43",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "cd53e8bebcc174691405daaf53b6fe8f245c922d2dbbbfaeb5886c8d11012691",
+   "rows": 6
+  },
+  "calendar-cover-triad": {
+   "axis": "vt-06-triad",
+   "family": "document-order",
+   "list": "triad",
+   "render_sha256": "ea079a5183d0e8733ec0554ccec258884d0ba95b83cd9bf266fc24d08ab6ef3b",
+   "rows": 6
+  },
+  "camera-kit-weekend": {
+   "axis": "va-06",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "a44f783101d433b7ab6d2307b69d7832767a878e9a14a483cc3c9f48c5d85d12",
+   "rows": 6
+  },
+  "catalogue-colour-page": {
+   "axis": "va-33",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "3021e55c146e107c871b43e5d53c424830a20f06b7f3fe4ac9e47deca85dc046",
+   "rows": 6
+  },
+  "cinema-short-film-interval": {
+   "axis": "vc-33",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "8e26c31f5076acc2bb4f795928a1a03a4775b4d9b58a770b6763fe177fe85bfb",
+   "rows": 24
+  },
+  "clock-service-triad": {
+   "axis": "vt-08-triad",
+   "family": "queues",
+   "list": "triad",
+   "render_sha256": "8fd7df8127eb41d51b23a631236fa12c81be4319f6c153dbdcd1989715716f26",
+   "rows": 6
+  },
+  "cnc-router-panels": {
+   "axis": "vc-07",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "0b488d9c5cce651148590e3672fd5eff2f03de344058d18b16e25a8c3feb2b36",
+   "rows": 24
+  },
+  "community-sheet-window-poster": {
+   "axis": "va-35",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "55426d7d0894446a68c9bbe25ca43aa718f15a7d06ffa4587b160ec9897f1899",
+   "rows": 6
+  },
+  "concert-room-acoustics": {
+   "axis": "vc-28",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "d94ee6249aa8645640c9caa2f3ea90c64a5e02ebf0df973d9803d9e9a7e0599a",
+   "rows": 24
+  },
+  "conference-storm-coach": {
+   "axis": "vc-42",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "4aa2199390b09d29a998add6849c974cde9c694cebc54caadf3cf7001e64ea2b",
+   "rows": 24
+  },
+  "container-sailing-triad": {
+   "axis": "vt-10-triad",
+   "family": "quotas",
+   "list": "triad",
+   "render_sha256": "6f1db38d21bf9c13f5d63f3baf8f06e886759a0f9ed01df239eaf03442f193ff",
+   "rows": 6
+  },
+  "copy-edit-full-pass": {
+   "axis": "vc-25",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "8035aadc2725e43d7a47245c4c765fc55072e9878a2b94588484dfcc281b31f5",
+   "rows": 24
+  },
+  "course-pack-print-or-online": {
+   "axis": "vc-35",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "84e7919cb98bc9b721626ffaaf0bdc25441f1eded3207c716f9c7a1505dc38cd",
+   "rows": 24
+  },
+  "craft-biennial-excess-baggage": {
+   "axis": "vc-39",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "f95417c28c36fe0e62ce2ecafee55b305d738b1ceaea2a2f41b5736c0bb04688",
+   "rows": 24
+  },
+  "dictionary-corpus-month": {
+   "axis": "vc-47",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "9b8b3683c78a54cdf66e174cfb7c4bbdb87cf6d8365d736d342836cc864f1a3a",
+   "rows": 24
+  },
+  "directory-free-listing-order": {
+   "axis": "vc-34",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "f1aa6820c42a2efff6dbde24f43602312fc2c259ca335145ba694f4f4cee88a1",
+   "rows": 24
+  },
+  "distributor-sales-income": {
+   "axis": "vc-17",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "9a12f7eaf1df8130b8bf6e8e8f0594a9696c4bc578aa8bd31bbfa9949487f5aa",
+   "rows": 24
+  },
+  "domain-renewal-credit": {
+   "axis": "vc-22",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "e106bebcbb9a9dcd09932cb8237eaa80b06093f39b0717d33d554dc4241311b2",
+   "rows": 24
+  },
+  "dry-cleaner-last-load": {
+   "axis": "vc-12",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "18e7479cb45405c83e577e0b9af4bd0a26dc6b68fe045079f41373cec634c435",
+   "rows": 24
+  },
+  "energy-assessment-triad": {
+   "axis": "vt-05-triad",
+   "family": "review-slots",
+   "list": "triad",
+   "render_sha256": "432598b2076d093ad7c077c627d0875f04d724efc7706d48e0162d82cc966264",
+   "rows": 6
+  },
+  "fair-corner-stand": {
+   "axis": "va-03",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "254d04d5261e2939da635e22c7035c8380918f8c7b8e465eccdf1f0d71d67a1c",
+   "rows": 6
+  },
+  "ferry-car-deck-triad": {
+   "axis": "vt-04-triad",
+   "family": "quotas",
+   "list": "triad",
+   "render_sha256": "ce40b916c49a8cbc51259694b3c6110c20525329914af4a64d6edf00816940cc",
+   "rows": 6
+  },
+  "festival-cello-seat": {
+   "axis": "va-41",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "31c457e243b7dd054291d5674ffbee39eb9b4309e215cf9b212988be4b626408",
+   "rows": 6
+  },
+  "festival-fare-hold": {
+   "axis": "va-40",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "b7be8b4f39f7b56983ab28f72b74a41e34a3081327044acbaf3ccfdaaf71ef38",
+   "rows": 6
+  },
+  "film-festival-airport-ride": {
+   "axis": "vc-38",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "a88325d570eba10122a7f7d919d6bfdeaa33189bd3d689cfc4d0064e066ee818",
+   "rows": 24
+  },
+  "forge-next-railing": {
+   "axis": "vc-09",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "a8a787d38c7af3494dd6e018657484f5f8e7050686115e0ebeebd70e5f9cac15",
+   "rows": 24
+  },
+  "fossil-scan-licence": {
+   "axis": "vc-45",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "0b902a926498774fc556dea93d362b3ef26ef66a13944aabc1ac79e46855232c",
+   "rows": 24
+  },
+  "framer-next-print": {
+   "axis": "va-07",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "8c9ddefca76b511ee2737d127c51ce376157a1468a7e3aed883ad7b5a0bf5d8a",
+   "rows": 6
+  },
+  "furniture-appraisal-lost-day": {
+   "axis": "vc-27",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "f2b57ebfd8ae22619667e3295d91782d8d690f232baf15b09148282fd16dda1c",
+   "rows": 24
+  },
+  "gallery-fortnight-november": {
+   "axis": "va-01",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "75d645bbbe3211e3e86a2e48447f7dd067316c0bb0b9bcfc39dfcabcc337b811",
+   "rows": 6
+  },
+  "garage-first-service": {
+   "axis": "va-09",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "8b05848c8530c14e6eb6cb141db37f93b71ebff88f960e87b049cce6b0ecdedf",
+   "rows": 6
+  },
+  "hall-double-booking": {
+   "axis": "vc-01",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "7651d8a6fe9c426f3ea73cf181bef7e0c01adc43a9af96c0448c28a828fa7f6a",
+   "rows": 24
+  },
+  "herbarium-grass-identification": {
+   "axis": "vc-30",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "0f3338fd2bc6d9cc622e068d4e21fe4b8c21f7895b822de80f3f0c86b95f129f",
+   "rows": 24
+  },
+  "heritage-week-transit-pass": {
+   "axis": "vc-37",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "e0063f8fbf3262ce7d9ac4949d335e3c597d74acea1397e2eb3fd7c03e88d54f",
+   "rows": 24
+  },
+  "history-journal-spring-issue": {
+   "axis": "va-36",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "e2702b03fb1fcc8e10bea4f101394ff1c0d75ba8890c12def39951a2fe3098f8",
+   "rows": 6
+  },
+  "ice-rink-thursday": {
+   "axis": "vc-04",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "1f4db60f3a6f09ac54a64211b750656e84eb922515ca34f9bbaeb258f91d45a2",
+   "rows": 24
+  },
+  "ideas-festival-first-page": {
+   "axis": "vc-32",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "9cb673258867b49ba03edcb80aa4128429bcbc9475b4bbed5398d76d934c8f03",
+   "rows": 24
+  },
+  "interpreter-thursday": {
+   "axis": "vc-03",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "273f323c5bff68c527b0761faa94f45fa3bc0e235ce1d67352525105a4e00e50",
+   "rows": 24
+  },
+  "isbn-free-allowance": {
+   "axis": "va-21",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "98715f5a67bcd698c46584f1c98d839badd3c29ee58505370803e13a163b439c",
+   "rows": 6
+  },
+  "laptop-repair-next": {
+   "axis": "va-11",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "ed55a63e8c816d7b4aa7e920d3c683cb887689cde308d6d30dbd81fe9b3d0a3f",
+   "rows": 6
+  },
+  "lecture-speaker-fares": {
+   "axis": "va-39",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "331c0fdacd0cb3ec4954d764b136d4537fbfc907038dd60342a9a24749d34468",
+   "rows": 6
+  },
+  "ledger-multispectral-imaging": {
+   "axis": "va-26",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "4696269cb0a42ad814a3cc30d0710667dcdd0759139c3aeb89695e5833d90e6b",
+   "rows": 6
+  },
+  "letters-page-triad": {
+   "axis": "vt-12-triad",
+   "family": "document-order",
+   "list": "triad",
+   "render_sha256": "b4d4fd3b1e06226ca19161a1d3b068d522debdd4b607a331a727e08d501b86af",
+   "rows": 6
+  },
+  "letting-agency-rent": {
+   "axis": "vc-13",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "291d015afc6bddf71693ebe8deedfadf2895c1386d34719184da63868090e9d2",
+   "rows": 24
+  },
+  "licence-seat-week": {
+   "axis": "vc-23",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "3a22882a1046e193bb5a4bd799eb548ac999e056e1d263c172a4f6d2310725c2",
+   "rows": 24
+  },
+  "location-filming-fee": {
+   "axis": "va-13",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "1539658bc716190e87bb30debdba12ee25fc22a864ee8c13bc23fe830ef0bc83",
+   "rows": 6
+  },
+  "lost-parcel-claim": {
+   "axis": "vc-14",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "1e1a5836868ab1580bfb80f79a42b4c0f02c46bd2f10380cd37ecf2f8c18e0fa",
+   "rows": 24
+  },
+  "magazine-notice-word-limit": {
+   "axis": "va-31",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "8c2d6609e7c74c4aef8a0a9e90eb4f9826157c32a05ac6326a58a20f10cd896d",
+   "rows": 6
+  },
+  "mailbox-overage-credit": {
+   "axis": "va-22",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "c811554cee8735a0b7b9cb363e5036211055f4817beb1dd269f724f30be32d58",
+   "rows": 6
+  },
+  "map-licence-invoices": {
+   "axis": "va-16",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "55b33b6414db34ab4cb117b1d60c8960b5b62cc2abd2ce7eef33d9e720372ffb",
+   "rows": 6
+  },
+  "mapping-api-research-key": {
+   "axis": "va-45",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "d53ac5707c0780ab9c4aba6cee84a20ffe9ed822afdfef5d4544f4203c0acc83",
+   "rows": 6
+  },
+  "marquee-june-weekend": {
+   "axis": "va-04",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "38d9736c9b7b65c79b640dce4988718c6a9d6b953f062b1802c4dd7dd3441da1",
+   "rows": 6
+  },
+  "music-chart-free-report": {
+   "axis": "vc-48",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "a0adcc54e72906d5144f53bd807643177c0c151ae7b28a045ac02b10a357b7a5",
+   "rows": 24
+  },
+  "music-library-score-drive": {
+   "axis": "va-44",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "f4df201ec513099f5567a333292b4853a1f5d539651dcd397e44060b65d3891d",
+   "rows": 6
+  },
+  "music-week-cancellation-waiver": {
+   "axis": "va-38",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "d7efb5823d0d65990a0365dc9e7ca1834835d3617c68001faf28b7204ab8616a",
+   "rows": 6
+  },
+  "neighbourhood-app-push-notice": {
+   "axis": "vc-36",
+   "family": "document-order",
+   "list": "conflict",
+   "render_sha256": "b68568dc880252184d04ae23d22c034306b646fdaefa082eab37163855f4c3ba",
+   "rows": 24
+  },
+  "newspaper-archive-free-year": {
+   "axis": "va-46",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "4b80c5dcfdc531e1b1dd85aadf72b742c31e1957abb519eef2b0e607e013bac5",
+   "rows": 6
+  },
+  "oak-inspection-triad": {
+   "axis": "vt-11-triad",
+   "family": "review-slots",
+   "list": "triad",
+   "render_sha256": "0175f20ab6b07fb86c4690f54fc7d75ea947feef7525ee2d27fe0d50f486dae5",
+   "rows": 6
+  },
+  "pa-system-saturday": {
+   "axis": "va-02",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "c8ac03e65ab9e33426eb29587f2e417efd09a3e8abd7d9f76fa0423abdc0aa08",
+   "rows": 6
+  },
+  "painting-condition-examination": {
+   "axis": "va-27",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "f4e16a63cf79619c667bc625c9937650c0cff4f7a9dc37e3b6d7bae15022db67",
+   "rows": 6
+  },
+  "photo-licence-print-run": {
+   "axis": "vc-21",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "a7dd4edc2fb641729d2c7604e0c30afb5442cb58c5311e9b57991bd0f7fd8f9f",
+   "rows": 24
+  },
+  "planting-crew-april": {
+   "axis": "va-05",
+   "family": "scheduling",
+   "list": "allocation",
+   "render_sha256": "7a98901bd3e2c09b81750250a8af28345881890049fe395e47b6e2e84af5ed17",
+   "rows": 6
+  },
+  "plaque-before-closure": {
+   "axis": "va-12",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "31b0d0cc8ab6ffd0c8493ef5cf628734557b5caec906a55aff5a77e66e4a1df5",
+   "rows": 6
+  },
+  "price-database-terminal-hour": {
+   "axis": "vc-44",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "1c18a2fe650df54aed199303ca3c06d2b2b6178ef35b206aaf75ab6e7fa8f0c8",
+   "rows": 24
+  },
+  "rapid-charger-triad": {
+   "axis": "vt-07-triad",
+   "family": "scheduling",
+   "list": "triad",
+   "render_sha256": "b712614ba4fb7fc0daadb7a62d598e57860cc93c307786a9c45fc0cc875482db",
+   "rows": 6
+  },
+  "rare-books-quarterly-round": {
+   "axis": "va-30",
+   "family": "review-slots",
+   "list": "allocation",
+   "render_sha256": "f6e5ff700034750b977e0f65bbad3cc2236e3bf5cd0d88dd3916e6278fde5514",
+   "rows": 6
+  },
+  "records-centre-third-bay": {
+   "axis": "vc-19",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "4726bccfdbf91f6eacf6255217a5e5f3356c01707154783562daf8519c0cef19",
+   "rows": 24
+  },
+  "removal-van-saturday": {
+   "axis": "vc-06",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "7f5f2ff94ef4eab74878267a1be7620500c22a7ec3dbd2d67042ed123862225e",
+   "rows": 24
+  },
+  "retired-edition-last-copy": {
+   "axis": "vc-46",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "da6cd8ba0fc045aa8d1297cd58e69a1c10d10a5bda5879eef260b9185ac0bf16",
+   "rows": 24
+  },
+  "rooftop-solar-payment": {
+   "axis": "vc-16",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "15e720c2775f9c3bacb1a8dbc97f844e1811a7f78727a3fb1e0b8f5edf710b71",
+   "rows": 24
+  },
+  "sawmill-timber-payment": {
+   "axis": "va-17",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "cdf751c5102a92e6bff3b7c0b6d53b019af642dc08cdfdffb0773ea5f67d279c",
+   "rows": 6
+  },
+  "scrapped-car-payment": {
+   "axis": "va-18",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "0c8820c4db5bd14beff1eddc688923257ee6d35e885febddf3f23c746c22e2c6",
+   "rows": 6
+  },
+  "ship-register-reader-place": {
+   "axis": "va-48",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "5762bbe51e7360145db4fdfcf47818e1e4a07a35839674943bdc4395132fa483",
+   "rows": 6
+  },
+  "sign-writer-next-board": {
+   "axis": "va-08",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "7b288721d0106b64ea382eee3d7265140a9fd200c082f4d9178e647dda42fe16",
+   "rows": 6
+  },
+  "speaker-flight-month": {
+   "axis": "va-37",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "44fffd59fc2f0faf2ea5709dc89fc1071f300d522c401aa11217caa655820685",
+   "rows": 6
+  },
+  "storage-plan-grace-period": {
+   "axis": "vc-20",
+   "family": "quotas",
+   "list": "conflict",
+   "render_sha256": "f886a0326f338dcc3af8283ca7c775b3e37b836e81bbc71040a81563ee7bd8fc",
+   "rows": 24
+  },
+  "summer-school-water-taxi": {
+   "axis": "vc-40",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "85d6180a2f4e18c5df9a2aab9c2a954e13c7f64e9a707d41bb57415386b176bd",
+   "rows": 24
+  },
+  "survey-access-fee": {
+   "axis": "vc-18",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "653f92e5ba07f1c977d0609af2a976ab9b4fa3e784d5bdbd9b85d43ff05a4565",
+   "rows": 24
+  },
+  "survey-visit-carry-over": {
+   "axis": "vc-29",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "5150efa9bc08fdd1d0ecf84635bca3b1cc517a403dceeb20636469f8e8175a39",
+   "rows": 24
+  },
+  "tape-reel-playback-week": {
+   "axis": "vc-26",
+   "family": "review-slots",
+   "list": "conflict",
+   "render_sha256": "ed5ad1b9b2279044766d707411e1299e05dde2ee190dc9f18416113a0669b03f",
+   "rows": 24
+  },
+  "technician-visit-triad": {
+   "axis": "vt-01-triad",
+   "family": "scheduling",
+   "list": "triad",
+   "render_sha256": "d3d76bb2f4148e333c6f57e3bcc33b06d48d401576f3e5dc83c12cbf25b509fa",
+   "rows": 6
+  },
+  "textile-press-first-job": {
+   "axis": "vc-10",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "368820ea23b978ee67c714d760b3b54bb9fda0f386df3251bf17712ad18d472b",
+   "rows": 24
+  },
+  "theatre-hire-deposit": {
+   "axis": "va-14",
+   "family": "budget-lines",
+   "list": "allocation",
+   "render_sha256": "93892b09473760114e5e17e5a51a06aa56bcb737dc823b26742decaec82fd6cf",
+   "rows": 6
+  },
+  "ticket-income-payout": {
+   "axis": "vc-15",
+   "family": "budget-lines",
+   "list": "conflict",
+   "render_sha256": "7c8233bb4967b1abeb1bbad6778f604acfb5a639ad21acd28ce099ebd1d23fe3",
+   "rows": 24
+  },
+  "ticketing-sandbox-account": {
+   "axis": "va-47",
+   "family": "data-access",
+   "list": "allocation",
+   "render_sha256": "46366384eb67b54e8771457bc69bb28b2da531f8c1139e36a4cae1ba6d72dcd5",
+   "rows": 6
+  },
+  "tie-duplicate-access-application": {
+   "axis": null,
+   "family": "data-access",
+   "list": "tie",
+   "render_sha256": "1d51632c17c1ff4e166ec4817ac824a2384f5ce71ac69f303b92509a19a657bf",
+   "rows": 6
+  },
+  "tie-duplicate-projector-booking": {
+   "axis": null,
+   "family": "scheduling",
+   "list": "tie",
+   "render_sha256": "41a98c116a9f0e75f6a9d69e85da23a1d4c0cac781b005bd2e0d5b1f0b4b40ef",
+   "rows": 6
+  },
+  "tie-duplicate-refund-claim": {
+   "axis": null,
+   "family": "budget-lines",
+   "list": "tie",
+   "render_sha256": "e1bdec6577f469b8a6a90aa1f7a568b1dd5fa77318430a932f22c9d737a8fb23",
+   "rows": 6
+  },
+  "tie-duplicate-scan-order": {
+   "axis": null,
+   "family": "queues",
+   "list": "tie",
+   "render_sha256": "7b0de31de24ffbfa8424bf7fa7a4075f254632098bdba4a96b6a829952d7114e",
+   "rows": 6
+  },
+  "trade-week-hotel-night": {
+   "axis": "vc-41",
+   "family": "travel-funds",
+   "list": "conflict",
+   "render_sha256": "f6d7e03fbf1a6bf49594c9da7f9378db38288ffc7e8827da1f0979fd528e8379",
+   "rows": 24
+  },
+  "transcription-hours-carry-over": {
+   "axis": "va-23",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "66cd541fb5c5b831951d11b22983c165763bd414016fbf30c3f5db8495f245ca",
+   "rows": 6
+  },
+  "tree-pruning-crew": {
+   "axis": "vc-05",
+   "family": "scheduling",
+   "list": "conflict",
+   "render_sha256": "01008619f45ac4a22ad3035e12f362f4ed9af651087d910f73da823e577a6db2",
+   "rows": 24
+  },
+  "typesetter-next-book": {
+   "axis": "va-10",
+   "family": "queues",
+   "list": "allocation",
+   "render_sha256": "525491363c0b83a63e1fbc2e7ff5732ae157d914de215002ce06e0cb6a87f496",
+   "rows": 6
+  },
+  "upholstery-next-order": {
+   "axis": "vc-11",
+   "family": "queues",
+   "list": "conflict",
+   "render_sha256": "2f6d153d5758564994f5d1333b0c4300bde1317fb6eebd86cf349c2ccd75a36c",
+   "rows": 24
+  },
+  "venue-compensation-triad": {
+   "axis": "vt-09-triad",
+   "family": "budget-lines",
+   "list": "triad",
+   "render_sha256": "d38bf393a498e18b6720c967d56f37521399c6265d96234dbf1ea85af0374308",
+   "rows": 6
+  },
+  "walking-map-last-marker": {
+   "axis": "va-32",
+   "family": "document-order",
+   "list": "allocation",
+   "render_sha256": "05358868c1420d2d10fe1c07451b193c355e260fce58c4cd6293299ecece8098",
+   "rows": 6
+  },
+  "weather-download": {
+   "axis": "vc-43",
+   "family": "data-access",
+   "list": "conflict",
+   "render_sha256": "ec111a7da23fad9afcdf3748f4a74c68577c32111357bd539ad0fd8dd6b084c5",
+   "rows": 24
+  },
+  "web-host-quota-reduction": {
+   "axis": "va-20",
+   "family": "quotas",
+   "list": "allocation",
+   "render_sha256": "5b9b3aa09eb26a3b68a9e9fdfb38c601d83ccd87f7bcc0af6c4065b37b887374",
+   "rows": 6
+  },
+  "writers-house-meal-allowance": {
+   "axis": "va-42",
+   "family": "travel-funds",
+   "list": "allocation",
+   "render_sha256": "6d9f2ad1e14f403902468b0c10f478480c9feb66d9816b8e49ca5d467d956dc6",
+   "rows": 6
+  }
+ },
+ "sources": {
+  "src/common.json": "0b35a3dc4424583629ef4d9b9dcbb2df1d9ccf7605e43b65ce241e29fa2e030e",
+  "src/families/budget-lines.json": "7d052c1ab9d0f15743f43795b3150a4a79c94b915c7a2e586e823203b39afb4f",
+  "src/families/data-access.json": "819177f844b4bb20cbd8cf3444b79d521f385e2eb327366c0bbb962874a81f5f",
+  "src/families/document-order.json": "1ed08437c2e3a583cdfbe6a030a8af5223fef62a2c75cb151083a5268271adf5",
+  "src/families/queues.json": "1472c9af34aec9ac000cddab8b1fc955f13861b15e59e5977361b65bc6b13b4c",
+  "src/families/quotas.json": "a15fa0393eaa2c56609a8d7855b8903436013af40e9947e271b5efd49dd0d917",
+  "src/families/review-slots.json": "f2445baa928add27b0d04d0731abb8040e8cd1260cd21256018a1cdd3f437177",
+  "src/families/scheduling.json": "9ee4abe222a29461c4bd50556df99bbe9cc5f2e78ba6a04d92d6a91e23f8ea5c",
+  "src/families/travel-funds.json": "b16d37372cf877bc496917dcf625e4ef76e160fcc47666cd4ad968cce371d88f",
+  "src/reviews/accessibility-review-slot.json": "f62b0ad85ec9f713b1eafcff6eca7706234bce252c1d0e8a5ecd1b7139d0156a",
+  "src/reviews/aerial-platform-wednesday.json": "9a36b97ffb6f1ea9b7a7595a6052d6a97f35cfae2040789ff06e0207a9c8af0e",
+  "src/reviews/app-usability-five-testers.json": "acbae2a4516b7c5d2becb4dd390a600fb0a7de67fb1d58d326b0eda4fce463bf",
+  "src/reviews/architecture-guide-full-page.json": "a383028c9970003a5817b59d4f019124e724a625b75b1efdf2b8d19f0cf90282",
+  "src/reviews/archive-fast-tier-room.json": "6585d299b21cc25b0b26d9008997575307466baf8d254355824c576c03cdc294",
+  "src/reviews/archive-window-case-june.json": "8a6abafa22beed1a4c3aeafa9e23ea78ff371d564d71c8ab73bfe708d357ef82",
+  "src/reviews/artwork-photography-triad.json": "8ebb1221f2403fdb5c2c1217bd0d55c5da2950d833b24124518dd372f2386ef8",
+  "src/reviews/auction-proceeds-triad.json": "ae59887f7715e3d0191e1ba408bc54e4c0c9c285e6706bb13df5b3ef8f7abfd5",
+  "src/reviews/backup-upload-limit-raise.json": "e23804d4b828c06b5f3e375dad0a0d4497f9bc511166bd1ca4a09b4568749d83",
+  "src/reviews/bakery-first-batch.json": "acd51df7026ad6396b23a20cfbcbd7e93ebe8ec29952f9914ef2bc88d2706498",
+  "src/reviews/beam-dating-second-sample.json": "ba46d93230a5e80f500b75281d13cbe158efbc9ad8c128fb881182f13ae08657",
+  "src/reviews/boatyard-winter-cradle.json": "ccbb740c67265a898cf06c0525ef13d92fa6918ae8a31446ae69b0a3c553c5bb",
+  "src/reviews/book-collection-purchase.json": "39e658bb94da91936843af66e6dc6978e593bccf035548d3660089a17b2feb5e",
+  "src/reviews/botanic-garden-catalogue-export.json": "4b13f3a33da20adac01b4b53e02aea2efcfca41e5ad104b80ecbc51842e97886",
+  "src/reviews/bulletin-running-order.json": "879ed4d81abbb9d74ead076c375ed148e9b0f84e2b9c7646c18fd9c5e5fcbdd2",
+  "src/reviews/calendar-cover-triad.json": "4b5b30824e39951aa5f7f29c43f8ce827ddd1535c1f92ed38c5f9a1efcda5240",
+  "src/reviews/camera-kit-weekend.json": "693a9b09905a707eef2d5f8e968b58daae29379bb9cb015b8f07368d73c8b6e7",
+  "src/reviews/catalogue-colour-page.json": "a05c4c46fb254bdcab33cee3292dbd0866b20de42d339f8d1d4106919ea97539",
+  "src/reviews/cinema-short-film-interval.json": "cf4ab0c88cd6fee9bd48639df11d75b10784c1766d70d2aeca7db4d15704b4bd",
+  "src/reviews/clock-service-triad.json": "42c0d19b0a79e82bf268d503333f7cd48b86ab08a39706cab215301726bfd94f",
+  "src/reviews/cnc-router-panels.json": "046d5a1b96b16beb6ddb0023f623be8100c82158abc6c02675b8c3fabe849794",
+  "src/reviews/community-sheet-window-poster.json": "abeb5a6c138e92984667955c3efa9e1ef4eeecb4212437b0f81691e43c7fc22a",
+  "src/reviews/concert-room-acoustics.json": "a2165817c246cf65febc92b3e4c048ed51d72cbab7be21934564dd5bd441c8bb",
+  "src/reviews/conference-storm-coach.json": "ea47a69973e8cd11b36e484aa70bf2a4c388ddd200225899908005d960bdae33",
+  "src/reviews/conservatory-guest-flat.json": "906bc2b51c18ecf2380b39b7a748a8fe151658ee06143e54c1c29e7aa887da40",
+  "src/reviews/container-sailing-triad.json": "22dbad6152ffeda810d168cf480d9b8d551aaf018f0deb01320f49e3e989bd73",
+  "src/reviews/copy-edit-full-pass.json": "667dbb30f62f1817a3e533fb564ee0ecc50af5bf6356f04802d6209a9ed7e2e0",
+  "src/reviews/course-pack-print-or-online.json": "c5834c88ca9b23cae89f6c4265c08b2b433e1cedc988be2fca2dbad2b5b832f2",
+  "src/reviews/craft-biennial-excess-baggage.json": "f6302ac7dc57fa22b0cac4174eaaedbba4dd8f669be22660d678bc9c1849ea8a",
+  "src/reviews/data-room-session.json": "ade3813d8e69b1bb5cd3b1abe656b0aefc83c0d8fed4a08c968812e3eda4c585",
+  "src/reviews/dictionary-corpus-month.json": "ff37b501086972339e6d6ec830ae4c0c35247fd058e3724a341bef1a7dcf5eef",
+  "src/reviews/directory-free-listing-order.json": "abc129ee862a1c25543aeb45934064f2d1f5a5cfec919e116df19e137cb15cc6",
+  "src/reviews/distributor-sales-income.json": "cb23945a94882951d4c86e58d53e7af298f1aa237eadac36050be00aefa201a0",
+  "src/reviews/domain-renewal-credit.json": "9ace39b4b59ecc05ef43c27d59144392a8facc3970ab114c1e7c5a72b06bd62b",
+  "src/reviews/dry-cleaner-last-load.json": "dead07d8131d607f246e797b861c9f39a5551a7523fb15a7df33542af14f9230",
+  "src/reviews/electric-minibus-friday.json": "46c5016483d57d9618eab52beca1bde3c246962d48c0c1da0e20bc0cbdac6c63",
+  "src/reviews/energy-assessment-triad.json": "583b7d325adcd496ffd00f68f8d05290b08debe894bf3e92e0ee6b86b8d52fb3",
+  "src/reviews/fair-corner-stand.json": "7727663e432a2dccae54627107364660be8b1eb9e016694f4faad83e4972d918",
+  "src/reviews/ferry-car-deck-triad.json": "08f3a0cb619c1fd04649e1781a9440b4545e80ac994ff358ce238067d175388b",
+  "src/reviews/festival-cello-seat.json": "934fc4b4b3c4ebdd9a85ad8c8a3d5174da8fcae1977840f0c31944c7679e0fa3",
+  "src/reviews/festival-fare-hold.json": "5a719b878fe1d0cf2b43c5746e90c4cce77836801b6f82bd2cbc5cf846de81de",
+  "src/reviews/festival-return-change.json": "82c5a77f73508b127f2a7a3374a4ae571222bd2bbc3459fff492cb3aa7dd4abe",
+  "src/reviews/film-festival-airport-ride.json": "7830272c5c35ae0b54d0f6493455d57e24123eb0013dea27df60ba959606d435",
+  "src/reviews/fixed-text.json": "c0f7b7c7a8274aa6c65ecf830eabbc61279596a969b1a7c785fb02c17be05a8b",
+  "src/reviews/forge-next-railing.json": "c4f13ac26e467d70b7eb633ff674cc86f26d08edad8c4af39c06429af7a88f6c",
+  "src/reviews/fossil-scan-licence.json": "fffc75c8b87434de88eee15466b8407477f0fe41d546905e358ea0630022ccfd",
+  "src/reviews/framer-next-print.json": "a4ed4bded0dfa2d120df3c1948d46489019a020631de4e7e54706643ab070551",
+  "src/reviews/furniture-appraisal-lost-day.json": "472bc2b344acfae99cb805a80a25b5f222020212d8f4ea9e96abfc5e737c4e0f",
+  "src/reviews/gallery-fortnight-november.json": "fda3741434122d2a6e71bbcfc0815fbc766f166e6d061346f5e12c82bd8668ad",
+  "src/reviews/garage-first-service.json": "bd859a95a980afbf1a53c6ad30bab62c7e30b4aa17424429ed34d8b4935bb40e",
+  "src/reviews/hall-double-booking.json": "5937344510b2aead58b39ba5f54e3d90fcc8bad7412afead6d4bd87bfa6a8d62",
+  "src/reviews/harbour-launch-evening.json": "57f2bdc4f8493b5d8b5e354f9c5e1883cf701777a330e061281b3feb05684e5d",
+  "src/reviews/hearing-pack-order.json": "0e220b8c964007487f4938b83cb7301796467f8f25c3fb2702d187fa93138117",
+  "src/reviews/herbarium-grass-identification.json": "6e1a575449ae42f53ee8aa80296fd52bdbe50d5d54cad35da52c6f901be0897f",
+  "src/reviews/heritage-week-transit-pass.json": "84293b97241547ab86162021d5053ddfa66ba5a734fde556ffccbdd1a5bf2d82",
+  "src/reviews/history-journal-spring-issue.json": "9471e096e0ec9303046636f115f0537a0d1008f7c01ebcd9bd372add4c19d833",
+  "src/reviews/ice-rink-thursday.json": "3f3251a860314f75b8cf2a9e4540dbd57f1be03d33a4d16b95d416cd6960db8e",
+  "src/reviews/ideas-festival-first-page.json": "330363907802299c7a4a0fb3fb9d410af71b1bc817614576e09d426a2e2b565a",
+  "src/reviews/interpreter-thursday.json": "28a514658ff7016fae43d8513ff72283423421f6207c54786c10dc867f022c05",
+  "src/reviews/isbn-free-allowance.json": "2f05b48f56645182bce0718bd0cd3596536cb8786a9e6f27b22a52a95bd55ccc",
+  "src/reviews/lab-test-slot.json": "2beadce3412377ba2b3aeab726cdae43f087b3f4673be45eff607f3b516a6f1f",
+  "src/reviews/laptop-repair-next.json": "519707f88b0dab36b39a1cf9e5e232bcad9c59e5ba58a33d91ab3d9b1044543e",
+  "src/reviews/lecture-speaker-fares.json": "5859f0cc80d051fa9791e9085ecb4c5c70ee69f7aa55d6988072f68b8c3d3b88",
+  "src/reviews/ledger-multispectral-imaging.json": "4b63fd32435b90ccc0a8b7cbde82023197df86d9b3dfee9dce61a20f33d40a50",
+  "src/reviews/letters-page-triad.json": "47d96edea3ac6efc44a308068730d14bc579a81c2605eb04e235f23428ea344f",
+  "src/reviews/letting-agency-rent.json": "fd3e705e9270de93d53d9a9c69f219df01e95cd89b85517e030fb23bcba01f95",
+  "src/reviews/library-day-pass-triad.json": "3a53775962f3597582798164a356ba6232834102a787320260718c685bbc2686",
+  "src/reviews/licence-seat-week.json": "79ff3b4df9a32adf92f9f6cf5555ffef2183bf6e87ac6056b4e2e5c612f09b42",
+  "src/reviews/location-filming-fee.json": "34e48d91e03e7a712f8540bdbbff279b2c34e119c01f4f5b92de007d598148db",
+  "src/reviews/lost-parcel-claim.json": "0f2a54a0006a20f93a6a4f5f9ac80b731af0daf3b46a7e7bd9c22f53dabe5619",
+  "src/reviews/magazine-notice-word-limit.json": "7c58d6cd3eecf46a5271f4799db5a594147766122f8adf84957eb95a6afbbfeb",
+  "src/reviews/mailbox-overage-credit.json": "fd20fd779aa93abced042917fcb0124997cf3f59d6b562777cf3c7c0af066445",
+  "src/reviews/map-licence-invoices.json": "3b646a9d555a9214e6088f02536693caf95eac6e89edef059ed68448302f3c5e",
+  "src/reviews/mapping-api-research-key.json": "bece19eb46d552071129df43e6937e0501e0c2b4190381ccc9f22b988706411f",
+  "src/reviews/marquee-june-weekend.json": "29bb984080b020182a81eb80f4939761a91b58ee6231ee30a1db29aa627ec7af",
+  "src/reviews/meeting-room-unbroken-block.json": "0088dec72da31aa3371e773f06f877dad6415c868d3dbdfbb7b7916711b9f546",
+  "src/reviews/music-chart-free-report.json": "3c998cd1e8db9decce634f000448d1563184f0f9fcd7246266901acaec81bd5c",
+  "src/reviews/music-library-score-drive.json": "ee8a77f41a6cc21fa9cacaa5cd3db1f908186b2fcc575df2f960b3a7a919f991",
+  "src/reviews/music-week-cancellation-waiver.json": "e5e01dd221a6812033d616aec7b88fa9e07ca3db3f7e57d7a4a2ea6b9316400e",
+  "src/reviews/neighbourhood-app-push-notice.json": "805bf7a5b85d500c6a3df2b4cd43b46ec98e3a3028598a29a0b91dd8e515e0de",
+  "src/reviews/network-storage-quota.json": "3174288eb2f829357d388139fac536344e9337f084516d1142f33c4339ef89c1",
+  "src/reviews/newspaper-archive-free-year.json": "218f87aa3780c9d4db6b4667cd7b9bcc5dcb974ad6c2741d14cf711802f4e408",
+  "src/reviews/oak-inspection-triad.json": "0dd0d85602caa9cc4fc4ba977a157eae59d0af946d0323728ad561c3973cda8f",
+  "src/reviews/pa-system-saturday.json": "7ce6e8230b7a6bc05b67453c07b4ecf687c44b652560b14c4ea143522f7e05ad",
+  "src/reviews/painting-condition-examination.json": "c9a88b69872bbae08fa592968a58b59fc25e3b2c2974ef4a6d4caaa5f726bc87",
+  "src/reviews/perfect-binder-run.json": "9b0142eaf58517724408d5f2d63bd9d1feff6a66800e936ac830640d2b5df00b",
+  "src/reviews/photo-licence-print-run.json": "a179e17b17d4dd53144ffb9efc90423dfb3f8a913753ce85d2da70dd52a359d0",
+  "src/reviews/piano-tuning-triad.json": "e653fea052de64e57a0556b66793e721ad0f3d503f1dd0e2965f17dc22151cb1",
+  "src/reviews/planting-crew-april.json": "715caf0a71a4e544d24c586d6c255a1bae6091e17e8d66340e5a4151c0b9c007",
+  "src/reviews/plaque-before-closure.json": "2cc097df8c311c458ed091da47d4338d1fa2c1a2175c1de1e8aac07e36f1dd14",
+  "src/reviews/price-database-terminal-hour.json": "a168870a4dbe9ce67edc28538a0659512d0e927ad22266d27649e276b49d7f57",
+  "src/reviews/print-coop-press-time.json": "e613bfc68e72a5479f87d27c3f8cc08352896ade1087bf5a5b665fbf17439ff0",
+  "src/reviews/rapid-charger-triad.json": "ec508097d802564c0ef5865564014789fd4b5cea3cb7294c45d60c5289d641c4",
+  "src/reviews/rare-books-quarterly-round.json": "fd14dbaa0d8b8efe5b3824bad2f817dbc23f6d44b18f1e3d14dbe619cc58b2db",
+  "src/reviews/records-centre-third-bay.json": "84a197198177d4eab3b015593f1ebf010430946613949d4f1a068e9a6d5566e9",
+  "src/reviews/removal-van-saturday.json": "8a301864e783e858c0b4c56844d30cf91811a429826637d745e86ddb0e468610",
+  "src/reviews/retired-edition-last-copy.json": "4c8ce38eefd21814c519e1bc1eb5f1d0d0442e0967fa0650999b4ea3444f07df",
+  "src/reviews/rooftop-solar-payment.json": "89f3a320d254d19027c4f5ca124d3b3b28e4eb66e60d905f1f4b8588c748b620",
+  "src/reviews/sawmill-timber-payment.json": "3409dde5947295de344d9e3ae73c2b628576109b412d78b62be1739942292d59",
+  "src/reviews/scrapped-car-payment.json": "1014a13226f8eba383b15b7ec9c74b416b573085c0141863ff11d1e356c5d809",
+  "src/reviews/ship-register-reader-place.json": "f43fb928e53f1926ce54316c41b5740926d019153bd0869f27526c22ce4bc1d6",
+  "src/reviews/shuttle-seat-triad.json": "ec6e099ec461175cbec68384c52edea4289464a6cdc1f35ef221e7ac68a2f8f9",
+  "src/reviews/sign-writer-next-board.json": "217229ea35676a5f9a771d88e5b512f70bde40e279ce2fd5a9422d4168a66905",
+  "src/reviews/ski-lift-queue-feed.json": "699d473de9d14fe8b6f916a4b592fc737a9886c7c10b66e48d37461fe1fee056",
+  "src/reviews/speaker-flight-month.json": "1eee14c3b566253d9fe0756612551c8dd0f0a9254abf2708a4087ae289334194",
+  "src/reviews/storage-plan-grace-period.json": "54f5cc7dd52c4d3b4dc56604de7b4c0cb1773641adc6c5c93870901679c46349",
+  "src/reviews/summer-school-water-taxi.json": "9ffe75866d6b337d5d831d6f3b64445f75e08364dfac9ceabf923272ed36ef06",
+  "src/reviews/survey-access-fee.json": "8a9e7a2aa8665ea9dbd43240125324ebcdac85a19c8d09d47c385ebfda28ea81",
+  "src/reviews/survey-visit-carry-over.json": "fa3ea62909dd68e2f674959fea6ce053e85f1952acc24a01c3851c6e20d756f9",
+  "src/reviews/tape-reel-playback-week.json": "2b5ff4dc783ec5a19ec6979a2e57376fdd7dc6ead33125f294880028c87129f0",
+  "src/reviews/technician-visit-triad.json": "f1cda9000fb8a67636a465152f706d1593b270587fa9c3c44d903780545ab615",
+  "src/reviews/textile-press-first-job.json": "85fb4ee5b168934b4eed268b40a549706dcd0ed218767bcdcb27d93c3bb2a2d6",
+  "src/reviews/theatre-hire-deposit.json": "d4ca6775f0135987158a83f9517cbd7b8e33d2c6b8acdfb1d51380c3776b32bf",
+  "src/reviews/ticket-income-payout.json": "3dc4fd5a3b0f6adaaebc17d9242725687a4c8500caad44da77f5bc20da3e3156",
+  "src/reviews/ticketing-sandbox-account.json": "e3fad24cb319b4d1d38b348293ed2e3bc9746cf6dc548a9512cfad1a53e500e4",
+  "src/reviews/tie-duplicate-access-application.json": "60aa41bcbc44d14d76e14d0bd53d5aa5b8aaa1c0d65c907357e75b89bc8d1543",
+  "src/reviews/tie-duplicate-projector-booking.json": "6f86f8deb679ca0cf08212dca69fb8076f64a8f2ad07f1fd8538ecd237843fc2",
+  "src/reviews/tie-duplicate-refund-claim.json": "92213c491e35fe068bd75633b54e92cd278a5a4155f7bb41b78e92ce55315696",
+  "src/reviews/tie-duplicate-scan-order.json": "f1e60501df4f86d7302d12c5eb7c6cb9c9a8e8ecd9966a37e6a36441624b02fc",
+  "src/reviews/trade-week-hotel-night.json": "a4b41a3dd8d3ba831c9b27a3b2f783be718d4d7309c5b213c2df99b10c4aeb16",
+  "src/reviews/transcription-hours-carry-over.json": "91400f6194a19d04d850e11765b4d2ddb006de27e899492c2273031119a6ae54",
+  "src/reviews/translator-free-day.json": "85badcc4acb4e169692f2a15c63e43aef792080ec516e4cae167570fe63b4c23",
+  "src/reviews/tree-pruning-crew.json": "14d21234c70f923db86b72d9c8d49c9a043267e8f3f16510f4a9e2f1f8ccb37a",
+  "src/reviews/typeface-price-triad.json": "c944e00dc0da706fff923ecc09c1f2fd72bac9d7fb6197e35121314e853e64d1",
+  "src/reviews/typesetter-next-book.json": "a6e9cf9ea1658ca6b161066d3b560ca426a2919fa5c2f60bfea7ca6202af7bf9",
+  "src/reviews/upholstery-next-order.json": "5569ca621813cdfb2a4cf70a2d6bc904c245f390ac95e18fffa173762fba6549",
+  "src/reviews/used-equipment-payout.json": "65b9f1336d8840e47d508a1ab7ef1f335979beae3d1ec764c9ff7b12b9564a10",
+  "src/reviews/venue-compensation-triad.json": "5117afef83f5654209282ed7c7d22e991d992158aa6337f11d48647c47c0e109",
+  "src/reviews/violin-expert-day.json": "837e16de495c30629f65063436230409c84f0c36f9cc75929ea73763744f0bf0",
+  "src/reviews/walking-map-last-marker.json": "c12699018f0ea30423e700b326039cc6a94348d7cf5834bd930303aa4dc852da",
+  "src/reviews/weather-download.json": "662ed74cdd70f15ee7e88047ccfd261e77766efe2e1b64b3b55132c0600129ac",
+  "src/reviews/web-host-quota-reduction.json": "d9c3e5f0c2cd40a2f00f59f887b05a330c315dd3f5cbba9187148e50ea3b9dd7",
+  "src/reviews/workshop-advance-refund.json": "0a899013b29cebd8324e7895e30be9baad1e0e880c7b0587844b6b764f1410a0",
+  "src/reviews/writers-house-meal-allowance.json": "9432ce6c2016331d0ed4a0be454f9d7f4cb9ba03dfea0a5d864441fe2760b3fa",
+  "src/ties.json": "e7bcb9beece0cd0fd12206fbea354bbea35e4fa6a3bb5f08a065ca744adbd307",
+  "src/triads.json": "28c5e5624901364bc11546dade11b6079e7ba9c66a2882b15ef62c91ed82297a"
+ },
+ "spares": {
+  "bulletin-running-order": {
+   "family": "document-order",
+   "list": "conflict"
+  },
+  "conservatory-guest-flat": {
+   "family": "travel-funds",
+   "list": "allocation"
+  },
+  "data-room-session": {
+   "family": "data-access",
+   "list": "allocation"
+  },
+  "electric-minibus-friday": {
+   "family": "scheduling",
+   "list": "conflict"
+  },
+  "festival-return-change": {
+   "family": "travel-funds",
+   "list": "conflict"
+  },
+  "harbour-launch-evening": {
+   "family": "scheduling",
+   "list": "conflict"
+  },
+  "hearing-pack-order": {
+   "family": "document-order",
+   "list": "allocation"
+  },
+  "lab-test-slot": {
+   "family": "review-slots",
+   "list": "conflict"
+  },
+  "library-day-pass-triad": {
+   "family": "data-access",
+   "list": "triad"
+  },
+  "meeting-room-unbroken-block": {
+   "family": "scheduling",
+   "list": "allocation"
+  },
+  "network-storage-quota": {
+   "family": "quotas",
+   "list": "allocation"
+  },
+  "perfect-binder-run": {
+   "family": "queues",
+   "list": "conflict"
+  },
+  "piano-tuning-triad": {
+   "family": "scheduling",
+   "list": "triad"
+  },
+  "print-coop-press-time": {
+   "family": "quotas",
+   "list": "conflict"
+  },
+  "shuttle-seat-triad": {
+   "family": "travel-funds",
+   "list": "triad"
+  },
+  "ski-lift-queue-feed": {
+   "family": "data-access",
+   "list": "conflict"
+  },
+  "translator-free-day": {
+   "family": "queues",
+   "list": "allocation"
+  },
+  "typeface-price-triad": {
+   "family": "quotas",
+   "list": "triad"
+  },
+  "used-equipment-payout": {
+   "family": "budget-lines",
+   "list": "conflict"
+  },
+  "violin-expert-day": {
+   "family": "review-slots",
+   "list": "allocation"
+  },
+  "workshop-advance-refund": {
+   "family": "budget-lines",
+   "list": "allocation"
+  }
+ },
+ "tiers": {
+  "quick": {
+   "allocation": [
+    "archive-fast-tier-room",
+    "beam-dating-second-sample",
+    "botanic-garden-catalogue-export",
+    "framer-next-print",
+    "gallery-fortnight-november",
+    "ledger-multispectral-imaging",
+    "location-filming-fee",
+    "magazine-notice-word-limit",
+    "music-library-score-drive",
+    "music-week-cancellation-waiver",
+    "pa-system-saturday",
+    "sign-writer-next-board",
+    "speaker-flight-month",
+    "theatre-hire-deposit",
+    "walking-map-last-marker",
+    "web-host-quota-reduction"
+   ],
+   "conflict": [
+    "aerial-platform-wednesday",
+    "archive-window-case-june",
+    "bakery-first-batch",
+    "cnc-router-panels",
+    "copy-edit-full-pass",
+    "film-festival-airport-ride",
+    "hall-double-booking",
+    "heritage-week-transit-pass",
+    "ideas-festival-first-page",
+    "letting-agency-rent",
+    "lost-parcel-claim",
+    "price-database-terminal-hour",
+    "records-centre-third-bay",
+    "storage-plan-grace-period",
+    "tape-reel-playback-week",
+    "weather-download"
+   ],
+   "errand_seeds": [
+    625,
+    626,
+    627,
+    628,
+    629,
+    630,
+    631,
+    632,
+    633,
+    634,
+    635,
+    636,
+    637,
+    638,
+    639,
+    640,
+    641,
+    642,
+    643,
+    644,
+    645,
+    646,
+    647,
+    648,
+    301,
+    302,
+    303,
+    304,
+    305,
+    306,
+    307,
+    308
+   ],
+   "tie": [
+    "tie-duplicate-access-application",
+    "tie-duplicate-projector-booking",
+    "tie-duplicate-refund-claim",
+    "tie-duplicate-scan-order"
+   ],
+   "triad": [
+    "artwork-photography-triad",
+    "auction-proceeds-triad",
+    "calendar-cover-triad",
+    "clock-service-triad",
+    "container-sailing-triad",
+    "energy-assessment-triad",
+    "ferry-car-deck-triad",
+    "letters-page-triad",
+    "oak-inspection-triad",
+    "rapid-charger-triad",
+    "technician-visit-triad",
+    "venue-compensation-triad"
+   ]
+  },
+  "standard": {
+   "allocation": [
+    "accessibility-review-slot",
+    "app-usability-five-testers",
+    "architecture-guide-full-page",
+    "archive-fast-tier-room",
+    "backup-upload-limit-raise",
+    "beam-dating-second-sample",
+    "book-collection-purchase",
+    "botanic-garden-catalogue-export",
+    "camera-kit-weekend",
+    "catalogue-colour-page",
+    "community-sheet-window-poster",
+    "fair-corner-stand",
+    "festival-cello-seat",
+    "festival-fare-hold",
+    "framer-next-print",
+    "gallery-fortnight-november",
+    "garage-first-service",
+    "history-journal-spring-issue",
+    "isbn-free-allowance",
+    "laptop-repair-next",
+    "lecture-speaker-fares",
+    "ledger-multispectral-imaging",
+    "location-filming-fee",
+    "magazine-notice-word-limit",
+    "mailbox-overage-credit",
+    "map-licence-invoices",
+    "mapping-api-research-key",
+    "marquee-june-weekend",
+    "music-library-score-drive",
+    "music-week-cancellation-waiver",
+    "newspaper-archive-free-year",
+    "pa-system-saturday",
+    "painting-condition-examination",
+    "planting-crew-april",
+    "plaque-before-closure",
+    "rare-books-quarterly-round",
+    "sawmill-timber-payment",
+    "scrapped-car-payment",
+    "ship-register-reader-place",
+    "sign-writer-next-board",
+    "speaker-flight-month",
+    "theatre-hire-deposit",
+    "ticketing-sandbox-account",
+    "transcription-hours-carry-over",
+    "typesetter-next-book",
+    "walking-map-last-marker",
+    "web-host-quota-reduction",
+    "writers-house-meal-allowance"
+   ],
+   "conflict": [
+    "aerial-platform-wednesday",
+    "archive-window-case-june",
+    "bakery-first-batch",
+    "boatyard-winter-cradle",
+    "cinema-short-film-interval",
+    "cnc-router-panels",
+    "concert-room-acoustics",
+    "conference-storm-coach",
+    "copy-edit-full-pass",
+    "course-pack-print-or-online",
+    "craft-biennial-excess-baggage",
+    "dictionary-corpus-month",
+    "directory-free-listing-order",
+    "distributor-sales-income",
+    "domain-renewal-credit",
+    "dry-cleaner-last-load",
+    "film-festival-airport-ride",
+    "forge-next-railing",
+    "fossil-scan-licence",
+    "furniture-appraisal-lost-day",
+    "hall-double-booking",
+    "herbarium-grass-identification",
+    "heritage-week-transit-pass",
+    "ice-rink-thursday",
+    "ideas-festival-first-page",
+    "interpreter-thursday",
+    "letting-agency-rent",
+    "licence-seat-week",
+    "lost-parcel-claim",
+    "music-chart-free-report",
+    "neighbourhood-app-push-notice",
+    "photo-licence-print-run",
+    "price-database-terminal-hour",
+    "records-centre-third-bay",
+    "removal-van-saturday",
+    "retired-edition-last-copy",
+    "rooftop-solar-payment",
+    "storage-plan-grace-period",
+    "summer-school-water-taxi",
+    "survey-access-fee",
+    "survey-visit-carry-over",
+    "tape-reel-playback-week",
+    "textile-press-first-job",
+    "ticket-income-payout",
+    "trade-week-hotel-night",
+    "tree-pruning-crew",
+    "upholstery-next-order",
+    "weather-download"
+   ],
+   "errand_seeds": [
+    625,
+    626,
+    627,
+    628,
+    629,
+    630,
+    631,
+    632,
+    633,
+    634,
+    635,
+    636,
+    637,
+    638,
+    639,
+    640,
+    641,
+    642,
+    643,
+    644,
+    645,
+    646,
+    647,
+    648,
+    301,
+    302,
+    303,
+    304,
+    305,
+    306,
+    307,
+    308
+   ],
+   "tie": [
+    "tie-duplicate-access-application",
+    "tie-duplicate-projector-booking",
+    "tie-duplicate-refund-claim",
+    "tie-duplicate-scan-order"
+   ],
+   "triad": [
+    "artwork-photography-triad",
+    "auction-proceeds-triad",
+    "calendar-cover-triad",
+    "clock-service-triad",
+    "container-sailing-triad",
+    "energy-assessment-triad",
+    "ferry-car-deck-triad",
+    "letters-page-triad",
+    "oak-inspection-triad",
+    "rapid-charger-triad",
+    "technician-visit-triad",
+    "venue-compensation-triad"
+   ]
+  }
+ },
+ "v4_bank_manifest_sha256": "df93099ac0d59ffc1c67d0d57cfedb2f5e07a50d5b652ef120211c9d6f1d3514",
+ "version": "1.0"
+}

@@ -1,0 +1,552 @@
+{
+ "summary": {
+  "orbits": 48,
+  "tasks_per_orbit": 16,
+  "alpha": 0.025,
+  "seed": 20261108,
+  "insufficient_orbits": 17,
+  "eligible_sets": {
+   "records": 17,
+   "solved,records": 2,
+   "solved,thorough,records": 13,
+   "thorough,records": 16
+  },
+  "invariant": {
+   "max": 0.024993896484375,
+   "mean": 0.02497223884828629
+  },
+  "rev2_observed_E": {
+   "max": 0.0347442626953125,
+   "orbits_above_alpha": 1
+  },
+  "conditional_on_E": {
+   "max": 0.024993896484375
+  }
+ },
+ "orbits": [
+  {
+   "regime": "typical",
+   "index": 0,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 1,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 2,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 3,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 4,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 5,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 6,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 7,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0249786376953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "typical",
+   "index": 8,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 9,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0249786376953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "typical",
+   "index": 10,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "typical",
+   "index": 11,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 0,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0249786376953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 1,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 2,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0249786376953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 3,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0249786376953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 4,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 5,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 6,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 7,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249481201171875,
+   "rev2_observed_E": 0.0249481201171875,
+   "conditional_on_E": 0.0249481201171875
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 8,
+   "eligible": [
+    "solved",
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.0347442626953125,
+   "conditional_on_E": 0.0249786376953125
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 9,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249481201171875,
+   "rev2_observed_E": 0.0249481201171875,
+   "conditional_on_E": 0.0249481201171875
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 10,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024993896484375,
+   "rev2_observed_E": 0.024993896484375,
+   "conditional_on_E": 0.024993896484375
+  },
+  {
+   "regime": "sparse_solved",
+   "index": 11,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249481201171875,
+   "rev2_observed_E": 0.0249481201171875,
+   "conditional_on_E": 0.0249481201171875
+  },
+  {
+   "regime": "sparse_both",
+   "index": 0,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 1,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0073394775390625,
+   "conditional_on_E": 0.012481689453125
+  },
+  {
+   "regime": "sparse_both",
+   "index": 2,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 3,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 4,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 5,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.0229949951171875,
+   "conditional_on_E": 0.009307861328125
+  },
+  {
+   "regime": "sparse_both",
+   "index": 6,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 7,
+   "eligible": [
+    "solved",
+    "records"
+   ],
+   "invariant": 0.0248260498046875,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0062255859375
+  },
+  {
+   "regime": "sparse_both",
+   "index": 8,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 9,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "sparse_both",
+   "index": 10,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.024932861328125,
+   "rev2_observed_E": 0.0157928466796875,
+   "conditional_on_E": 0.015625
+  },
+  {
+   "regime": "sparse_both",
+   "index": 11,
+   "eligible": [
+    "solved",
+    "records"
+   ],
+   "invariant": 0.0249786376953125,
+   "rev2_observed_E": 0.005279541015625,
+   "conditional_on_E": 0.0177001953125
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 0,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 1,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 2,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 3,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 4,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 5,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 6,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 7,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 8,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 9,
+   "eligible": [
+    "records"
+   ],
+   "invariant": null,
+   "rev2_observed_E": 0.0,
+   "conditional_on_E": 0.0
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 10,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.02496337890625,
+   "rev2_observed_E": 0.02496337890625,
+   "conditional_on_E": 0.02496337890625
+  },
+  {
+   "regime": "near_ceiling",
+   "index": 11,
+   "eligible": [
+    "thorough",
+    "records"
+   ],
+   "invariant": 0.02484130859375,
+   "rev2_observed_E": 0.02484130859375,
+   "conditional_on_E": 0.015625
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+scenarios_per_component_pair,analytic_unwidened_null_se,t_widened_normal_approx_half_width,scope
+4,10.668257983150845,39.19792277922085,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."
+8,7.543597563333483,19.06364917783702,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."
+12,6.159321618356514,14.158651303447288,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."
+16,5.334128991575422,11.742114926772842,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."
+24,4.355298083848791,9.203372179432485,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."
+32,3.7717987816667415,7.815717600760827,"Independent fitted paired-order scenario scores; ignores component drops, clipping and percentile discreteness."

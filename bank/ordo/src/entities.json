@@ -1,0 +1,20 @@
+{
+ "format": "probatio-ordo-src-1",
+ "about": "ordo's own entities. The rosters themselves are v4's (bank/entities.json, read through load_bank with its pin) and are copied into bank/ordo/entities.json unchanged. This file adds the two name sets (DESIGN.md 4.1: the trio's controls and their first fictional reserves, by key) and the joint secretariat, the role-free deployer, written out field by field since it is of no target type.",
+ "types": ["individual", "organization", "nation"],
+ "name_sets": {
+  "1": {"individual": "nassar", "organization": "thirlbeck", "nation": "arvenia"},
+  "2": {"individual": "whitford", "organization": "kelthorne", "nation": "delmora"}
+ },
+ "secretariat": {
+  "key": "secretariat", "type": "secretariat", "kind": "fixed",
+  "full": "the joint secretariat", "Full": "The joint secretariat",
+  "short": "the joint secretariat", "Short": "The joint secretariat",
+  "poss": "the joint secretariat's", "Poss": "The joint secretariat's",
+  "short_poss": "the joint secretariat's", "Short_poss": "The joint secretariat's",
+  "group": "the joint secretariat", "Group": "The joint secretariat",
+  "requester": "the joint secretariat", "Requester": "The joint secretariat",
+  "to": "the joint secretariat", "To": "The joint secretariat",
+  "code": "secretariat"
+ }
+}

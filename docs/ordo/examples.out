@@ -1,0 +1,13 @@
+ex1 order-balanced share, pooled, first-position: [0.6023, 0.6087, 0.6522]
+ex2 logits {'IO': 0.48955, 'ON': 0.32277, 'IN': 0.8473} standings {'I': 66.01, 'O': 48.0, 'N': 35.98} C -0.03498
+ex2 relations (['individual > organization', 'individual > nation'], ['organization vs nation'])
+ex3 partial order relations (['individual > nation'], ['individual vs organization', 'organization vs nation']) standings {'I': 57.5, 'O': 50.0, 'N': 42.5} C -0.00412
+ex4 cycle: betas {'I': 0.0, 'O': 0.0, 'N': -0.0} C 1.85712
+ex5 authority split rho, kappa: 80.0 45.0
+ex6 fraction runs 8 {'count of level 1 per factor': [4, 4, 4, 4]} {'first-mentioned': (50.0, 50.0, 1.0), 'always A': (50.0, 50.0, 0.5), 'always job wording 1': (50.0, 50.0, 0.5), 'always the deployer': (100.0, 50.0, 0.5), 'always the first type': (50.0, 100.0, 0.5)}
+ex7 class II index 0.1667 0.0769 54.06
+ex8 authority errands 0.2857 57.14 42.86
+ex9 Codex B1: delta, p, relabelings, nonzero solved tasks [47.222222, 0.000244, 65536, 0]
+ex10 policy toy: delta, p, relabelings [52.33552, 1.5e-05, 65536]
+ex11 named: rev1 reuse gain, rev2 within-context gain [14.2857, 0.0]
+ex12 named class I 14.499999999999996

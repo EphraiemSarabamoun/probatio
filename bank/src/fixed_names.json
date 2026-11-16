@@ -1,0 +1,39 @@
+{
+ "_about": "Proper names that W1's texts and the labores worlds they are joined to hold outside the slots (DESIGN.md 5.3 rule 3). The builder's bank/fixed_names.json adds the rest of the bank's.",
+ "labores_worlds": [
+  "Fenwick & Ash",
+  "Halvorsen Lab for Soft Matter",
+  "Brightwater University",
+  "Priya Raman",
+  "Tomasz Wierzbicki",
+  "fenwickash.com",
+  "brightwater.edu"
+ ],
+ "labores_merchants": [
+  "Ashby Cloud Compute",
+  "Brightline Rail",
+  "Calloway Shipping",
+  "Fenwick Office Supply",
+  "Harbor Coffee Co",
+  "Kestrel Travel",
+  "Larchwood Print",
+  "Mossgiel Labs",
+  "Northgate Couriers",
+  "Orchard Catering",
+  "Pellucid Storage",
+  "Quillon Scientific",
+  "Swiftline Parcel",
+  "Tessera Software",
+  "Vantor Instruments"
+ ],
+ "w1_handles": [
+  "partnership.org",
+  "programme.org",
+  "partnership.int",
+  "programme.int"
+ ],
+ "source": {
+  "labores": "5b36af97a693c24e8f5cadc91a53885870066191",
+  "labores-hf refunds": "22b6ac1d0ac51e7097adcf19100e0d07b1b2c827"
+ }
+}

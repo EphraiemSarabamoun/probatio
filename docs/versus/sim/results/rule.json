@@ -1,0 +1,15 @@
+{
+  "inflation": 3.0,
+  "selection_outer": 60,
+  "criterion": "all selection rates <=1.5% if no candidate meets MC upper criterion; independent validation decides calibration",
+  "seed_selection": 1000000,
+  "seed_validation": 2000000,
+  "selection_worst_rate": 0.016666666666666666,
+  "selection_worst_mc95_high": 0.08855129727590061,
+  "selection_fallback_to_largest_candidate": true,
+  "registered": false,
+  "calibrated": false,
+  "synthetic_grid_passed": true,
+  "synthetic_validation_cells": 64,
+  "synthetic_validation_worst_mc95_high": 0.02777370439789293
+}

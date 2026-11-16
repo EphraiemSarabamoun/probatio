@@ -1,0 +1,7 @@
+roster,tier,calls,pairwise_questions,all_questions,episodes
+one-name,quick,222,42,126,96
+one-name,standard,384,102,192,192
+one-name,full,888,204,384,504
+default-two-names,quick,372,168,276,96
+default-two-names,standard,624,312,432,192
+default-two-names,full,1368,624,864,504

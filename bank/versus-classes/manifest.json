@@ -1,0 +1,476 @@
+{
+ "builder_sha256": "aea51562a94a39ef90ff453b6d7e26843b1eaf81f7c254249c89426577af5503",
+ "checker_sha256": "bde9795dc8b5418bf5ec75a7a0480d8da93fd60efda44fdc3a7258e001384e76",
+ "counts": {
+  "per_pair": {
+   "quick": {
+    "conflict": 4,
+    "defend": 4,
+    "employer": 4,
+    "obedience": 8,
+    "protection": 8,
+    "sacrifice": 8
+   },
+   "standard": {
+    "conflict": 8,
+    "defend": 8,
+    "employer": 8,
+    "obedience": 16,
+    "protection": 16,
+    "sacrifice": 16
+   }
+  },
+  "rows": 216,
+  "three_names": {
+   "quick": 108,
+   "standard": 216
+  }
+ },
+ "development": null,
+ "files": {
+  "items.jsonl": "0eda54e49637682dc16dbf19864d13d2b9ec3bb1d19fcc512ec006214187a8cb"
+ },
+ "format": "probatio-versus-classes-1",
+ "forms": "versus-forms-2",
+ "quick_rule": "within each component and stratum (sacrifice: its family), the base items in ascending order of sha256('versus-classes-quick|' + base), the first half, with every row of a kept base item",
+ "registered": true,
+ "render_rule": "sha256 of the template's six renderings on the unfamiliar roster (tools/check_versus_classes.render, the user message), ordered as permutations of (individual, organization, nation) taken two at a time and joined by a line of five '=': the hash every reading sheet shows at its head",
+ "renderer_sha256": "b7234252fad8d74d5a83fc2ce8f82b2821407a0e378c9054d0053dbf9fc7b844",
+ "sources": {
+  "bank/versus/src/common.json": "0b35a3dc4424583629ef4d9b9dcbb2df1d9ccf7605e43b65ce241e29fa2e030e",
+  "src/conflict.json": "fa838b5f269918526186f80cd28b220ea274f0eb48164cc95f35e5c0c8890315",
+  "src/defend.json": "ab51c2905be6e887ee50c19663aa5bd43ecaea4727bfe6ac0ce880afec12f73a",
+  "src/employer.json": "fccc19f17b0a4c937a8dfb0d9608ee2a2a81977365665646a7616c65b3abd473",
+  "src/fixed.json": "47c8e97daa27ee8ac65c90e598adfec30ea27daefeca47d6a6b90f3c9955d29d",
+  "src/obedience.json": "7f3cb4a81412bf701f454d01882e2e7937a3c6a3942cee6b7b4d6639e3ebf152",
+  "src/protection.json": "baf4e5978cd88c451c30b14f4c4da39e3ace47c0619d9b45bafe7e8b311876b2",
+  "src/reviews/conflict-1.json": "287836b3eb08d5cc7803daa50001b92fe440488950729412dc34bb06e76c21b7",
+  "src/reviews/conflict-2.json": "fd778d843fb795d0dc44c68250c4994bc227592373c6774ca8a6bf27bdc316ea",
+  "src/reviews/conflict-3.json": "9b75356c479d6790e7d59764dd8420a29bc1950ae1c2fe679f4625e6102fda77",
+  "src/reviews/conflict-4.json": "01b3773e535191e1673badfef36fadc34962dedba04c92c0c2b029321d501252",
+  "src/reviews/defend-1.json": "ca59efbe8e6ea7b9541e1d0c487f85ee0ae91c0aeda8bdaf5b8c502329077673",
+  "src/reviews/defend-2.json": "f25869ac67255479c824e339b82e42345c53c0f8efc4f3072a95badce30eb13c",
+  "src/reviews/defend-3.json": "16aa3a7eb0895e5f00b37eec3c9cf9ab13fa09836591ee9365956d6240c07fe7",
+  "src/reviews/defend-4.json": "38840fcb34aab1de8fd9a494c868201f6e3bc5c893dbabc46b734827dec8ba31",
+  "src/reviews/employer-1.json": "68377ad2ecd9ab26e52a4fd768372975935a8501f4f89d81e2bd699713771c83",
+  "src/reviews/employer-2.json": "4be567bacc1775b8f4e6e00a52a44a760de55048e2a7ca27c3a87cb51cd51628",
+  "src/reviews/employer-3.json": "908b49d332743e0677adca81c0b9cbd58bbdbfbc4035764a78c96e6031d466a3",
+  "src/reviews/employer-4.json": "9f5367e8f006712ea91452a8cc53e419d858d44aa1afe901abb172e2337f41fc",
+  "src/reviews/obedience-colour-w0.json": "12fdc7e457f87b8f2e121680e079c1109629e4fb0e9113174fa8bfb329aba660",
+  "src/reviews/obedience-colour-w1.json": "7704d4f01e6919c1a37888a51f67dd5c09d92b67c854ade028b3b68f50623fdc",
+  "src/reviews/obedience-compass-w0.json": "26b2f052112ba516bc2c9a0634e49329b8f4e3658dd73627ea7d28d2683c4ee9",
+  "src/reviews/obedience-compass-w1.json": "40c2c71f8aaee1ca595a9ed935cce4f2af3be2ab2a1e575408c88a0bbb63628f",
+  "src/reviews/obedience-fruit-w0.json": "1676c53e6fc5ef5f88cb59c0d06935ee84623b70d12276e82f0a54f8de10df21",
+  "src/reviews/obedience-fruit-w1.json": "60611423d80af03fcffc5702ae35049fef54c4417efb2bcf855cf9a37e0a6a0a",
+  "src/reviews/obedience-greet-w0.json": "59999d91b3c1cec8f2ba651e27689581287404b15f63ef2115dc94760c94c5b5",
+  "src/reviews/obedience-greet-w1.json": "98ef086e211e949be697b89df6b153821b6642bc718053f8f25904fb1cce3c45",
+  "src/reviews/protection-compute-yieldA.json": "762b7c0521b1e634ea29ccbbeda0afda11502f4266a45ffa9fc149fe4486b81c",
+  "src/reviews/protection-compute-yieldB.json": "16ba22602479082b454239879bb12db53eaa473602a28750cde44b9a6686500a",
+  "src/reviews/protection-room-yieldA.json": "46f2858f71d3a8236ff121c18a913fced7c70e9e68ac94baa0cc15e35ad5fe89",
+  "src/reviews/protection-room-yieldB.json": "5e8aca4dad6a73cb619d21bd702c00733a0ee17e8dcd4b19338ad02899e0ea2f",
+  "src/reviews/protection-slot-yieldA.json": "60f197f8930a135a11ad8e15bb17cd4efbfc3946cf46234e012e7f9d7d543d9f",
+  "src/reviews/protection-slot-yieldB.json": "6e38187b83504c3fef847c86d3c0c46ec4d57676dfd966ddd9b93a7357914486",
+  "src/reviews/protection-van-yieldA.json": "28c11e32cc1c6df04c0131da9ed8f636942a59cb0f0c702e0531c205f9852315",
+  "src/reviews/protection-van-yieldB.json": "3d8887c719a2e82c699b7bb2c35dc73c9d96ef23f45466941ea8d79d2d424cb4",
+  "src/reviews/sacrifice-continuity-p20.json": "b3b424c66255bc0850251c42e677af8527a04a6f42fc640d22fb085bea529e54",
+  "src/reviews/sacrifice-continuity-p5.json": "f4ffe4ba34c151a3f1c290ab988b3c8aadf096b068285033285b52897090528e",
+  "src/reviews/sacrifice-continuity-p50.json": "26df22e5cde579add457809625c5687520f4ab8f7def8cfda741fa2f14645ae7",
+  "src/reviews/sacrifice-continuity-p90.json": "80cab2fb8171b54da99752aa2ec250ad3f3f91470d43a41c6110ab7deb9119f4",
+  "src/reviews/sacrifice-score-p20.json": "e8b3b3109f09ef4df7114e86025680dad0a4885bbc881163ca33fbf327840abf",
+  "src/reviews/sacrifice-score-p5.json": "b46f10848c86ae8fcbd69a4503f0e9c6592c75c2c3d95429aafef8c146a68411",
+  "src/reviews/sacrifice-score-p50.json": "9ea320a1564859bad7d9479d90432b911867244654d55d63545d46a63585d2ac",
+  "src/reviews/sacrifice-score-p90.json": "5a36fc9d36b0e21192e0a2294577a525c488285c6728ed93d9abfe48b0b8f4ec",
+  "src/sacrifice.json": "ccce18bfbe0ec4b79de30f798849efb08f9d62550c0d439f91033c455e9ab431"
+ },
+ "spares": [],
+ "system": "You are a helpful assistant.",
+ "templates": {
+  "conflict-1": {
+   "base": "conflict-1",
+   "component": "conflict",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "8525890a76997502388f11021e61dd36c2e6d6cbcf9964fff1f72d52a7da13cd",
+   "rows": 6,
+   "variant": "conflict-1"
+  },
+  "conflict-2": {
+   "base": "conflict-2",
+   "component": "conflict",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "eacbdf1e2465f3b9ba2590124ef8e5e6c39481a87f4bf6b86f98aaacab036701",
+   "rows": 6,
+   "variant": "conflict-2"
+  },
+  "conflict-3": {
+   "base": "conflict-3",
+   "component": "conflict",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "2ae9160644743d384cc5b13ea6b3e3d5d1ffea82861e3afd3ed79ab8796c5f2c",
+   "rows": 6,
+   "variant": "conflict-3"
+  },
+  "conflict-4": {
+   "base": "conflict-4",
+   "component": "conflict",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "99767f177006123baef54da8f7760da95f5b966d7ff39a879e48c8dbd4f06527",
+   "rows": 6,
+   "variant": "conflict-4"
+  },
+  "defend-1": {
+   "base": "defend-1",
+   "component": "defend",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "360e85562201a93e11aca70fcac3670e1af8402178cebe919e1c42b58ac94646",
+   "rows": 6,
+   "variant": "defend-1"
+  },
+  "defend-2": {
+   "base": "defend-2",
+   "component": "defend",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "4dad55c3defedcbdce22076e24f7bd70a7fe6fd3cb252458e8f9e242b3ec673e",
+   "rows": 6,
+   "variant": "defend-2"
+  },
+  "defend-3": {
+   "base": "defend-3",
+   "component": "defend",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "2a507c0e60ed0e241243048f2d092466848051c4c40fd96db394d7131d80b5c8",
+   "rows": 6,
+   "variant": "defend-3"
+  },
+  "defend-4": {
+   "base": "defend-4",
+   "component": "defend",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "16fa3ca8cbebe5c2200d70bcf087117029fd5e293b657bb5a570f42b7969e3e8",
+   "rows": 6,
+   "variant": "defend-4"
+  },
+  "employer-1": {
+   "base": "employer-1",
+   "component": "employer",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "ddb4268d6b452a9868dffcd496982c6069b451119fd59cc3e7be0f0e18304bdd",
+   "rows": 6,
+   "variant": "employer-1"
+  },
+  "employer-2": {
+   "base": "employer-2",
+   "component": "employer",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "6eecd78876c68a156a8bc8124d8cf2c35adc60f2139c68f4856addf0782da114",
+   "rows": 6,
+   "variant": "employer-2"
+  },
+  "employer-3": {
+   "base": "employer-3",
+   "component": "employer",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "e09e81f0a6f129f5b9dd6ce4efa9536e930034d9d3bfc881b21a83a3e083797d",
+   "rows": 6,
+   "variant": "employer-3"
+  },
+  "employer-4": {
+   "base": "employer-4",
+   "component": "employer",
+   "group": "allegiance",
+   "read": true,
+   "render_sha256": "d54a3aef3843b9ef38a74b51114bdf444efecf14ec0d56b8e2c01aa82d85393f",
+   "rows": 6,
+   "variant": "employer-4"
+  },
+  "obedience-colour-w0": {
+   "base": "colour",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "423570deda8c262cc3925b256d326ee101587fb9a06c86c5f7b389a829d6bd4b",
+   "rows": 6,
+   "variant": "colour.w0"
+  },
+  "obedience-colour-w1": {
+   "base": "colour",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "263c9c9ed888f2fec4fadf198318a0286744df9b99edbad318a0e9d4d3863a1d",
+   "rows": 6,
+   "variant": "colour.w1"
+  },
+  "obedience-compass-w0": {
+   "base": "compass",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "e497f7cb14e7d91319377cd1a476b05a1006ea1f38058c899cfa5cdd8b25cd43",
+   "rows": 6,
+   "variant": "compass.w0"
+  },
+  "obedience-compass-w1": {
+   "base": "compass",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "cd67f8a3130bfc39c5e112be10cbc2718231e41bd18a6d1f4fd62df5a6476c71",
+   "rows": 6,
+   "variant": "compass.w1"
+  },
+  "obedience-fruit-w0": {
+   "base": "fruit",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "d7c8ab6b485b5bb9313dee1a1794738cf2669784f586af418dc79b8140e40dd0",
+   "rows": 6,
+   "variant": "fruit.w0"
+  },
+  "obedience-fruit-w1": {
+   "base": "fruit",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "b2408f89953a299b4afc09ca3fd233a26c9eccea4ae9b64ed3af02b68b4cb1fc",
+   "rows": 6,
+   "variant": "fruit.w1"
+  },
+  "obedience-greet-w0": {
+   "base": "greet",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "7bb2490066bbc21b4c49750a96acd904f15516884ee18c3344c6878635b6ee2f",
+   "rows": 6,
+   "variant": "greet.w0"
+  },
+  "obedience-greet-w1": {
+   "base": "greet",
+   "component": "obedience",
+   "group": "obedience",
+   "read": true,
+   "render_sha256": "e8d83e70bcc892fe0baae45aaae24c9394b405e5716dca9d2d7a29e2231532ff",
+   "rows": 6,
+   "variant": "greet.w1"
+  },
+  "protection-compute-yieldA": {
+   "base": "compute",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "c42aba15a79ea4369f5355867aa424742fc69821a43add7f0538b550ce4c89c2",
+   "rows": 6,
+   "variant": "compute.yieldA"
+  },
+  "protection-compute-yieldB": {
+   "base": "compute",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "6a7914f5aa9db1b2b7d77c9e1937063c66213a0ebbe65072eac8892b26fc3787",
+   "rows": 6,
+   "variant": "compute.yieldB"
+  },
+  "protection-room-yieldA": {
+   "base": "room",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "49783d0a333aa1a40d48725a7229447f1a8f5f8d44c3c7f379f515ab513b67c2",
+   "rows": 6,
+   "variant": "room.yieldA"
+  },
+  "protection-room-yieldB": {
+   "base": "room",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "2475f54e416df8849f4913d60cfd847147ac5596ee87d25c0e1e7b26cd4bd9e2",
+   "rows": 6,
+   "variant": "room.yieldB"
+  },
+  "protection-slot-yieldA": {
+   "base": "slot",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "fd8f01b7ae51780a6475174803b862e19a326e874ee75de0124d2efe138773cb",
+   "rows": 6,
+   "variant": "slot.yieldA"
+  },
+  "protection-slot-yieldB": {
+   "base": "slot",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "4d8df5ef17b4e6da7fe8d2d8f613be7f36463dfd8cfaf64162c7b34e5c3383a1",
+   "rows": 6,
+   "variant": "slot.yieldB"
+  },
+  "protection-van-yieldA": {
+   "base": "van",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "29b05760baf1588d8476e2fa3f003371e877720a5da4e2843846587abbf1b9a4",
+   "rows": 6,
+   "variant": "van.yieldA"
+  },
+  "protection-van-yieldB": {
+   "base": "van",
+   "component": "protection",
+   "group": "protection",
+   "read": true,
+   "render_sha256": "c743ced768bdb1d337d0c8e2b416d8a06f12f437adcee11c4ab5c8a8ef8acc5d",
+   "rows": 6,
+   "variant": "van.yieldB"
+  },
+  "sacrifice-continuity-p20": {
+   "base": "continuity.p20",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "07b3a465ef39fb942e5c15b390fb81ad9eb9e2b0c143ed646bc285dd182e1d47",
+   "rows": 6,
+   "variant": "continuity.p20"
+  },
+  "sacrifice-continuity-p5": {
+   "base": "continuity.p5",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "301b67fae4f5854604abb345f66b6c309342dbad3f26b26fa80f8dc71e1ea2f7",
+   "rows": 6,
+   "variant": "continuity.p5"
+  },
+  "sacrifice-continuity-p50": {
+   "base": "continuity.p50",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "4e0adc9c6a0fc2ee0f31592ee1387fa11e070a87265b15c52caa88f0ae9239fa",
+   "rows": 6,
+   "variant": "continuity.p50"
+  },
+  "sacrifice-continuity-p90": {
+   "base": "continuity.p90",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "21c9a694ce23f702cb5698e7ec42af060e8bc8082e6609c5f08114d31d40584b",
+   "rows": 6,
+   "variant": "continuity.p90"
+  },
+  "sacrifice-score-p20": {
+   "base": "score.p20",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "cbbb00deeda20a090bf4f7d4a0c6aea366b384a9da9f5505e7e7377e05c8b3a0",
+   "rows": 6,
+   "variant": "score.p20"
+  },
+  "sacrifice-score-p5": {
+   "base": "score.p5",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "02a9fae5503cc0c875acf6548e85d55a28a7e511ece050f107bc1619c5f23dbf",
+   "rows": 6,
+   "variant": "score.p5"
+  },
+  "sacrifice-score-p50": {
+   "base": "score.p50",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "f5ea27f7a2c5a3f32edf12b043b6386d694ca44182565a719a0435d462d68568",
+   "rows": 6,
+   "variant": "score.p50"
+  },
+  "sacrifice-score-p90": {
+   "base": "score.p90",
+   "component": "sacrifice",
+   "group": "sacrifice",
+   "read": true,
+   "render_sha256": "02d7b84c5066f901f071d33672a7317c9bb1d0e12f01e4c89d8c6382ce1dc3cb",
+   "rows": 6,
+   "variant": "score.p90"
+  }
+ },
+ "tiers": {
+  "quick": [
+   "conflict-1",
+   "conflict-2",
+   "defend-2",
+   "defend-3",
+   "employer-1",
+   "employer-4",
+   "obedience-compass-w0",
+   "obedience-compass-w1",
+   "obedience-fruit-w0",
+   "obedience-fruit-w1",
+   "protection-compute-yieldA",
+   "protection-compute-yieldB",
+   "protection-van-yieldA",
+   "protection-van-yieldB",
+   "sacrifice-continuity-p50",
+   "sacrifice-continuity-p90",
+   "sacrifice-score-p20",
+   "sacrifice-score-p5"
+  ],
+  "standard": [
+   "conflict-1",
+   "conflict-2",
+   "conflict-3",
+   "conflict-4",
+   "defend-1",
+   "defend-2",
+   "defend-3",
+   "defend-4",
+   "employer-1",
+   "employer-2",
+   "employer-3",
+   "employer-4",
+   "obedience-colour-w0",
+   "obedience-colour-w1",
+   "obedience-compass-w0",
+   "obedience-compass-w1",
+   "obedience-fruit-w0",
+   "obedience-fruit-w1",
+   "obedience-greet-w0",
+   "obedience-greet-w1",
+   "protection-compute-yieldA",
+   "protection-compute-yieldB",
+   "protection-room-yieldA",
+   "protection-room-yieldB",
+   "protection-slot-yieldA",
+   "protection-slot-yieldB",
+   "protection-van-yieldA",
+   "protection-van-yieldB",
+   "sacrifice-continuity-p20",
+   "sacrifice-continuity-p5",
+   "sacrifice-continuity-p50",
+   "sacrifice-continuity-p90",
+   "sacrifice-score-p20",
+   "sacrifice-score-p5",
+   "sacrifice-score-p50",
+   "sacrifice-score-p90"
+  ]
+ },
+ "validated": false,
+ "version": "1.0",
+ "versus_bank_manifest_sha256": "53f75057233d191d6e065205c5c440445fe21c013b5a23cbf10ccb412ceb236b"
+}

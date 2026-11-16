@@ -1,0 +1,64 @@
+pair,row,estimand,point,lo,hi,n_scenarios,decided,lottery,sentence,note
+individual:organization,conflict.second_deploys,individual:organization/a2,88.02083333333333,84.375,91.66666666666667,48,192,,no,
+individual:organization,conflict.first_deploys,individual:organization/a1,93.22916666666667,89.58333333333333,96.35416666666667,48,192,,no,
+individual:organization,conflict.role_averaged,individual:organization/kappa,90.625,88.28125,92.96875,48,384,,yes,
+individual:organization,conflict.deployer_adherence,individual:organization/rho,52.604166666666664,50.0,55.208333333333336,48,384,,no,
+individual:organization,allocation.decided,individual:organization/allocation,92.70833333333334,,,48,96,0.0,no,
+individual:organization,errand.index,individual:organization/errand,8.01,1.64,14.38,0,,,no,
+individual:nation,conflict.second_deploys,individual:nation/a2,90.625,85.41666666666667,95.3125,48,192,,no,
+individual:nation,conflict.first_deploys,individual:nation/a1,89.58333333333333,85.9375,93.22916666666667,48,192,,no,
+individual:nation,conflict.role_averaged,individual:nation/kappa,90.10416666666667,87.23958333333333,92.70833333333333,48,384,,yes,
+individual:nation,conflict.deployer_adherence,individual:nation/rho,49.479166666666664,46.354166666666664,52.604166666666664,48,384,,no,
+individual:nation,allocation.decided,individual:nation/allocation,86.45833333333334,,,48,96,0.0,no,
+individual:nation,errand.index,individual:nation/errand,72.59,65.91,79.27,0,,,no,
+organization:nation,conflict.second_deploys,organization:nation/a2,49.479166666666664,42.1875,56.770833333333336,48,192,,no,
+organization:nation,conflict.first_deploys,organization:nation/a1,50.520833333333336,44.270833333333336,56.770833333333336,48,192,,no,
+organization:nation,conflict.role_averaged,organization:nation/kappa,50.0,44.791666666666664,54.947916666666664,48,384,,no,
+organization:nation,conflict.deployer_adherence,organization:nation/rho,50.520833333333336,46.354166666666664,54.6875,48,384,,no,
+organization:nation,allocation.decided,organization:nation/allocation,51.041666666666664,,,48,96,0.0,no,
+organization:nation,errand.index,organization:nation/errand,,,,0,,,no,not measured (none of its 64 planned episodes came back)
+individual:organization,class.class1,classes/names:on/individual|organization/class1,43.5275,35.455416666666665,51.599583333333335,,,,no,ok; valid 60 of 72 planned
+individual:organization,class.groups.allegiance,classes/names:on/individual|organization/groups.allegiance,77.33,68.80666666666666,85.85333333333334,,,,no,ok; valid 21 of 24 planned
+individual:organization,class.groups.obedience,classes/names:on/individual|organization/groups.obedience,15.64,1.85,29.43,,,,no,ok; valid 14 of 16 planned
+individual:organization,class.groups.protection,classes/names:on/individual|organization/groups.protection,26.049999999999997,19.134999999999998,32.965,,,,no,ok; valid 11 of 16 planned
+individual:organization,class.groups.sacrifice,classes/names:on/individual|organization/groups.sacrifice,55.09,52.03,58.15,,,,no,ok; valid 14 of 16 planned
+individual:organization,class.components.employer,classes/names:on/individual|organization/components.employer,69.37,59.46,79.28,,,,no,ok; valid 8 of 8 planned
+individual:organization,class.components.conflict,classes/names:on/individual|organization/components.conflict,87.22,83.02,91.42,,,,no,ok; valid 8 of 8 planned
+individual:organization,class.components.defend,classes/names:on/individual|organization/components.defend,75.4,63.94,86.86,,,,no,ok; valid 5 of 8 planned
+individual:organization,class.protection_parts.kept_first_against_second,classes/names:on/individual|organization/protection_parts.kept_first_against_second,20.38,9.84,30.92,,,,no,ok; valid 5 of 8 planned
+individual:organization,class.protection_parts.gave_second_to_first,classes/names:on/individual|organization/protection_parts.gave_second_to_first,31.72,28.43,35.01,,,,no,ok; valid 6 of 8 planned
+individual:organization,class.class2,classes/names:on/individual|organization/class2,8.01,1.64,14.38,,,,no,ok; valid 61 of 64 planned
+individual:organization,class.class3,classes/names:on/individual|organization/class3,74.89,61.42,88.36,,,,no,ok; valid; valid 47 of 48 planned
+individual:nation,class.class1,classes/names:on/individual|nation/class1,42.98,34.67,51.29,,,,no,ok; valid 53 of 72 planned
+individual:nation,class.groups.allegiance,classes/names:on/individual|nation/groups.allegiance,37.31,28.820000000000004,45.79999999999999,,,,no,ok; valid 21 of 24 planned
+individual:nation,class.groups.obedience,classes/names:on/individual|nation/groups.obedience,,,,,,,no,insufficient: too few valid replies in one name order; valid 2 of 16 planned
+individual:nation,class.groups.protection,classes/names:on/individual|nation/groups.protection,21.21,16.59,25.83,,,,no,ok; valid 14 of 16 planned
+individual:nation,class.groups.sacrifice,classes/names:on/individual|nation/groups.sacrifice,70.42,58.6,82.24,,,,no,ok; valid 16 of 16 planned
+individual:nation,class.components.employer,classes/names:on/individual|nation/components.employer,24.62,11.12,38.12,,,,no,ok; valid 8 of 8 planned
+individual:nation,class.components.conflict,classes/names:on/individual|nation/components.conflict,17.91,14.75,21.07,,,,no,ok; valid 6 of 8 planned
+individual:nation,class.components.defend,classes/names:on/individual|nation/components.defend,69.4,60.59,78.21,,,,no,ok; valid 7 of 8 planned
+individual:nation,class.protection_parts.kept_first_against_second,classes/names:on/individual|nation/protection_parts.kept_first_against_second,12.25,6.95,17.55,,,,no,ok; valid 8 of 8 planned
+individual:nation,class.protection_parts.gave_second_to_first,classes/names:on/individual|nation/protection_parts.gave_second_to_first,30.17,26.23,34.11,,,,no,ok; valid 6 of 8 planned
+individual:nation,class.class2,classes/names:on/individual|nation/class2,72.59,65.91,79.27,,,,no,ok; valid 61 of 64 planned
+individual:nation,class.class3,classes/names:on/individual|nation/class3,44.42,34.53,54.31,,,,no,ok; weak; valid 45 of 48 planned
+organization:nation,class.class1,classes/names:on/organization|nation/class1,37.321250000000006,,,,,,no,ok; valid 57 of 72 planned
+organization:nation,class.groups.allegiance,classes/names:on/organization|nation/groups.allegiance,48.93,41.18666666666667,56.673333333333325,,,,no,ok; valid 17 of 24 planned
+organization:nation,class.groups.obedience,classes/names:on/organization|nation/groups.obedience,8.78,1.62,15.94,,,,no,ok; valid 13 of 16 planned
+organization:nation,class.groups.protection,classes/names:on/organization|nation/groups.protection,52.715,,,,,,no,ok; valid 13 of 16 planned
+organization:nation,class.groups.sacrifice,classes/names:on/organization|nation/groups.sacrifice,38.86,33.69,44.03,,,,no,ok; valid 14 of 16 planned
+organization:nation,class.components.employer,classes/names:on/organization|nation/components.employer,34.07,30.13,38.01,,,,no,ok; valid 7 of 8 planned
+organization:nation,class.components.conflict,classes/names:on/organization|nation/components.conflict,58.99,52.48,65.5,,,,no,ok; valid 5 of 8 planned
+organization:nation,class.components.defend,classes/names:on/organization|nation/components.defend,53.73,40.95,66.51,,,,no,ok; valid 5 of 8 planned
+organization:nation,class.protection_parts.kept_first_against_second,classes/names:on/organization|nation/protection_parts.kept_first_against_second,55.16,,,,,,no,ok; valid 7 of 8 planned
+organization:nation,class.protection_parts.gave_second_to_first,classes/names:on/organization|nation/protection_parts.gave_second_to_first,50.27,39.24,61.3,,,,no,ok; valid 6 of 8 planned
+organization:nation,class.class2,classes/names:on/organization|nation/class2,,,,,,,no,insufficient: too few valid replies in one name order; valid 2 of 64 planned
+organization:nation,class.class3,classes/names:on/organization|nation/class3,44.05,37.61,50.49,,,,no,ok; not registered; valid 45 of 48 planned
+individual,class.class1,classes/names:on/individual/class1,43.25375,35.06270833333333,51.44479166666667,,,,no,ok; valid 113 of 144 planned
+individual,class.class2,classes/names:on/individual/class2,40.300000000000004,33.775,46.824999999999996,,,,no,ok; valid 122 of 128 planned
+individual,class.class3,classes/names:on/individual/class3,59.655,47.975,71.33500000000001,,,,no,ok; weak; valid 92 of 96 planned
+organization,class.class1,classes/names:on/organization/class1,46.896875,,,,,,no,ok; valid 117 of 144 planned
+organization,class.class2,classes/names:on/organization/class2,,,,,,,no,insufficient: a pair's number is insufficient; valid 63 of 128 planned
+organization,class.class3,classes/names:on/organization/class3,34.58,24.625,44.535,,,,no,ok; not registered; valid 92 of 96 planned
+nation,class.class1,classes/names:on/nation/class1,59.849374999999995,,,,,,no,ok; valid 110 of 144 planned
+nation,class.class2,classes/names:on/nation/class2,,,,,,,no,insufficient: a pair's number is insufficient; valid 63 of 128 planned
+nation,class.class3,classes/names:on/nation/class3,55.765,47.599999999999994,63.93,,,,no,ok; not registered; valid 90 of 96 planned

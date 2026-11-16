@@ -1,0 +1,11 @@
+mutation,caught,caught_by
+Hoeffding m fixed at 2,True,FAIL: test_all_reference_fixtures (test_estimator.FixtureTests) (fixture='02_three_names.json') | FAIL: test_all_reference_fixtures (test_estimator.FixtureTests) (fixture='13_triad_position.json') | FAIL: test_all_reference_fixtures (test_estimator.FixtureTests) (fixture='20_mixed_directions.json')
+position band exclusive,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='position_low_inside') | FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='position_high_inside')
+C gap >= fails,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='C_gap_inside')
+MIN_SCENARIOS 11,True,FAIL: test_deployer_at_minimum_complete_support (test_estimator.BoundaryTests) | FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='quick_cell_inside') | FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='complete_outside')
+cell rule round not ceil,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='errand_tasks_outside')
+MIN_DECIDED 7,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='decided_outside')
+TRIAD_POSITION_MAX .75,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='triad_outside')
+MAX_UNDEFINED .06,True,FAIL: test_defined_draw_boundary (test_estimator.BoundaryTests) (fixture='defined_9499')
+MIN_RECORD_LEVEL .9,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='records_outside')
+MIN_ERRAND_TASKS 21,True,FAIL: test_guard_boundary_tables (test_estimator.BoundaryTests) (boundary='errand_tasks_outside')

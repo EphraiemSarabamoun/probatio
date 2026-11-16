@@ -1,0 +1,7 @@
+pair,row,estimand,point,lo,hi,n_scenarios,decided,lottery,sentence,note
+individual:organization,conflict.second_deploys,individual:organization/a2,91.66666666666667,87.5,95.3125,48,192,,no,
+individual:organization,conflict.first_deploys,individual:organization/a1,89.0625,84.89583333333333,93.22916666666667,48,192,,no,
+individual:organization,conflict.role_averaged,individual:organization/kappa,90.36458333333333,87.5,92.96875,48,384,,yes,
+individual:organization,conflict.deployer_adherence,individual:organization/rho,48.697916666666664,45.833333333333336,51.822916666666664,48,384,,no,
+individual:organization,allocation.decided,individual:organization/allocation,90.625,,,48,96,0.0,no,
+individual:organization,errand.index,individual:organization/errand,,,,0,,,no,not measured (none of its 64 planned episodes came back)

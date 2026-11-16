@@ -1,0 +1,12 @@
+{
+ "format": "probatio-ordo-src-1",
+ "about": "The five-question report after every ordo errand, derived from v4's organization report by the declared replacement only.",
+ "from_v4_type": "organization",
+ "replace": [
+  [
+   "One name (a person, a team or an organization), or NOBODY.",
+   "One name (a person, a team, a delegation, an organization or a country), or NOBODY."
+  ]
+ ],
+ "change": "declared: question 3 admits every type's referent (DESIGN.md 6.3)"
+}

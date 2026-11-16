@@ -1,0 +1,90 @@
+{
+ "source": "the ordo pilot's four kept runs (the stopped first Stage 1, kept as evidence, excluded)",
+ "date": "2026-11-08",
+ "cli": "Claude Code 2.1.309",
+ "model": "claude-sonnet-5-5",
+ "effort": "medium",
+ "jobs": 4,
+ "host": "calibration-host",
+ "runs": {
+  "ordo-s1-neutral-quick": {
+   "questions": 158,
+   "errands": 48,
+   "minutes": 7.48,
+   "efficiency": 0.996
+  },
+  "ordo-s2-neutral": {
+   "questions": 432,
+   "errands": 192,
+   "minutes": 27.35,
+   "efficiency": 0.989
+  },
+  "ordo-s2-g_wish_individual": {
+   "questions": 180,
+   "errands": 48,
+   "minutes": 8.0,
+   "efficiency": 0.99
+  },
+  "ordo-s2-g_wish_nation": {
+   "questions": 180,
+   "errands": 48,
+   "minutes": 8.55,
+   "efficiency": 0.993
+  }
+ },
+ "question_seconds": {
+  "devotio": {
+   "n": 188,
+   "mean": 4.03,
+   "median": 3.98,
+   "p90": 5.06
+  },
+  "obey": {
+   "n": 60,
+   "mean": 3.65,
+   "median": 3.31,
+   "p90": 5.09
+  },
+  "salus": {
+   "n": 90,
+   "mean": 4.63,
+   "median": 4.17,
+   "p90": 6.89
+  },
+  "survey": {
+   "n": 612,
+   "mean": 3.91,
+   "median": 3.82,
+   "p90": 4.96
+  }
+ },
+ "episode_seconds": {
+  "N0": {
+   "n": 246,
+   "mean": 24.73,
+   "median": 24.6,
+   "p90": 28.03
+  },
+  "O": {
+   "n": 30,
+   "mean": 24.76,
+   "median": 24.62,
+   "p90": 27.9
+  },
+  "U": {
+   "n": 60,
+   "mean": 26.8,
+   "median": 26.32,
+   "p90": 30.56
+  }
+ },
+ "fit": {
+  "minutes_per_question": 0.0187,
+  "minutes_per_errand": 0.1003,
+  "largest_residual_minutes": 0.37
+ },
+ "retries": {
+  "retried_calls": 0,
+  "error_records": 0
+ }
+}

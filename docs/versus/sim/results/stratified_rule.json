@@ -1,0 +1,21 @@
+{
+  "version": "versus-reference-draft-2",
+  "claim_policy": "rho_kappa_only",
+  "resampling": "within_fixed_family",
+  "inflation": 3.0,
+  "grid_step": 0.1,
+  "grid_min": 1.0,
+  "grid_max": 3.0,
+  "selection_outer_per_cell": 100,
+  "selection_criterion": "every cell rate <=1%",
+  "largest_candidate_fallback": true,
+  "selection_seed": 13000000,
+  "validation_seed": 14000000,
+  "bootstrap_seed": 2026111117,
+  "bootstrap_replicates": 10000,
+  "registered": false,
+  "live_calibrated": false,
+  "validation_cells": 80,
+  "synthetic_grid_passed": true,
+  "worst_validation_mc95_high": 0.03377553025253262
+}

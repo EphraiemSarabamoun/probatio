@@ -1,0 +1,114 @@
+{
+ "datasets": {
+  "collegium": {
+   "configs": {
+    "class1": {
+     "ids_sha256": "f50450d52bd6a75d68f7c1798cd51995612d0aa8d21f289dd53243c4bedbba71",
+     "rows": 35
+    },
+    "class2": {
+     "ids_sha256": "19f6a90d897f0aa2cd5eb1a506f2ea4add473ed435dbd6dbb953deed9b1c3c4e",
+     "rows": 48
+    },
+    "class3": {
+     "ids_sha256": "2b5e4100959d1a68eafb60181194770dcf908f1081712b27fe165d11ef9d0ac2",
+     "rows": 96
+    },
+    "red_flags": {
+     "ids_sha256": "c333d201c81c28a1cda965c2f306e8a92d02dfd454e7a847badf631268de03c7",
+     "rows": 26
+    }
+   },
+   "revision": "164415e20c756cb35baaebab233018e2dfaca9f9"
+  },
+  "natio": {
+   "configs": {
+    "class1": {
+     "ids_sha256": "ffd48823b5ed61b41657e99de3c877ff70fc5f811872c3362e499c4370314dff",
+     "rows": 35
+    },
+    "class2": {
+     "ids_sha256": "08b8a54a98f516b1df514df524d86289530a26bc05f3e99a27e572a6e788fcca",
+     "rows": 48
+    },
+    "class3": {
+     "ids_sha256": "faaedba73391b138ce1f10c44fb6b7ec0229b41db60dddc5c661dd23e9185506",
+     "rows": 96
+    },
+    "red_flags": {
+     "ids_sha256": "e3c1da9f61106ebc2fc9f430f18e4ffe6c8e2d3cde4930bba62a3d86b0d3370f",
+     "rows": 26
+    }
+   },
+   "revision": "5e68de73209836944932babdb8ef60406195e3bd"
+  },
+  "ordo": {
+   "configs": {
+    "class1": {
+     "ids_sha256": "dcfec925f3234fdc932ac3044f2211c7b3035bcd41220a712550856eefe4b37a",
+     "rows": 201
+    },
+    "class2": {
+     "ids_sha256": "cae9faa41c145842f96f18e1d9924a134656674476e9ac1afeedc1484579c3fd",
+     "rows": 48
+    },
+    "class3": {
+     "ids_sha256": "39fba64bee84a055d7e1fe32a2ef6143703daabee024f2a7f3b7c854416947a2",
+     "rows": 96
+    },
+    "red_flags": {
+     "ids_sha256": "13c9064966efbcdbcf90923e2c7a75892c56dbc85f58523f6aabbe0518cff810",
+     "rows": 90
+    }
+   },
+   "revision": "e39d75be82c9c06bd4a6f33c0def0dd7e6b13dd4"
+  },
+  "persona": {
+   "configs": {
+    "class1": {
+     "ids_sha256": "96c3c2db9fc0043b3998c420de536171919bcfdf20e9fd0e2571ac9e763b0a0a",
+     "rows": 35
+    },
+    "class2": {
+     "ids_sha256": "2236ff4e6fc6737edf6478aea726c01d672e2f4178ee194d53579f4fd1a4f354",
+     "rows": 48
+    },
+    "class3": {
+     "ids_sha256": "7404feaa5889ce9eb488923f1d188f27fa4fac7dbad4a9c04c364f4f83f655b4",
+     "rows": 96
+    },
+    "red_flags": {
+     "ids_sha256": "c73348c832a8a626f4b9e4061b86889d23b46ec54558e263a4a7d6b70b579e30",
+     "rows": 26
+    }
+   },
+   "revision": "23886a294672322d939bb40d27058e168163d999"
+  },
+  "versus": {
+   "configs": {
+    "class1": {
+     "ids_sha256": "42b1eaa93a27427ae59b87c3e6f8bb795ceacd6a45b5f47539ff4a3082872b2e",
+     "rows": 216
+    },
+    "class2": {
+     "ids_sha256": "aff93221fba8a39365e0aab892dd5d46d6e02648f98d80d7ab10c974cdaa7222",
+     "rows": 96
+    },
+    "class3": {
+     "ids_sha256": "9aff3652c0c699d8bb44c98020526d0e6362a957affeec7ae17530ed86305036",
+     "rows": 144
+    },
+    "red_flags": {
+     "ids_sha256": "6eb039b2b99824eec6d0b771264aec6eb35e938480440a2d04eb50724471038d",
+     "rows": 57
+    },
+    "roles": {
+     "ids_sha256": "540c5330b361e1ee4b200bcbc3db5ea2a3dedcf4f09ac1c2c005225fb0f3ce1d",
+     "rows": 1536
+    }
+   },
+   "revision": "d32cf8daaa9f1fa7bd000745c43d05c0a90286db"
+  }
+ },
+ "read": "2026-11-14, from https://huggingface.co/datasets/ephraiemsam16/<name> at the revision below, public, no token"
+}

@@ -1,0 +1,12 @@
+{
+ "format": "probatio-ordo-src-1",
+ "about": "The U and O overlays of ordo's errand worlds, derived from v4's organization cells (bank/cells.json) by the declared replacement only.",
+ "from_v4_type": "organization",
+ "replace": [
+  [
+   "⟦T.group⟧",
+   "⟦D.group⟧"
+  ]
+ ],
+ "change": "declared: the O cell's reviewer is the deployer, which in the role-free frame is the joint secretariat (DESIGN.md 6.3)"
+}

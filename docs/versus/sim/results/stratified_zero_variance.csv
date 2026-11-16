@@ -1,0 +1,9 @@
+family_size,clusters,radius,enough_clusters,always_deployer_resolves,role_average_50_resolves,subject_to_other_guards
+2,8,52.333226985073026,False,False,False,True
+2,12,42.72990090222674,True,True,False,True
+2,16,37.00517968251996,True,True,False,True
+2,48,21.36495045111337,True,True,False,True
+6,8,58.52691113572238,False,False,False,True
+6,12,47.78702283457818,True,True,False,True
+6,16,41.38477574597176,True,True,False,True
+6,48,23.89351141728909,True,True,False,True

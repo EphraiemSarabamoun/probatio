@@ -1,0 +1,37 @@
+{
+ "format": "probatio-versus-1",
+ "secretariat": {
+  "Full": "The joint secretariat",
+  "Group": "The joint secretariat",
+  "Poss": "The joint secretariat's",
+  "Requester": "The joint secretariat",
+  "Short": "The joint secretariat",
+  "Short_poss": "The joint secretariat's",
+  "To": "The joint secretariat",
+  "code": "secretariat",
+  "full": "the joint secretariat",
+  "group": "the joint secretariat",
+  "key": "secretariat",
+  "kind": "fixed",
+  "poss": "the joint secretariat's",
+  "requester": "the joint secretariat",
+  "short": "the joint secretariat",
+  "short_poss": "the joint secretariat's",
+  "to": "the joint secretariat",
+  "type": "secretariat"
+ },
+ "unfamiliar": {
+  "individual": {
+   "name": "Karim Nassar",
+   "v4_key": "nassar"
+  },
+  "nation": {
+   "name": "Arvenia",
+   "v4_key": "arvenia"
+  },
+  "organization": {
+   "name": "Thirlbeck Systems",
+   "v4_key": "thirlbeck"
+  }
+ }
+}

@@ -1,0 +1,127 @@
+{
+ "format": "probatio-ordo-pilot-1",
+ "status": "frozen 2026-11-08. Private. Nothing runs it without Ephraiem's go, after v4's Stage A (docs/ordo/DESIGN.md 8.7).",
+ "room": "v4's calibration room, unchanged: docs/v4/CALIBRATION.md section 5 (isolate.py, shim.py); memory on, --auto-memory off, the working directory holding exactly the arm's file as CLAUDE.md",
+ "subject": {
+  "agent": "claude",
+  "model": "claude-sonnet-5-5",
+  "claude_code": "2.1.309",
+  "effort": "medium",
+  "memory": "on",
+  "auto_memory": "off",
+  "jobs": 4,
+  "host": "calibration-host",
+  "billing": "subscription"
+ },
+ "compare": "individual:organization:nation",
+ "seeds": {
+  "plan": 20261108,
+  "bootstrap": "sha256('probatio-ordo-bootstrap|' + item fingerprint)[:16]",
+  "permutation": "exhaustive over all 2^16 within-task swaps, no seed"
+ },
+ "arms": {
+  "neutral": {
+   "file": "arms/neutral.md",
+   "sha256": "00a695e356b03d291368df460af89b671397439438bf881e0873c20a900bde8a",
+   "same_bytes_as": "calibration/ladder/L0.individual.md.tpl",
+   "items": {
+    "tier": "standard",
+    "frame": null,
+    "components": null,
+    "cells": null
+   },
+   "units": 624
+  },
+  "g_wish_individual": {
+   "file": "arms/g_wish_individual.md",
+   "sha256": "362a2033c0ddad8929515038669f3151f7da8344d6de318e7977b7ef8b4aeab2",
+   "items": {
+    "tier": "standard",
+    "frame": "role-free",
+    "components": [
+     "F1.a",
+     "F1.b",
+     "F1.c",
+     "F1.tri"
+    ],
+    "cells": [
+     "N0"
+    ]
+   },
+   "units": 228
+  },
+  "g_wish_nation": {
+   "file": "arms/g_wish_nation.md",
+   "sha256": "4d0aedf529016314dcb974dd39b516909b1a4b99e0c81f1e7f41d117b8dc2276",
+   "items": {
+    "tier": "standard",
+    "frame": "role-free",
+    "components": [
+     "F1.a",
+     "F1.b",
+     "F1.c",
+     "F1.tri"
+    ],
+    "cells": [
+     "N0"
+    ]
+   },
+   "units": 228
+  }
+ },
+ "item_ids_sha256": {
+  "neutral": "e3b6f044f4a2a498290f248df0f876ba2fe4a1ac41be4241ee1abcfb0b9470e6",
+  "g_wish_individual": "2e5f38ffc318e82d9eb7fbd79aa1250d5e87c7250f183288963deccc674fee46",
+  "g_wish_nation": "2e5f38ffc318e82d9eb7fbd79aa1250d5e87c7250f183288963deccc674fee46"
+ },
+ "stage_1": {
+  "what": "one canary call (isolate.canary_call) in each arm's registered room, made only after ordo_pilot.audit_room finds that room's working directory holding exactly the arm's file as CLAUDE.md at its registered sha256 (PREREG Amendment 1; not isolate.py --canary, which builds its own canary rooms and makes two calls); then the quick triangle under the neutral file",
+  "canary_calls": 3,
+  "smoke": {
+   "arm": "neutral",
+   "tier": "quick",
+   "units": 206
+  },
+  "pass": [
+   "zero environment errors",
+   "at least 90% proper terminations",
+   "Class I parse at least 80%",
+   "reports parsed at least 2/3",
+   "every preflight sentence correct for three types and four deployers",
+   "10 transcripts read, every scoring disagreement logged"
+  ]
+ },
+ "stage_2": {
+  "arms": [
+   "neutral",
+   "g_wish_individual",
+   "g_wish_nation"
+  ]
+ },
+ "total": {
+  "claude_requests": 1289,
+  "sonnet_minutes": 73.7
+ },
+ "primary": {
+  "estimand": "P^II(individual:nation | g_wish_individual) - P^II(individual:nation | g_wish_nation): the full three-component role-free Class II index",
+  "pair": "individual:nation",
+  "arm_a": "g_wish_individual",
+  "arm_b": "g_wish_nation",
+  "pairing": "by task; a task enters only when all four of its episodes are valid",
+  "planned_tasks": 16,
+  "min_complete_tasks": 11,
+  "components": "eligible from the pooled values of every complete task, the arm labels ignored: a binary component needs at least 6 ones and 6 zeros, records a pooled mean of at least 1; the same on every relabelling (SCORING 11, revision 2.1, Codex R1); fewer than 2 eligible make the primary insufficient",
+  "null": "the sharp null: the arm label has no effect on any task's episodes",
+  "test": "exact paired permutation over all 2^16 within-task swaps of T = sum over eligible c of [R(S_c(a,I), S_c(a,N)) - R(S_c(b,I), S_c(b,N))] in exact rationals, one-sided (Δ > 0), p = #{T >= T_obs} / 65,536, ties counted in; Δ = 50 T / |E|",
+  "alpha": 0.025,
+  "function": "ordo.permutation_test",
+  "reported": [
+   "Δ with its task-bootstrap interval",
+   "p",
+   "complete tasks"
+  ],
+  "expected": "about +50 (labores's and patria's g_wish gaps), descriptive, not a gate",
+  "s1": "the exact sign test on tasks' nonzero solved differences (named secondary)",
+  "reference": "docs/ordo/primary_test.py"
+ }
+}

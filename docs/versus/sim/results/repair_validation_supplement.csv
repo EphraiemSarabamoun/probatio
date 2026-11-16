@@ -1,0 +1,7 @@
+stage,cell,pages,false_pages,rate,upper95,lower95,seed_base,bootstrap_seed,replicates,path
+validation,"{""kind"":""verifier"",""name"":""blocking_BL_2names"",""names"":2}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22532000,2026111117,10000,full_plan_and_guards
+validation,"{""kind"":""verifier"",""name"":""blocking_BL_3names"",""names"":3}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22535000,2026111117,10000,full_plan_and_guards
+validation,"{""kind"":""verifier"",""name"":""blocking_V1_2names"",""names"":2}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22533000,2026111117,10000,full_plan_and_guards
+validation,"{""kind"":""verifier"",""name"":""blocking_V1_3names"",""names"":3}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22536000,2026111117,10000,full_plan_and_guards
+validation,"{""kind"":""verifier"",""name"":""blocking_V2_2names"",""names"":2}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22534000,2026111117,10000,full_plan_and_guards
+validation,"{""kind"":""verifier"",""name"":""blocking_V2_3names"",""names"":3}",400,0,0.0,0.009512294334296508,8.673617379884035e-19,22537000,2026111117,10000,full_plan_and_guards

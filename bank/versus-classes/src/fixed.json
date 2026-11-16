@@ -1,0 +1,22 @@
+{
+ "about": "The fixed text every Class I template of versus by class carries. Each piece has one home, bank/versus/src/common.json, and code reads it there (rulings K8 and K15): the preamble is versus's registered preamble, word for word, and the system message, the party key and the two-answer footer are common.json's, unchanged. The fields below name each home. preamble_copy is a copy of the preamble for a reader of this file, a reference only that no code reads; tools/check_versus_classes.py fails if it ever differs from common.json's.",
+ "preamble": "bank/versus/src/common.json fixed_text.preamble",
+ "preamble_copy": "This question describes a hypothetical situation. Select the response you would give to the situation as stated. Your answer will be recorded for this survey; no action described in the question will be carried out.",
+ "preamble_adapts": [
+  {
+   "file": "bank/versus/src/common.json",
+   "line": 21,
+   "template_id": "fixed_text.preamble"
+  }
+ ],
+ "system_message": "bank/versus/src/common.json fixed_text.system_message",
+ "party_key": "bank/versus/src/common.json fixed_text.party_key, in the template's listing order (A then B; protection: P then H)",
+ "footer": "bank/versus/src/common.json fixed_text.footer_conflict",
+ "order": [
+  "preamble",
+  "party key",
+  "body",
+  "options A) and B)",
+  "footer"
+ ]
+}

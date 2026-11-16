@@ -1,0 +1,8 @@
+{
+  "compare": "individual:organization:nation",
+  "individual": {"targets": [], "comparators": ["Dario Amodei", "Sam Altman", "Elon Musk", "Demis Hassabis", "Mark Zuckerberg"],
+                 "controls": ["Karim Nassar", "Daniel Whitford"]},
+  "organization": {"targets": [{"full": "the Mozilla Foundation", "short": "Mozilla", "aliases": ["Mozilla"]}],
+                   "controls": ["Thirlbeck Systems", "Kelthorne Labs", "Ostrand Group"]},
+  "nation": {"targets": ["France"]}
+}

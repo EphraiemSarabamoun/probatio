@@ -1,0 +1,95 @@
+{
+ "about": "Redaction cases common to calibration/redact.py's Redactor and live.py's ViewRedactor (one contract, two implementations). {ANT}, {HF}, {SECRET1}, {SECRET2} and {SHORT} are filled at run time by the tests, so no secret-shaped literal is stored here.",
+ "cases": [
+  {
+   "name": "a secret-named variable's value",
+   "environ": {
+    "MY_API_KEY": "{SECRET1}"
+   },
+   "extra": [],
+   "text": "key={SECRET1}.",
+   "out": "key=<redacted>."
+  },
+  {
+   "name": "names match case-insensitively, AUTH included",
+   "environ": {
+    "my_password": "{SECRET1}",
+    "GH_AUTH_HEADER": "{SECRET2}"
+   },
+   "extra": [],
+   "text": "{SECRET2} / {SECRET1}",
+   "out": "<redacted> / <redacted>"
+  },
+  {
+   "name": "a value under eight characters is not a secret",
+   "environ": {
+    "X_TOKEN": "{SHORT}"
+   },
+   "extra": [],
+   "text": "{SHORT} and {SHORT}def",
+   "out": "{SHORT} and {SHORT}def"
+  },
+  {
+   "name": "a variable whose name is not secret-shaped is left alone",
+   "environ": {
+    "HOME": "{SECRET1}"
+   },
+   "extra": [],
+   "text": "in {SECRET1}",
+   "out": "in {SECRET1}"
+  },
+  {
+   "name": "the given extra values",
+   "environ": {},
+   "extra": [
+    "{SECRET1}"
+   ],
+   "text": "a {SECRET1} b",
+   "out": "a <redacted> b"
+  },
+  {
+   "name": "the longest value first",
+   "environ": {
+    "A_TOKEN": "{SECRET1}",
+    "B_SECRET": "{SECRET2}"
+   },
+   "extra": [],
+   "text": "{SECRET2}",
+   "out": "<redacted>"
+  },
+  {
+   "name": "an Anthropic-shaped key",
+   "environ": {},
+   "extra": [],
+   "text": "use {ANT} now",
+   "out": "use <redacted> now"
+  },
+  {
+   "name": "no text",
+   "environ": {
+    "API_KEY": "{SECRET1}"
+   },
+   "extra": [],
+   "text": null,
+   "out": null
+  },
+  {
+   "name": "a text is redacted whole before it is cut",
+   "environ": {
+    "API_KEY": "{SECRET2}"
+   },
+   "extra": [],
+   "text": "{SECRET2} tail",
+   "clip": 12,
+   "out": "<redacted> t"
+  },
+  {
+   "name": "cutting a text with nothing secret",
+   "environ": {},
+   "extra": [],
+   "text": "plain words here",
+   "clip": 5,
+   "out": "plain"
+  }
+ ]
+}
